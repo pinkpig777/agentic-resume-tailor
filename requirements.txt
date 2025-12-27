@@ -3,6 +3,7 @@ langchain
 langgraph
 langchain-openai
 langchain-community
+openai
 
 # Data & Vector DB
 chromadb
@@ -10,7 +11,7 @@ pypdf
 jinja2
 python-dotenv
 sentence_transformers
-
+pydantic
 # UI & Utilities
 streamlit
 pydantic
