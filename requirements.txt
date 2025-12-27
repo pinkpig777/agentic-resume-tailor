@@ -10,6 +10,7 @@ pypdf
 jinja2
 python-dotenv
 sentence_transformers
+
 # UI & Utilities
 streamlit
 pydantic
