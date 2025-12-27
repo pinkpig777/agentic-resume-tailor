@@ -1,0 +1,15 @@
+# AI & Agents
+langchain
+langgraph
+langchain-openai
+langchain-community
+
+# Data & Vector DB
+chromadb
+pypdf
+jinja2
+python-dotenv
+
+# UI & Utilities
+streamlit
+pydantic

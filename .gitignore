@@ -1,0 +1,40 @@
+# API Keys & Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+build/
+dist/
+*.egg-info/
+
+# Agent & LangChain
+.langsmith/
+langsmith_traces/
+
+# Project Specific - Data & Outputs
+data/processed/
+output/
+*.pdf
+*.aux
+*.log
+*.out
+*.toc
+# personal data
+data/*.json
+
+# OS & IDE
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Docker
+.dockerignore
+
+
+
