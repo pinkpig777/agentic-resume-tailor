@@ -56,9 +56,11 @@ print("✅ Brain Loaded! Ready for requests.")
 def render_pdf(context):
     """
     Render the tailored resume to PDF using the LaTeX template.
+    Includes error handling for Jinja2 rendering and Tectonic compilation.
     """
     t_render = Timer("Render & Compile PDF")
 
+    # 1. Setup Jinja2 Environment
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(TEMPLATE_DIR),
         block_start_string='((%',
@@ -68,16 +70,64 @@ def render_pdf(context):
         comment_start_string='((#',
         comment_end_string='#))'
     )
-    template = env.get_template('resume.tex')
-    tex_content = template.render(context)
 
-    tex_path = os.path.join(OUTPUT_DIR, "tailored_resume.tex")
-    with open(tex_path, "w") as f:
-        f.write(tex_content)
+    try:
+        # 2. Render the Template
+        print("📝 Rendering LaTeX template...")
+        template = env.get_template('resume.tex')
+        tex_content = template.render(context)
 
-    print("📄 Compiling PDF...")
-    subprocess.run(["tectonic", tex_path], check=True)
-    t_render.stop()
+        # 3. Write .tex file to disk
+        tex_path = os.path.join(OUTPUT_DIR, "tailored_resume.tex")
+        with open(tex_path, "w") as f:
+            f.write(tex_content)
+
+    except TemplateError as e:
+        print(f"❌ Jinja2 Template Error: {e}", file=sys.stderr)
+        raise
+    except IOError as e:
+        print(f"❌ File Write Error: {e}", file=sys.stderr)
+        raise
+
+    try:
+        # 4. Compile PDF with Tectonic
+        print(f"📄 Compiling PDF at {tex_path}...")
+
+        # capture_output=True allows us to see the error log when it fails
+        subprocess.run(
+            ["tectonic", tex_path],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+
+        print("✅ PDF Compiled Successfully!")
+        t_render.stop()
+
+    except subprocess.CalledProcessError as e:
+        # This block catches the Tectonic failure (Exit Status 1)
+        print("\n" + "="*40, file=sys.stderr)
+        print("❌ TECTONIC COMPILATION FAILED", file=sys.stderr)
+        print("="*40, file=sys.stderr)
+
+        # Print the actual LaTeX error log
+        print("STDOUT (LaTeX Logs):", file=sys.stderr)
+        print(e.stdout, file=sys.stderr)
+
+        print("-" * 20, file=sys.stderr)
+        print("STDERR:", file=sys.stderr)
+        print(e.stderr, file=sys.stderr)
+
+        print("="*40, file=sys.stderr)
+        print(
+            f"⚠️  Inspect the generated file at: {tex_path}", file=sys.stderr)
+
+        # Re-raise the exception so the server returns a 500 error
+        raise
+
+    except FileNotFoundError:
+        print("❌ Error: 'tectonic' command not found. Is it installed and in PATH?", file=sys.stderr)
+        raise
 
 
 def get_bullet_scores(jd_text, collection):
