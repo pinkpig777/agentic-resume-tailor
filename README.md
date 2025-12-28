@@ -27,7 +27,7 @@ Local, privacy-first AI agent that tailors your resume to a job description usin
 - Tectonic CLI if rendering outside Docker.
 - Keep `data/my_experience.json` and `.env` private (both are gitignored).
 
-## Quickstart (commands unchanged)
+## Quickstart
 1) Prepare data: fill out `data/my_experience.json` with your personal info, skills, education, experiences, and projects.
 
 2) Build the Docker image:
