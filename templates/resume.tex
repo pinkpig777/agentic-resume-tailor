@@ -90,15 +90,26 @@
  \vspace{-12pt}
 
 %-----------EDUCATION-----------
+%-----------EDUCATION-----------
 \section{Education}
   \resumeSubHeadingListStart
     ((% for edu in education %))
-    \resumeSubheading
-      { << edu.school >> }{ << edu.dates >> }
-      { << edu.degree >> }{ << edu.location >> }
+      \resumeSubheading
+        {<< edu.school >>}{<< edu.dates >>}
+        {<< edu.degree >>}{<< edu.location >>}
+      
+      % --- NEW: Check for bullets (e.g., Relevant Courses) ---
+      ((% if edu.bullets %))
+        \resumeItemListStart
+          ((% for bullet in edu.bullets %))
+            \resumeItem{<< bullet >>}
+          ((% endfor %))
+        \resumeItemListEnd
+      ((% endif %))
+      % -------------------------------------------------------
+
     ((% endfor %))
   \resumeSubHeadingListEnd
-
 %-----------EXPERIENCE-----------
 \section{Work Experience}
   \resumeSubHeadingListStart
