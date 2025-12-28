@@ -1,22 +1,37 @@
 import copy
 import json
-import uvicorn
+import os
+import subprocess
+import time
+
+import chromadb
+from chromadb.utils import embedding_functions
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
-import chromadb
-from chromadb.utils import embedding_functions
-
-# Import the PDF renderer from main
-from main import render_pdf
+import jinja2
+import uvicorn
 
 # --- CONFIGURATION ---
 MAX_BULLETS_ON_PAGE = 16       # Fits comfortably on one page
 DB_PATH = "/app/data/processed/chroma_db"
 DATA_FILE = "/app/data/my_experience.json"
+TEMPLATE_DIR = "/app/templates"
+OUTPUT_DIR = "/app/output"
 
 app = FastAPI()
 templates = Jinja2Templates(directory="/app/templates")
+
+
+class Timer:
+    def __init__(self, name: str):
+        self.name = name
+        self.start = time.time()
+
+    def stop(self):
+        elapsed = time.time() - self.start
+        print(f"⏱️  [TIME] {self.name}: {elapsed:.2f}s")
+        return elapsed
 
 # --- 1. GLOBAL STARTUP (Runs Once) ---
 print("⚙️  Server Starting: Loading Brain...")
@@ -36,6 +51,32 @@ print("✅  Brain Loaded! Ready for requests.")
 
 
 # --- 2. CORE ALGORITHMS ---
+
+def render_pdf(context):
+    """
+    Render the tailored resume to PDF using the LaTeX template.
+    """
+    t_render = Timer("Render & Compile PDF")
+
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(TEMPLATE_DIR),
+        block_start_string='((%',
+        block_end_string='%))',
+        variable_start_string='<<',
+        variable_end_string='>>',
+        comment_start_string='((#',
+        comment_end_string='#))'
+    )
+    template = env.get_template('resume.tex')
+    tex_content = template.render(context)
+
+    tex_path = os.path.join(OUTPUT_DIR, "tailored_resume.tex")
+    with open(tex_path, "w") as f:
+        f.write(tex_content)
+
+    print("📄 Compiling PDF...")
+    subprocess.run(["tectonic", tex_path], check=True)
+    t_render.stop()
 
 def get_bullet_scores(jd_text, collection):
     """
