@@ -15,3 +15,8 @@ pydantic
 # UI & Utilities
 streamlit
 pydantic
+
+#server
+fastapi
+uvicorn
+python-multipart

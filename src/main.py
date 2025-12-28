@@ -1,5 +1,6 @@
 import time
 import os
+import copy
 import json
 import jinja2
 import subprocess
@@ -61,8 +62,46 @@ def get_relevant_bullets_whitelist(jd_text, collection):
     return whitelist
 
 
+# def reconstruct_resume_data(full_data, whitelist):
+#     return full_data  # (Logic omitted for brevity, it's instant)
 def reconstruct_resume_data(full_data, whitelist):
-    return full_data  # (Logic omitted for brevity, it's instant)
+    """
+    Creates a tailored copy of the resume data.
+    """
+    # 1. CRITICAL: Make a deep copy so we don't ruin the global 'static_data'
+    #    This ensures every request starts with a fresh, full resume.
+    tailored = copy.deepcopy(full_data)
+
+    print(f"🎨 Filtering Resume... Whitelist size: {len(whitelist)}")
+
+    # 2. Filter Experiences
+    for job in tailored.get('experiences', []):
+        original_bullets = job.get('bullets', [])
+
+        # Keep bullet IF it matches a whitelist string
+        # (We use simple string matching here. In prod, you might use IDs)
+        filtered_bullets = [b for b in original_bullets if b in whitelist]
+
+        # FALLBACK: If the AI picked NOTHING for this job, but it's in your history:
+        # Option A: Keep 1 generic bullet so the job isn't empty?
+        # Option B: Keep it empty?
+        # Let's go with Option A: if whitelist missed it, keep the first bullet.
+        if not filtered_bullets and original_bullets:
+            filtered_bullets.append(original_bullets[0])
+
+        job['bullets'] = filtered_bullets
+
+    # 3. Filter Projects (Same logic)
+    for project in tailored.get('projects', []):
+        original_bullets = project.get('bullets', [])
+        filtered_bullets = [b for b in original_bullets if b in whitelist]
+
+        if not filtered_bullets and original_bullets:
+            filtered_bullets.append(original_bullets[0])
+
+        project['bullets'] = filtered_bullets
+
+    return tailored
 
 
 def render_pdf(context):
