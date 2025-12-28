@@ -1,109 +1,76 @@
-# 📄 AI Resume Agent
+# AI Resume Agent
 
-A Local, Privacy-First AI Agent that generates tailored resumes for specific job descriptions using **Docker**, **Python (RAG)**, and **LaTeX (Tectonic)**.
+Local, privacy-first AI agent that tailors your resume to a job description using ChromaDB vector search, a one-page bullet selection algorithm, and LaTeX/Tectonic rendering.
 
-## 🚀 Project Status
-- [x] **Phase 1: The Engine** - Dockerized LaTeX rendering environment (Tectonic).
-- [x] **Phase 2: The Brain (In Progress)** - Parsing experience data into Vector DB (ChromaDB).
-- [ ] **Phase 3: The Agent** - LLM integration to select bullets based on Job Description.
+## What it does
+- Embeds your experience bullets with `all-MiniLM-L6-v2` and stores them in a local ChromaDB collection.
+- Scores every bullet against a pasted JD, keeps the most relevant set (cap: 16 bullets), and forces inclusion of the most recent job if it would otherwise drop.
+- Renders a Jinja2/LaTeX template with custom delimiters to avoid Jinja-LaTeX collisions.
+- Exposes a FastAPI server for a browser flow; includes CLI utilities for ingestion and testing.
 
----
+## Project status
+- Phase 1: Dockerized LaTeX rendering (Tectonic).
+- Phase 2: Data ingestion into ChromaDB.
+- Phase 3: Agent server with “fill first, trim later” logic.
 
-## 🛠️ Prerequisites
-- **Docker Desktop** (Running)
-- **Git**
-- **VS Code** (Recommended)
+## Repo map
+- `data/` – your resume data lives in `my_experience.json`; `processed/` holds the ChromaDB store.
+- `src/ingest.py` – loads `data/my_experience.json` into ChromaDB.
+- `src/test_query.py` – quick CLI probe to inspect the vector store.
+- `src/jd_parser.py` – optional OpenAI JD parser (`OPENAI_API_KEY` required).
+- `src/test_render.py` – renders a PDF to `output/temp_resume.pdf` using `templates/resume.tex`.
+- `src/server.py` – FastAPI app that scores bullets and expects a `render_pdf` function; wire it to `render_resume` (from `src/test_render.py`) before serving PDFs.
+- `templates/resume.tex` – Jinja2-ready LaTeX template with `<< >>` and `((% %))` delimiters.
 
----
+## Prerequisites
+- Docker Desktop (running) or Python 3.10+ with `pip`.
+- Tectonic CLI if rendering outside Docker.
+- Keep `data/my_experience.json` and `.env` private (both are gitignored).
 
-## 📂 Project Structure
+## Quickstart (commands unchanged)
+1) Prepare data: fill out `data/my_experience.json` with your personal info, skills, education, experiences, and projects.
 
-```text
-resume-agent/
-├── data/
-│   ├── my_experience.json    # Your REAL data (Gitignored!)
-│   └── processed/            # Where Vector DB stores data
-├── output/                   # Generated PDFs go here
-├── src/
-│   ├── main.py               # Entry point (Coming soon)
-│   ├── test_render.py        # Test script to generate PDF
-│   └── ingest.py             # Script to load JSON into ChromaDB
-├── templates/
-│   └── resume.tex            # Jinja2-ready LaTeX template
-├── .env                      # API Keys (Gitignored)
-├── .gitignore                # Security rules
-├── Dockerfile                # Multi-arch build instructions
-├── requirements.txt          # Python dependencies
-└── README.md                 # This file
-
-⚡ Quick Start
-1. Setup Data
-Create a folder data/ and a file data/my_experience.json. Do not commit this file to GitHub!
-
-Example format:
-```json
-{
-  "personal_info": { "name": "Alice Bob", ... },
-  "education": [ ... ],
-  "experiences": [ ... ],
-  "projects": [ ... ]
-}
-```
-
-
-2. Build the Docker Image
-Run this whenever you change requirements.txt or Dockerfile.
-
+2) Build the Docker image:
 ```bash
-
 docker build -t resume-agent .
-
 ```
 
-🖥️ Usage Commands
-We use Docker Volumes to map your local folders into the container. This allows you to edit code locally and run it instantly without rebuilding.
-
-1. Generate a Test Resume (The Engine)
-This uses dummy data (or your hardcoded test data) to prove the LaTeX engine works.
-```bash
-docker run --rm \
-  -v $(pwd)/output:/app/output \
-  -v $(pwd)/src:/app/src \
-  -v $(pwd)/templates:/app/templates \
-  resume-agent python src/test_render.py
-```
-
-2. Ingest Data into "The Brain" (RAG)
-This reads your data/my_experience.json and stores it in the local Vector Database (ChromaDB).
-
+3) Ingest data into ChromaDB:
 ```bash
 docker run --rm \
   -v $(pwd)/data:/app/data \
   -v $(pwd)/src:/app/src \
   resume-agent python src/ingest.py
 ```
-Output: You should see Successfully stored X resume bullet points.
+This writes embedded bullets to `data/processed/chroma_db`.
 
-⚠️ Troubleshooting
-1. "Unable to locate package libicu..."
+4) Start the FastAPI agent (expects `render_pdf` to be wired):
+```bash
+docker run --rm -p 8000:8000 \
+  --env-file .env \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/output:/app/output \
+  -v $(pwd)/src:/app/src \
+  -v $(pwd)/templates:/app/templates \
+  -v $(pwd)/.cache_docker:/root/.cache \
+  resume-agent python src/server.py
+```
+Then open `http://localhost:8000`, paste a JD, and download the generated PDF.
 
-Fix: Ensure your Dockerfile uses generic package names (libicu-dev) rather than specific versions. Rebuild the image.
+## How it works
+1. Ingest: `src/ingest.py` reads `data/my_experience.json`, embeds bullets, and stores them in ChromaDB.
+2. Scoring: `src/server.py` queries ChromaDB with the JD, converts distances to scores, and aggregates all bullets.
+3. Selection: if total bullets ≤16, keep all; otherwise, sort by score and keep the top 16.
+4. Reconstruction: rebuild experiences/projects with surviving bullets; if the most recent job would be dropped, force it back with at least one bullet.
+5. Rendering: call your `render_pdf` (e.g., wrap `render_resume` from `src/test_render.py`) to produce a PDF in `output/`.
 
-2. "Undefined control sequence \titrule"
+## Notes and limitations
+- `src/server.py` currently imports `render_pdf` from `main`, which is not present; point it to the renderer in `src/test_render.py` or relocate that function into `main.py`.
+- `src/jd_parser.py` requires `OPENAI_API_KEY`; other flows run locally without external APIs.
+- The LaTeX template uses custom delimiters (`<< >>`, `((% %))`); keep them to avoid Jinja/LaTeX conflicts.
 
-Fix: It's a typo in resume.tex. Change it to \titlerule.
-
-3. "Forbidden control sequence... \check@nocorr@"
-
-Fix: You are using \\ or \textbf{} incorrectly inside a list. Remove manual newlines inside itemize.
-
-4. "Missing end of comment tag"
-
-Fix: Jinja2 is clashing with LaTeX. Ensure src/test_render.py sets custom delimiters (<< >>, ((% %))).
-
-🔒 Security Note
-Never commit data/my_experience.json.
-
-Never commit .env.
-
-The .gitignore file is configured to prevent this, but always double-check before pushing.
+## Troubleshooting
+- Missing Tectonic locally: install from https://tectonic-typesetting.github.io or run via Docker.
+- Embedding model download issues: ensure initial internet access; subsequent runs use the cached model (the `.cache_docker` volume speeds this up).
+- “Undefined control sequence \titrule”: fix the template to `\titlerule`.
+- Jinja/LaTeX collisions: ensure the custom delimiters remain set in the renderer.
