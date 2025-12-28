@@ -99,6 +99,7 @@
       
       % --- Check for bullets (e.g., Relevant Courses) ---
       ((% if edu.bullets %))
+      \vspace{-5pt}
         \resumeItemListStart
           ((% for bullet in edu.bullets %))
             \resumeItem{<< bullet >>}
@@ -135,7 +136,7 @@
             \resumeItem{ << bullet >> }
             ((% endfor %))
           \resumeItemListEnd
-          \vspace{-5pt}
+          \vspace{-12pt}
       ((% endfor %))
     \resumeSubHeadingListEnd
 

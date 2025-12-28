@@ -33,6 +33,7 @@ class Timer:
         print(f"⏱️  [TIME] {self.name}: {elapsed:.2f}s")
         return elapsed
 
+
 # --- 1. GLOBAL STARTUP (Runs Once) ---
 print("⚙️  Server Starting: Loading Brain...")
 
@@ -47,7 +48,7 @@ ef = embedding_functions.SentenceTransformerEmbeddingFunction(
 collection = client.get_collection(
     name="resume_experience", embedding_function=ef)
 
-print("✅  Brain Loaded! Ready for requests.")
+print("✅ Brain Loaded! Ready for requests.")
 
 
 # --- 2. CORE ALGORITHMS ---
@@ -77,6 +78,7 @@ def render_pdf(context):
     print("📄 Compiling PDF...")
     subprocess.run(["tectonic", tex_path], check=True)
     t_render.stop()
+
 
 def get_bullet_scores(jd_text, collection):
     """
