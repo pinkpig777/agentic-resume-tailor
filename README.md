@@ -19,7 +19,7 @@ Local, privacy-first AI agent that tailors your resume to a job description usin
 - `src/test_query.py` – quick CLI probe to inspect the vector store.
 - `src/jd_parser.py` – optional OpenAI JD parser (`OPENAI_API_KEY` required).
 - `src/test_render.py` – renders a PDF to `output/temp_resume.pdf` using `templates/resume.tex`.
-- `src/server.py` – FastAPI app that scores bullets and expects a `render_pdf` function; wire it to `render_resume` (from `src/test_render.py`) before serving PDFs.
+- `src/server.py` – FastAPI app that scores bullets, applies the trimming logic, and renders PDFs with Tectonic.
 - `templates/resume.tex` – Jinja2-ready LaTeX template with `<< >>` and `((% %))` delimiters.
 
 ## Prerequisites
@@ -44,7 +44,7 @@ docker run --rm \
 ```
 This writes embedded bullets to `data/processed/chroma_db`.
 
-4) Start the FastAPI agent (expects `render_pdf` to be wired):
+4) Start the FastAPI agent:
 ```bash
 docker run --rm -p 8000:8000 \
   --env-file .env \
@@ -62,10 +62,9 @@ Then open `http://localhost:8000`, paste a JD, and download the generated PDF.
 2. Scoring: `src/server.py` queries ChromaDB with the JD, converts distances to scores, and aggregates all bullets.
 3. Selection: if total bullets ≤16, keep all; otherwise, sort by score and keep the top 16.
 4. Reconstruction: rebuild experiences/projects with surviving bullets; if the most recent job would be dropped, force it back with at least one bullet.
-5. Rendering: call your `render_pdf` (e.g., wrap `render_resume` from `src/test_render.py`) to produce a PDF in `output/`.
+5. Rendering: built-in `render_pdf` compiles the LaTeX template to a PDF in `output/`.
 
 ## Notes and limitations
-- `src/server.py` currently imports `render_pdf` from `main`, which is not present; point it to the renderer in `src/test_render.py` or relocate that function into `main.py`.
 - `src/jd_parser.py` requires `OPENAI_API_KEY`; other flows run locally without external APIs.
 - The LaTeX template uses custom delimiters (`<< >>`, `((% %))`); keep them to avoid Jinja/LaTeX conflicts.
 
