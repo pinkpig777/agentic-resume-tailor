@@ -44,7 +44,7 @@ with open(DATA_FILE, "r") as f:
 # Load ChromaDB (The "Brain")
 client = chromadb.PersistentClient(path=DB_PATH)
 ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-    model_name="all-MiniLM-L6-v2")
+    model_name="BAAI/bge-small-en-v1.5")
 collection = client.get_collection(
     name="resume_experience", embedding_function=ef)
 

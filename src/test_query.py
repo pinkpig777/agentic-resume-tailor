@@ -9,7 +9,7 @@ from scorer import score as hybrid_score  # retrieval+coverage hybrid
 
 DB_PATH = "data/processed/chroma_db"
 COLLECTION_NAME = "resume_experience"
-EMBED_MODEL = "all-MiniLM-L6-v2"
+EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 
 USE_JD_PARSER = True
 
