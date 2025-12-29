@@ -73,3 +73,101 @@ Then open `http://localhost:8000`, paste a JD, and download the generated PDF.
 - Embedding model download issues: ensure initial internet access; subsequent runs use the cached model (the `.cache_docker` volume speeds this up).
 - “Undefined control sequence \titrule”: fix the template to `\titlerule`.
 - Jinja/LaTeX collisions: ensure the custom delimiters remain set in the renderer.
+
+
+## System Architecture Summary
+
+### Core components
+
+#### Client (UI/CLI)
+- Sends JD text and optional settings.
+- Receives the generated artifacts: PDF, TEX, JSON report.
+
+#### ART API Server (FastAPI Orchestrator)
+- Owns pipeline orchestration, persistence paths, and artifact outputs.
+- Exposes endpoints:
+  - `POST /ingest` (rebuild vector DB from `my_experience.json`)
+  - `POST /generate` (run tailoring workflow)
+  - `GET /health`
+
+#### Source of Truth: `my_experience.json`
+- Stores LaTeX-ready bullets and structured resume data.
+- The system must never invent bullet content outside this file.
+
+#### Vector Store: Local ChromaDB
+- Contains one record per bullet with a stable `bullet_id` (deterministic).
+- Stores embeddings + metadata (source_job, section, dates, tags).
+
+#### LLM JD Parser (Node 1)
+- Converts raw JD text into a structured Target Profile (schema v1).
+- Outputs:
+  - must-have keywords
+  - nice-to-have keywords
+  - responsibilities
+  - domain terms
+  - retrieval queries
+  - evidence spans
+
+#### Retrieval + Selection Engine
+- Retrieval: runs multiple queries (`experience_queries`) against ChromaDB, then merges and reranks results.
+- Selection: “fill first, trim later” with a Safety Anchor (most recent job retained).
+
+#### ATS Critic + Keyword Matcher
+- Keyword matching supports:
+  - exact match
+  - alias match
+  - family match (example: `sql` satisfied by `postgresql`)
+- Critic computes score (0–100) using the rubric:
+  - must-have coverage (0–70)
+  - nice-to-have coverage (0–25)
+  - distribution bonus (0–5)
+- Produces:
+  - `ats_score`
+  - `missing_keywords` (canonical)
+  - match evidence
+
+#### Agentic Loop Controller
+- Runs best-effort self-correction:
+  - If score < threshold (default 80): retry retrieval with boosted missing keywords
+  - Max 3 iterations
+- Always returns a PDF, even if score remains low.
+- Returns the best scoring iteration.
+
+#### Renderer
+- Jinja2 template → `tailored_resume.tex`
+- Tectonic (Docker) → `tailored_resume.pdf`
+
+#### Explainability Reporter
+- Writes `resume_report.json` containing:
+  - target profile summary
+  - final score + iterations
+  - selected bullets with `bullet_id` provenance
+  - per-iteration history including query boosts
+
+
+```mermaid
+flowchart TD
+  A[Client submits JD text + settings] --> B[FastAPI /generate]
+  B --> C[Normalize JD text]
+
+  C --> D[Node 1: LLM JD Parser]
+  D --> D1["Target Profile v1<br/>must/nice keywords + responsibilities<br/>experience_queries + evidence spans"]
+
+  %% Iterative loop start
+  D1 --> E["Node 2: Retrieve from ChromaDB<br/>multi-query merge + rerank"]
+  E --> F["Node 3: Select bullets<br/>Fill-first-trim-later + Safety Anchor"]
+  F --> G["Node 4: Build Draft Resume Data<br/>from my_experience.json + selected bullet_ids"]
+  G --> H["Node 5: Render .tex via template"]
+  H --> I["Node 6: Compile PDF (Tectonic in Docker)"]
+
+  I --> J["Node 7: ATS Critic + Keyword Matcher<br/>alias + family matching"]
+  J --> K{"Score >= threshold<br/>OR iters == max?"}
+
+  K -- Yes --> L["Pick best iteration<br/>finalize outputs"]
+  K -- No --> M["Node 8: Boost retrieval<br/>missing must-have keywords"]
+  M --> E
+
+  L --> N["Write artifacts in output/<br/>tailored_resume.pdf<br/>tailored_resume.tex<br/>resume_report.json"]
+  N --> O["Return response to client<br/>download links / streamed PDF"]
+
+```
