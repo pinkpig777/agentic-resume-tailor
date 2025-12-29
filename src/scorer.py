@@ -30,12 +30,6 @@ def _mean(xs: List[float]) -> float:
 
 
 def compute_retrieval_norm(selected_candidates: List[Any], all_candidates: List[Any]) -> float:
-    """
-    Normalize selection quality against the best achievable average for the same N.
-
-    - Numerator: average(total_weighted) over *selected* candidates (after selection)
-    - Denominator: average(top-N total_weighted) over *all* candidates (ceiling)
-    """
     if not selected_candidates or not all_candidates:
         return 0.0
 
@@ -43,11 +37,11 @@ def compute_retrieval_norm(selected_candidates: List[Any], all_candidates: List[
     if n <= 0:
         return 0.0
 
-    # Selected mean (after selection)
-    selected_vals = [float(c.total_weighted) for c in selected_candidates]
-    selected_mean = sum(selected_vals) / len(selected_vals)
+    # after selection
+    selected_mean = sum(float(c.total_weighted)
+                        for c in selected_candidates) / len(selected_candidates)
 
-    # Ceiling mean: best possible mean if you picked the top-N from the batch
+    # best possible for the same N (ceiling)
     all_vals = sorted((float(c.total_weighted)
                       for c in all_candidates), reverse=True)
     best_possible_mean = sum(all_vals[:n]) / n
