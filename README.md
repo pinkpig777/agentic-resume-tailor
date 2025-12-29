@@ -45,6 +45,26 @@ docker run --rm \
   resume-agent python src/ingest.py
 ```
 
+3.1 Run query test:
+
+```bash
+docker run --rm \                                                                           1 ✘  base   a
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/src:/app/src \
+  resume-agent python src/test_query.py
+```
+
+3.2 Run jd_parser:
+
+```bash
+docker run --rm \
+  --env-file .env \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/src:/app/src \
+  -v $(pwd)/config:/app/config \
+  resume-agent python src/jd_parser.py
+```
+
 This writes embedded bullets to `data/processed/chroma_db`.
 
 4. Start the FastAPI agent:
