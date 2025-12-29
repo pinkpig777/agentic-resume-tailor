@@ -25,7 +25,7 @@ def ingest():
 
     print("⏳ Loading Embedding Model (this usually takes a few seconds)...")
     ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-        model_name="all-MiniLM-L6-v2"
+        model_name="BAAI/bge-small-en-v1.5"
     )
     print("🚀 Model Loaded. Starting JSON processing...")
     try:
