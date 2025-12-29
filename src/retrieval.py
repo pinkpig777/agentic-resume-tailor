@@ -47,7 +47,7 @@ def normalize_query_text(q: str) -> str:
     # Keep it simple and embedding-friendly (no boolean logic).
     q = (q or "").strip()
     q = " ".join(q.split())
-    return q
+    return q.lower()
 
 
 def _build_query_items(jd_parser_result: Any) -> List[QueryItem]:
@@ -118,10 +118,10 @@ def multi_query_retrieve(
 
     for qi in query_items:
         # Apply boosts by appending canonical boosts to the query text (generic, no hardcoding)
-        boosted_query = qi.query
+        parts = [qi.query]
         if qi.boost_keywords:
-            boosted_query = (boosted_query + " " +
-                             " ".join(qi.boost_keywords)).strip()
+            parts.extend([k for k in qi.boost_keywords if k])
+        boosted_query = " ".join(parts).strip()
 
         # Embed query explicitly so we can compute cosine ourselves
         q_emb = np.array(embedding_fn([boosted_query])[0], dtype=np.float32)
