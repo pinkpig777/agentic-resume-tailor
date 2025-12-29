@@ -1,44 +1,37 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple
 
 
 # Higher tiers count more toward coverage.
-TIER_WEIGHTS = {
-    "exact": 1.0,
+# (keyword_matcher currently emits: exact | family | substring | none)
+# Keep alias for future compatibility.
+TIER_WEIGHTS: Dict[str, float] = {
+    "exact": 1.00,
     "alias": 0.85,
     "family": 0.80,
     "substring": 0.50,
-    "none": 0.0,
+    "none": 0.00,
 }
 
 
 @dataclass
 class ScoreResult:
-    # primary outputs
-    final_score: int
-    retrieval_score: float             # 0..1
-    coverage_bullets_only: float       # 0..1
+    """
+    Two coverage views:
+    - bullets_only: only the selected bullets (proof for what appears on the page)
+    - all: all retrieved bullets + (optional) a pseudo "skills" bullet (to avoid false "missing" when skill exists)
+    """
+    final_score: int                 # 0..100
+    retrieval_score: float           # 0..1
+    coverage_bullets_only: float     # 0..1
+    coverage_all: float              # 0..1
 
     must_missing_bullets_only: List[str]
     nice_missing_bullets_only: List[str]
-
-    # optional diagnostics: coverage possible if choosing from "all" (the set you define as all)
-    coverage_all: Optional[float] = None
-    must_missing_all: Optional[List[str]] = None
-    nice_missing_all: Optional[List[str]] = None
-
-    # ---- Backward-compatible aliases ----
-    @property
-    def coverage_score(self) -> float:
-        return self.coverage_bullets_only
-
-    @property
-    def must_missing(self) -> List[str]:
-        return self.must_missing_bullets_only
-
-    @property
-    def nice_missing(self) -> List[str]:
-        return self.nice_missing_bullets_only
+    must_missing_all: List[str]
+    nice_missing_all: List[str]
 
 
 def clamp01(x: float) -> float:
@@ -46,14 +39,17 @@ def clamp01(x: float) -> float:
 
 
 def _mean(xs: List[float]) -> float:
-    return sum(xs) / len(xs) if xs else 0.0
+    return (sum(xs) / len(xs)) if xs else 0.0
 
 
 def compute_retrieval_norm(selected_candidates: List[Any], all_candidates: List[Any]) -> float:
     """
-    Normalization:
-    - numerator: mean(total_weighted) over selected candidates (after selection)
-    - denominator: mean(top-N total_weighted) over all candidates (ceiling for same N)
+    Normalize retrieval strength by comparing:
+      mean(selected.total_weighted)
+    against the ceiling:
+      mean(top-N all_candidates.total_weighted), where N = len(selected_candidates)
+
+    This makes the score stable across different JDs and different final_k.
     """
     if not selected_candidates or not all_candidates:
         return 0.0
@@ -76,6 +72,12 @@ def compute_retrieval_norm(selected_candidates: List[Any], all_candidates: List[
 
 
 def _canonical_list(profile_keywords: Dict[str, List[Dict[str, str]]], key: str) -> List[str]:
+    """
+    profile_keywords should come from keyword_matcher.extract_profile_keywords(profile),
+    which returns lists of dicts like: {raw, canonical, ...}.
+
+    We always lowercase and de-dupe while preserving order.
+    """
     items = profile_keywords.get(key, []) or []
     out: List[str] = []
     for k in items:
@@ -83,7 +85,6 @@ def _canonical_list(profile_keywords: Dict[str, List[Dict[str, str]]], key: str)
         if v:
             out.append(v)
 
-    # de-dupe preserving order
     seen = set()
     deduped: List[str] = []
     for v in out:
@@ -101,13 +102,17 @@ def _best_tier_per_keyword(keywords: List[str], evidences) -> Tuple[float, List[
     if not keywords:
         return 1.0, []
 
-    best = {k: 0.0 for k in keywords}
+    best: Dict[str, float] = {k: 0.0 for k in keywords}
 
-    for e in evidences or []:
+    for e in evidences:
         kw = getattr(e, "keyword", None)
-        if not kw or kw not in best:
+        if not kw:
             continue
-        tier = getattr(e, "tier", "none")
+        kw = str(kw).strip().lower()
+        if kw not in best:
+            continue
+
+        tier = str(getattr(e, "tier", "none") or "none").strip().lower()
         score = float(TIER_WEIGHTS.get(tier, 0.0))
         if score > best[kw]:
             best[kw] = score
@@ -144,54 +149,44 @@ def score(
     selected_candidates: List[Any],
     all_candidates: List[Any],
     profile_keywords: Dict[str, List[Dict[str, str]]],
-    *,
-    must_evs_all=None,
-    nice_evs_all=None,
-    must_evs_bullets_only=None,
-    nice_evs_bullets_only=None,
+    must_evs_all,
+    nice_evs_all,
+    must_evs_bullets_only,
+    nice_evs_bullets_only,
     alpha: float = 0.7,
     must_weight: float = 0.8,
 ) -> ScoreResult:
     """
-    Hybrid score aligned to your test_query.py call signature.
-
-    Definitions:
-    - retrieval_score: how strong selected set is vs best possible mean(top-N) among retrieved candidates
-    - coverage_bullets_only: keyword coverage achieved by SELECTED bullets only
-    - coverage_all: keyword coverage achievable by "all" evidences (whatever you pass as *_evs_all)
+    alpha blends retrieval vs coverage (bullets-only coverage).
+    final_score is 0..100 (int).
     """
     alpha = clamp01(float(alpha))
-    must_weight = clamp01(float(must_weight))
 
     r = compute_retrieval_norm(selected_candidates, all_candidates)
 
-    c_sel, must_missing_sel, nice_missing_sel = compute_coverage_norm(
-        profile_keywords,
-        must_evs_bullets_only,
-        nice_evs_bullets_only,
+    cov_bullets, must_missing_b, nice_missing_b = compute_coverage_norm(
+        profile_keywords=profile_keywords,
+        must_evs=must_evs_bullets_only,
+        nice_evs=nice_evs_bullets_only,
         must_weight=must_weight,
     )
 
-    final = int(round(100 * clamp01(alpha * r + (1.0 - alpha) * c_sel)))
+    cov_all, must_missing_all, nice_missing_all = compute_coverage_norm(
+        profile_keywords=profile_keywords,
+        must_evs=must_evs_all,
+        nice_evs=nice_evs_all,
+        must_weight=must_weight,
+    )
 
-    c_all = None
-    must_missing_all = None
-    nice_missing_all = None
-    if must_evs_all is not None or nice_evs_all is not None:
-        c_all, must_missing_all, nice_missing_all = compute_coverage_norm(
-            profile_keywords,
-            must_evs_all,
-            nice_evs_all,
-            must_weight=must_weight,
-        )
+    final = int(round(100 * clamp01(alpha * r + (1.0 - alpha) * cov_bullets)))
 
     return ScoreResult(
         final_score=final,
         retrieval_score=r,
-        coverage_bullets_only=c_sel,
-        must_missing_bullets_only=must_missing_sel,
-        nice_missing_bullets_only=nice_missing_sel,
-        coverage_all=c_all,
+        coverage_bullets_only=cov_bullets,
+        coverage_all=cov_all,
+        must_missing_bullets_only=must_missing_b,
+        nice_missing_bullets_only=nice_missing_b,
         must_missing_all=must_missing_all,
         nice_missing_all=nice_missing_all,
     )
