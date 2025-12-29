@@ -145,22 +145,69 @@ def canonicalize_text(text: str) -> str:
 # ----------------------------
 # Bullet text normalization (LaTeX-aware)
 # ----------------------------
+#
+# IMPORTANT:
+# We do NOT modify stored bullets. This is ONLY for matching.
+# We want to remove LaTeX markup while preserving the *content* inside commands.
+#
+# Example:
+#   "Saved \\textbf{3,000+} hours"  ->  "Saved 3,000+ hours"
+#
+# This matters because deleting the whole command would destroy important tokens.
 
-_LATEX_COMMAND = re.compile(r"\\[a-zA-Z]+\*?(?:\[[^\]]*\])?(?:\{[^}]*\})?")
+# Commands like: \\href{url}{text}, \\textbf{X}, \\emph{X}, \\texttt{X}, ...
+_LATEX_TWO_ARGS = re.compile(
+    r"\\[a-zA-Z]+\*?(?:\[[^\]]*\])?\{([^{}]*)\}\{([^{}]*)\}"
+)
+_LATEX_ONE_ARG = re.compile(
+    r"\\[a-zA-Z]+\*?(?:\[[^\]]*\])?\{([^{}]*)\}"
+)
+_LATEX_CMD_ONLY = re.compile(r"\\[a-zA-Z]+\*?")
 _BRACES = re.compile(r"[{}]")
 
 
 def latex_to_plain_for_matching(latex: str) -> str:
     """
-    We do NOT modify stored bullets.
-    This is only for matching: remove obvious LaTeX noise.
+    Remove common LaTeX markup while keeping human-readable content.
+    This is ONLY used for keyword matching / coverage checks.
     """
     s = latex or ""
-    # drop latex commands like \textbf{...}
-    s = _LATEX_COMMAND.sub(" ", s)
+
+    # Unescape the common escaped characters we might store in bullets.
+    # (Keep them as characters; they don't hurt matching.)
+    s = (
+        s.replace(r"\\%", "%")
+        .replace(r"\\&", "&")
+        .replace(r"\\$", "$")
+        .replace(r"\\_", "_")
+        .replace(r"\\#", "#")
+    )
+
+    # Keep content inside inline math if present: $...$ -> ...
+    # (Rare in bullets, but safe.)
+    s = re.sub(r"\$(.*?)\$", r" \1 ", s)
+
+    # Preserve arguments of LaTeX commands.
+    #
+    # First handle 2-arg commands like \\href{url}{text} (keep visible text).
+    # Then handle 1-arg commands like \\textbf{X}, \\emph{X}, \\texttt{X}, etc. (keep X).
+    #
+    # We loop a few times to peel nested wrappers: \\textbf{\\emph{X}} -> X
+    for _ in range(6):
+        prev = s
+        s = _LATEX_TWO_ARGS.sub(r" \2 ", s)
+        s = _LATEX_ONE_ARG.sub(r" \1 ", s)
+        if s == prev:
+            break
+
+    # Remove any remaining command names (no args) like \\item, \\newline, etc.
+    s = _LATEX_CMD_ONLY.sub(" ", s)
+
+    # Drop braces/backslashes residue and normalize whitespace.
     s = _BRACES.sub(" ", s)
     s = s.replace("\\", " ")
     s = re.sub(r"\s+", " ", s).strip()
+
     return s
 
 
