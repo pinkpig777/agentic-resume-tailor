@@ -199,7 +199,7 @@ flowchart TD
   F --> G[Merge + Dedupe by bullet_id<br/>Rerank multi-hit + weights]
   G --> H[Node 3: Select bullets<br/>Top-K max 16]
   H --> I[Node 4: Keyword Matcher<br/>exact + alias + family tiers]
-  I --> J[Node 5: Hybrid Score<br/>alpha*retrieval + 1-alpha*coverage]
+  I --> J[Node 5: Hybrid Score<br/>alpha\*retrieval + 1-alpha\*coverage]
 
   J --> K{Loop enabled<br/>and score less than threshold?}
   K -- No --> L[Node 6: Render .tex<br/>from template + selected bullets]
