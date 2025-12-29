@@ -5,7 +5,7 @@
     "collapse_whitespace": true,
     "slash_to_space": true,
     "dash_to_space": true,
-    "separator_exceptions": ["ci/cd", "node.js"]
+    "separator_exceptions": ["ci/cd", "node.js", "next.js"]
   },
   "canon_groups": [
     {
@@ -31,7 +31,7 @@
     },
     {
       "canonical": "terraform",
-      "variants": ["tf", "hashicorp terraform"]
+      "variants": ["hashicorp terraform"]
     },
 
     {
@@ -77,13 +77,7 @@
 
     {
       "canonical": "rest",
-      "variants": [
-        "restful",
-        "rest api",
-        "restful api",
-        "rest APIs",
-        "restful APIs"
-      ]
+      "variants": ["restful", "rest api", "restful api", "rest apis", "restful apis"]
     },
     {
       "canonical": "grpc",
@@ -93,15 +87,14 @@
       "canonical": "graphql",
       "variants": ["graph ql"]
     },
+    {
+      "canonical": "websockets",
+      "variants": ["websocket", "web socket", "web sockets"]
+    },
 
     {
       "canonical": "microservices",
-      "variants": [
-        "micro service",
-        "micro-services",
-        "service oriented architecture",
-        "soa"
-      ]
+      "variants": ["micro service", "micro-services", "service oriented architecture", "soa"]
     },
     {
       "canonical": "distributed systems",
@@ -118,12 +111,7 @@
     },
     {
       "canonical": "ml engineering",
-      "variants": [
-        "mle",
-        "ml engineer",
-        "machine learning engineer",
-        "machine learning engineering"
-      ]
+      "variants": ["mle", "ml engineer", "machine learning engineer", "machine learning engineering"]
     },
     {
       "canonical": "data engineering",
@@ -136,7 +124,7 @@
     },
     {
       "canonical": "tensorflow",
-      "variants": ["tf", "tensor flow"]
+      "variants": ["tensor flow"]
     },
     {
       "canonical": "scikit-learn",
@@ -149,10 +137,7 @@
     },
     {
       "canonical": "rag",
-      "variants": [
-        "retrieval augmented generation",
-        "retrieval-augmented generation"
-      ]
+      "variants": ["retrieval augmented generation", "retrieval-augmented generation"]
     },
     {
       "canonical": "vector database",
@@ -167,15 +152,23 @@
       "canonical": "node.js",
       "variants": ["nodejs", "node js"]
     },
+    {
+      "canonical": "next.js",
+      "variants": ["nextjs", "next js"]
+    },
+
+    {
+      "canonical": "fastapi",
+      "variants": ["fast api"]
+    },
+    {
+      "canonical": "ruby on rails",
+      "variants": ["rails", "ror", "ruby rails"]
+    },
 
     {
       "canonical": "swe",
-      "variants": [
-        "software engineer",
-        "software engineering",
-        "software development",
-        "software developer"
-      ]
+      "variants": ["software engineer", "software engineering", "software development", "software developer"]
     }
   ]
 }
