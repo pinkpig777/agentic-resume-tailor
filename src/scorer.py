@@ -122,46 +122,23 @@ def score(
     selected_candidates: List[Any],
     all_candidates: List[Any],
     profile_keywords: Dict[str, List[Dict[str, str]]],
-
-    # evidences for FINAL resume (skills + selected bullets)
-    must_evs_all,
-    nice_evs_all,
-
-    # optional: evidences for bullets only (proof)
-    must_evs_bullets_only=None,
-    nice_evs_bullets_only=None,
-
+    must_evs,
+    nice_evs,
     alpha: float = 0.7,
+    must_weight: float = 0.8,
 ) -> ScoreResult:
     """
     alpha blends retrieval vs coverage.
+    must_weight blends must-have vs nice-to-have inside coverage.
     final_score is 0..100 (int).
-
-    - coverage uses (skills + selected bullets), so you don't falsely mark "missing"
-      when it's already in Skills.
-    - bullets-only missing is returned separately as a "proof" signal.
     """
     alpha = clamp01(float(alpha))
+    must_weight = clamp01(float(must_weight))
 
     r = compute_retrieval_norm(selected_candidates, all_candidates)
     c, must_missing, nice_missing = compute_coverage_norm(
-        profile_keywords, must_evs_all, nice_evs_all
+        profile_keywords, must_evs, nice_evs, must_weight=must_weight
     )
-
-    # bullets-only missing (optional)
-    if must_evs_bullets_only is None:
-        must_missing_bullets_only = must_missing[:]
-    else:
-        must = _canonical_list(profile_keywords, "must_have")
-        _, must_missing_bullets_only = _best_tier_per_keyword(
-            must, must_evs_bullets_only)
-
-    if nice_evs_bullets_only is None:
-        nice_missing_bullets_only = nice_missing[:]
-    else:
-        nice = _canonical_list(profile_keywords, "nice_to_have")
-        _, nice_missing_bullets_only = _best_tier_per_keyword(
-            nice, nice_evs_bullets_only)
 
     final = int(round(100 * clamp01(alpha * r + (1 - alpha) * c)))
 
@@ -171,6 +148,4 @@ def score(
         coverage_score=c,
         must_missing=must_missing,
         nice_missing=nice_missing,
-        must_missing_bullets_only=must_missing_bullets_only,
-        nice_missing_bullets_only=nice_missing_bullets_only,
     )
