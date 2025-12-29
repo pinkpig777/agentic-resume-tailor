@@ -48,9 +48,11 @@ docker run --rm \
 3.1 Run query test:
 
 ```bash
-docker run --rm \                                                                           1 ✘  base   a
-  -v $(pwd)/data:/app/data \
-  -v $(pwd)/src:/app/src \
+docker run --rm \
+  --env-file .env \
+  -v "$(pwd)/data:/app/data" \
+  -v "$(pwd)/src:/app/src" \
+  -v "$(pwd)/.cache_docker:/root/.cache" \
   resume-agent python src/test_query.py
 ```
 
