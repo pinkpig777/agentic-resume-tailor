@@ -141,7 +141,7 @@ Then open: `http://localhost:8000`
 
 ## How it works (pipeline)
 
-1. **Ingest**: `src/ingest.py` reads `data/my_experience_v2.json` and upserts each bullet into ChromaDB using `bullet_id`.
+1. **Ingest**: `src/ingest.py` reads `data/my_experience.json` and upserts each bullet into ChromaDB using `bullet_id`.
 2. **Parse JD (optional)**: `src/jd_parser.py` produces Target Profile v1 (atomic keywords + evidence + experience queries).
 3. **Retrieve (multi-query)**: `src/retrieval.py` runs multiple queries, merges results, dedupes by `bullet_id`, and reranks.
 4. **Select**: `src/selection.py` keeps the top 16 bullets by reranked score.
