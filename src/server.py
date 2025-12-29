@@ -89,20 +89,18 @@ def try_parse_jd(jd_text: str):
 
 def fallback_queries_from_jd(jd_text: str, max_q: int = 6) -> List[str]:
     """
-    Minimal heuristic fallback. No hardcoding maps here.
+    Minimal heuristic fallback.
     Produces embedding-friendly queries from bullet lines + a condensed full query.
     """
     lines = [ln.strip() for ln in jd_text.splitlines() if ln.strip()]
     bulletish = [ln.lstrip("-•* ").strip()
                  for ln in lines if ln.strip().startswith(("-", "•", "*"))]
-    out: List[str] = []
 
-    # prefer bullet lines
+    out: List[str] = []
     for b in bulletish:
         if len(b) >= 12:
             out.append(b)
 
-    # add a condensed full JD query
     condensed = " ".join(lines[:20])
     condensed = " ".join(condensed.split())
     if condensed and condensed not in out:
@@ -123,6 +121,10 @@ def fallback_queries_from_jd(jd_text: str, max_q: int = 6) -> List[str]:
 
 
 def build_skills_pseudo_bullet(static_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Skills are NOT embedded in Chroma.
+    We add a pseudo bullet for coverage_all computations only (scoring/explainability).
+    """
     skills = static_data.get("skills", {}) or {}
     parts = []
     for k in ["languages_frameworks", "ai_ml", "db_tools"]:
@@ -318,8 +320,8 @@ async def generate_resume(request: Request):
     if profile is not None:
         pk = extract_profile_keywords(profile)
 
-        selected_candidates = [
-            c for c in cands if c.bullet_id in set(selected_ids)]
+        selected_set = set(selected_ids)
+        selected_candidates = [c for c in cands if c.bullet_id in selected_set]
         selected_bullets = [{"bullet_id": c.bullet_id, "text_latex": c.text_latex,
                              "meta": c.meta} for c in selected_candidates]
         all_bullets = [{"bullet_id": c.bullet_id,
