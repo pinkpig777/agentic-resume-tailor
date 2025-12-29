@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import List, Literal, Dict, Any, Optional
 
 from openai import OpenAI
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # =============================
@@ -47,22 +47,24 @@ class QueryItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     query: str = Field(
-        min_length=1, description="Embedding-friendly phrase, no boolean operators.")
+        min_length=10,
+        description="A specific, descriptive phrase (6-14 words). Avoid single keywords."
+    )
     purpose: QueryPurpose
     boost_keywords: List[str] = Field(
-        default_factory=list, description="Canonical keywords to boost.")
+        default_factory=list,
+        description="Specific technical nouns to append. Avoid generic words."
+    )
     weight: float = Field(ge=0.1, le=3.0, description="Relative query weight.")
 
 
 class RetrievalPlan(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
     experience_queries: List[QueryItem] = Field(default_factory=list)
 
 
 class MetaInfo(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
     parser_model: str
     jd_hash: str
     created_at_utc: str
@@ -84,7 +86,7 @@ class TargetProfileV1(BaseModel):
 
 
 # =============================
-# Canonicalization config (file-driven, canonical-first schema)
+# Canonicalization config (file-driven)
 # =============================
 
 DEFAULT_CANON_CONFIG: Dict[str, Any] = {
@@ -182,56 +184,91 @@ def canonicalize(text: str) -> str:
 
 
 # =============================
-# Evidence span repair (the key fix)
+# Evidence span repair (robust)
 # =============================
 
-def find_all_spans(haystack: str, needle: str) -> List[tuple]:
-    spans = []
-    if not needle:
-        return spans
-    start = 0
-    while True:
-        idx = haystack.find(needle, start)
+def _clean_snippet(s: str) -> str:
+    if s is None:
+        return ""
+    s = s.strip()
+    s = s.strip(" \t\r\n")
+    s = s.strip(".,;:()[]{}")
+    return s
+
+
+def find_first_span(haystack: str, needle: str, case_insensitive: bool = False):
+    if not haystack or not needle:
+        return None
+    if case_insensitive:
+        h = haystack.lower()
+        n = needle.lower()
+        idx = h.find(n)
         if idx == -1:
-            break
-        spans.append((idx, idx + len(needle)))
-        start = idx + 1
-    return spans
+            return None
+        return (idx, idx + len(needle))
+    else:
+        idx = haystack.find(needle)
+        if idx == -1:
+            return None
+        return (idx, idx + len(needle))
 
 
 def repair_evidence_items(jd_text: str, items: List[KeywordItem]) -> None:
     """
-    We do NOT trust model offsets. We trust snippet.
-    For each evidence span, recompute start/end by searching jd_text.
-    - exact match first
-    - whitespace-normalized fallback second
+    Repair evidence spans robustly:
+    1) exact snippet match
+    2) case-insensitive snippet match
+    3) whitespace-normalized match
+    4) fallback to keyword raw
+    5) fallback to keyword canonical
+    If found, overwrite start/end/snippet using exact substring from jd_text.
     """
+    jd_norm = re.sub(r"\s+", " ", jd_text)
+
     for item in items:
         repaired: List[EvidenceSpan] = []
+        raw_kw = _clean_snippet(item.raw)
+        canon_kw = _clean_snippet(item.canonical or "")
+
         for ev in item.evidence:
-            snip = (ev.snippet or "").strip("\n")
+            snip0 = _clean_snippet(ev.snippet or "")
 
-            # 1) exact match
-            spans = find_all_spans(jd_text, snip)
+            candidates = [snip0, raw_kw, canon_kw]
+            candidates = [c for c in candidates if c]
 
-            # 2) whitespace-normalized fallback
-            if not spans:
-                jd_norm = re.sub(r"\s+", " ", jd_text)
-                snip_norm = re.sub(r"\s+", " ", snip).strip()
-                if snip_norm:
-                    spans_norm = find_all_spans(jd_norm, snip_norm)
-                    if spans_norm:
-                        # try to locate snip_norm in original too
-                        spans = find_all_spans(jd_text, snip_norm)
+            found = None
 
-            if spans:
-                s, e = spans[0]
+            for cand in candidates:
+                # exact
+                found = find_first_span(jd_text, cand, case_insensitive=False)
+                if found:
+                    break
+
+                # case-insensitive
+                found = find_first_span(jd_text, cand, case_insensitive=True)
+                if found:
+                    break
+
+                # whitespace normalized (try in norm text then map back best-effort)
+                cand_norm = re.sub(r"\s+", " ", cand).strip()
+                if cand_norm:
+                    if jd_norm.find(cand_norm) != -1:
+                        found2 = find_first_span(
+                            jd_text, cand_norm, case_insensitive=False)
+                        if not found2:
+                            found2 = find_first_span(
+                                jd_text, cand_norm, case_insensitive=True)
+                        if found2:
+                            found = found2
+                            break
+
+            if found:
+                s, e = found
                 ev.start = s
                 ev.end = e
-                ev.snippet = jd_text[s:e]
+                ev.snippet = jd_text[s:e]  # force exact substring
                 repaired.append(ev)
             else:
-                # keep it; downstream validation decides if it's acceptable
                 repaired.append(ev)
 
         item.evidence = repaired
@@ -256,6 +293,25 @@ def validate_evidence_spans(jd_text: str, item: KeywordItem) -> List[str]:
                 f"Snippet mismatch for '{item.raw}' at [{ev.start}:{ev.end}]")
 
     return errs
+
+
+def hard_fallback_evidence(jd_text: str, items: List[KeywordItem]) -> None:
+    """
+    If model evidence is unusable, create one valid evidence span by searching the keyword itself.
+    This prevents the whole pipeline from collapsing on trivial casing/punctuation issues.
+    """
+    for it in items:
+        # if evidence missing or invalid, try to generate one from raw/canonical
+        if not it.evidence or validate_evidence_spans(jd_text, it):
+            for cand in [_clean_snippet(it.raw), _clean_snippet(it.canonical or "")]:
+                if not cand:
+                    continue
+                span = find_first_span(jd_text, cand, case_insensitive=True)
+                if span:
+                    s, e = span
+                    it.evidence = [EvidenceSpan(
+                        start=s, end=e, snippet=jd_text[s:e])]
+                    break
 
 
 # =============================
@@ -286,6 +342,24 @@ def sanitize_query_for_embeddings(q: str) -> str:
     return q
 
 
+_BANNED_WORDS = {
+    "engineer", "developer", "experience", "experienced", "years", "must",
+    "required", "looking", "seeking", "ability", "proficient", "familiarity",
+    "knowledge", "strong", "role", "position"
+}
+
+
+def looks_atomic(s: str) -> bool:
+    if not s:
+        return False
+    toks = s.split()
+    if len(toks) > 3:
+        return False
+    if any(t in _BANNED_WORDS for t in toks):
+        return False
+    return True
+
+
 def postprocess(profile: TargetProfileV1, jd_text: str, model_name: str) -> TargetProfileV1:
     # canonicalize & dedupe
     for group_name in ["must_have", "nice_to_have", "responsibilities", "domain_terms"]:
@@ -294,7 +368,21 @@ def postprocess(profile: TargetProfileV1, jd_text: str, model_name: str) -> Targ
             it.canonical = canonicalize(it.canonical or it.raw)
         setattr(profile, group_name, dedupe_by_canonical(group))
 
-    # enforce must_have evidence presence
+    # must_have should be atomic; demote non-atomic to responsibilities (soft enforcement)
+    demoted = []
+    kept = []
+    for it in profile.must_have:
+        if looks_atomic(it.canonical):
+            kept.append(it)
+        else:
+            it.type = "responsibility"
+            demoted.append(it)
+    profile.must_have = kept
+    if demoted:
+        profile.responsibilities = dedupe_by_canonical(
+            profile.responsibilities + demoted)
+
+    # require must_have evidence presence (after demotion)
     for it in profile.must_have:
         if not it.evidence:
             raise ValueError(f"Must-have missing evidence: '{it.raw}'")
@@ -325,30 +413,74 @@ def postprocess(profile: TargetProfileV1, jd_text: str, model_name: str) -> Targ
 
 
 # =============================
-# Prompts
+# Prompts (UPDATED: force atomic skills)
 # =============================
 
-SYSTEM_PROMPT = """
+SYSTEM_PROMPT = r"""
 You are an expert technical recruiter helping tailor a resume using a semantic vector database.
 
 Return a Target Profile (v1) used for retrieval + explainability.
 
-Hard requirements:
+==============================
+A) ATOMIC KEYWORD RULES (STRICT)
+==============================
+All keywords in must_have, nice_to_have, responsibilities, domain_terms MUST be ATOMIC.
+
+Definition of ATOMIC:
+- A single skill/tool/library/platform/domain noun.
+- 1 to 3 tokens max (examples: "python", "computer vision", "edge devices", "ci/cd", "pytorch", "opencv", "docker").
+- NO role phrases and NO requirement-language.
+
+BANNED WORDS anywhere inside keyword raw/canonical:
+engineer, developer, role, position, experience, experienced, years, must, required, looking for, seeking, ability, proficient, familiarity, knowledge, strong
+
+Examples:
+- If JD says "Python Engineer", output must_have includes "python" (NOT "python engineer").
+- If JD says "experience in Computer Vision", output "computer vision" (NOT "computer vision experience").
+
+Split phrases into atomic items:
+- "deploying models to edge devices" -> "deployment", "edge devices"
+- "Docker and CI/CD pipelines" -> "docker", "ci/cd"
+
+==============================
+B) EVIDENCE RULES (STRICT)
+==============================
+- For EVERY item in must_have, include >= 1 evidence entry.
+- evidence.snippet MUST be copied EXACTLY from jd_text (verbatim substring).
+- Keep evidence.snippet short (<= 60 chars if possible).
+- You may set start/end to 0. Offsets are repaired server-side.
+
+==============================
+C) RETRIEVAL PLAN RULES (STRICT)
+==============================
+The database contains mixed generic IT and specialized AI/ML experience.
+To retrieve the correct experience, your queries must be SEMANTICALLY DENSE.
+
+1) Avoid single keywords: never use broad terms like "deployment", "leadership", or "python" alone.
+2) Bind context to action:
+   - BAD: "deployment"
+   - GOOD: "deploying deep learning models to edge devices using docker"
+3) Use technical specificity when relevant: include "cuda", "onnx", "tensorrt", "rtsp", etc.
+
+retrieval_plan.experience_queries:
+- 3 to 7 queries max.
+- NO boolean operators (AND/OR/NOT).
+- Each query must be 6 to 14 words.
+- weight: 1.0 standard, up to 1.8 for critical.
+
+==============================
+D) OUTPUT SCHEMA RULES
+==============================
 - Output MUST strictly match the TargetProfile v1 schema.
-- For every item in must_have:
-  - include >= 1 evidence entry
-  - evidence.snippet MUST be copied EXACTLY from the provided jd_text (verbatim, including casing and spacing)
-  - Set evidence.start=0 and evidence.end=0 (the server will compute offsets). Do NOT try to count characters.
-- canonical fields must be lowercase, concise, and dedup-friendly.
-- retrieval_plan.experience_queries:
-  - 3 to 7 queries
-  - embedding-friendly phrases only
-  - NO boolean operators (AND/OR/NOT), no parentheses, no quotes
-  - each query targets a distinct angle (core stack, domain, deployment, scale/reliability, leadership if present)
-  - include boost_keywords (canonical) and weight (0.8–1.8 typically)
+- No extra fields. No commentary. JSON only.
 """
 
 USER_TEMPLATE = """Create a TargetProfile v1 from this job description.
+
+IMPORTANT:
+- Extract ATOMIC skills only (1-3 tokens).
+- Do NOT include role phrases like "python engineer" or "computer vision experience".
+- Split combined requirements into atomic items.
 
 jd_text:
 {jd_text}
@@ -392,8 +524,11 @@ def parse_job_description(
         )
         profile = completion.choices[0].message.parsed
 
-        # Repair evidence spans based on snippet matches
+        # Repair evidence spans based on snippet/keyword matches
         repair_evidence_items(jd_text, profile.must_have)
+
+        # Hard fallback repair pass (prevents brittle failures)
+        hard_fallback_evidence(jd_text, profile.must_have)
 
         # Validate evidence spans after repair
         errors: List[str] = []
@@ -408,9 +543,11 @@ def parse_job_description(
                 "content": (
                     "Your previous output had evidence snippets that could not be matched exactly in jd_text.\n"
                     f"{last_error}\n\n"
-                    "Regenerate the full TargetProfile v1. "
-                    "Copy evidence.snippet EXACTLY from jd_text (verbatim). "
-                    "Remember: start/end must be 0."
+                    "Regenerate the full TargetProfile v1.\n"
+                    "- Copy evidence.snippet EXACTLY from jd_text (verbatim).\n"
+                    "- Keep snippets short.\n"
+                    "- Set start=end=0 if unsure.\n"
+                    "- Remember: must_have keywords must be atomic (1-3 tokens), no 'engineer'/'experience'."
                 ),
             })
             continue
@@ -424,7 +561,8 @@ def parse_job_description(
                 "role": "user",
                 "content": (
                     f"Your previous output failed contract checks: {last_error}\n"
-                    "Regenerate the full TargetProfile v1 to satisfy all constraints."
+                    "Regenerate the full TargetProfile v1 to satisfy all constraints.\n"
+                    "Remember: must_have keywords must be atomic (1-3 tokens)."
                 ),
             })
             continue
@@ -435,10 +573,30 @@ def parse_job_description(
 
 
 if __name__ == "__main__":
+    # Stress-test JD (more complex)
     sample_jd = """
-We are looking for a Python Engineer with experience in Computer Vision.
-Must know PyTorch, OpenCV, and have experience deploying models to edge devices.
-Bonus if you have worked with Docker and CI/CD pipelines.
+Software Engineer, Machine Learning (Edge Vision)
+
+We are looking for a software engineer to build and deploy computer vision models to edge devices for real-time video analytics. You will work on end-to-end systems including data pipelines, model training, optimization, and deployment.
+
+Must-have:
+- Python proficiency and strong software engineering fundamentals
+- Computer vision experience (object detection preferred)
+- Experience deploying ML models to edge devices or resource-constrained environments
+- Familiarity with CUDA or GPU acceleration
+- Experience with Docker and CI/CD workflows
+
+Nice-to-have:
+- PyTorch and OpenCV
+- TensorRT / ONNX optimization
+- RTSP video streaming or multi-camera systems
+- Monitoring dashboards or UI tools for non-technical users
+- Cloud experience (AWS/GCP/Azure)
+
+Responsibilities:
+- Build low-latency video ingestion and processing pipelines
+- Optimize inference performance (FPS/latency/memory)
+- Collaborate cross-functionally and lead small projects when needed
 """.lstrip("\n")
 
     profile = parse_job_description(sample_jd)
