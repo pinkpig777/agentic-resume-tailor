@@ -25,7 +25,7 @@ output/
 *.out
 *.toc
 # personal data
-data/*.json
+data/my_experience.json
 
 # OS & IDE
 .DS_Store
