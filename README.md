@@ -9,13 +9,6 @@ Local, privacy-first AI agent that tailors your resume to a job description usin
 - Renders a Jinja2/LaTeX template with custom delimiters to avoid Jinja-LaTeX collisions.
 - Exposes a FastAPI server for a browser flow; includes CLI utilities for ingestion and testing.
 
-## Project status
-
-- Phase 1: Dockerized LaTeX rendering (Tectonic).
-- Phase 2: Data ingestion into ChromaDB.
-- Phase 3: Agent server with “fill first, trim later” logic.
-- Phase 4: Agentic loop
-
 ## Repo map
 
 - `data/` – your resume data lives in `my_experience.json`; `processed/` holds the ChromaDB store.
@@ -34,7 +27,8 @@ Local, privacy-first AI agent that tailors your resume to a job description usin
 
 ## Quickstart
 
-1. Prepare data: fill out `data/my_experience.json` with your personal info, skills, education, experiences, and projects. You can find the template and create your own json.
+1. Prepare data: fill out `data/my_experience.json` with your personal info, skills, education, experiences, and projects.
+   You can find the template and create your own json.
 
 2. Build the Docker image:
 
@@ -87,6 +81,13 @@ Then open `http://localhost:8000`, paste a JD, and download the generated PDF.
 - Embedding model download issues: ensure initial internet access; subsequent runs use the cached model (the `.cache_docker` volume speeds this up).
 - “Undefined control sequence \titrule”: fix the template to `\titlerule`.
 - Jinja/LaTeX collisions: ensure the custom delimiters remain set in the renderer.
+
+### TODO
+
+- [ ] AI JD Parser Contract
+- [ ] Multi-query Retrieval
+- [ ] Agentic ATS Critic
+- [ ] Agentic Loop Control
 
 ## System Architecture Summary
 
