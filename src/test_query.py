@@ -160,7 +160,7 @@ Responsibilities:
             profile_keywords=pk,
             must_evs=must_evs,
             nice_evs=nice_evs,
-            alpha=float(os.environ.get("ART_SCORE_ALPHA", "0.5")),
+            alpha=float(os.environ.get("ART_SCORE_ALPHA", "0.7")),
         )
 
         print("\n🧪 HYBRID SCORE")
