@@ -1,26 +1,39 @@
+# src/server.py
 import copy
 import json
 import os
 import subprocess
 import time
+import sys
 
 import chromadb
 from chromadb.utils import embedding_functions
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.templating import Jinja2Templates
 import jinja2
+from jinja2 import TemplateError
 import uvicorn
 
-# --- CONFIGURATION ---
-MAX_BULLETS_ON_PAGE = 16       # Fits comfortably on one page
+from loop_controller import run_loop
+
+# --- CONFIG ---
+MAX_BULLETS_ON_PAGE = int(os.environ.get("ART_MAX_BULLETS", "16"))
 DB_PATH = "/app/data/processed/chroma_db"
 DATA_FILE = "/app/data/my_experience.json"
 TEMPLATE_DIR = "/app/templates"
 OUTPUT_DIR = "/app/output"
 
+EMBED_MODEL = os.environ.get("ART_EMBED_MODEL", "BAAI/bge-small-en-v1.5")
+COLLECTION_NAME = os.environ.get("ART_COLLECTION", "resume_experience")
+
+USE_JD_PARSER = os.environ.get("ART_USE_JD_PARSER", "1") == "1"
+THRESHOLD = int(os.environ.get("ART_THRESHOLD", "80"))
+MAX_ITERS = int(os.environ.get("ART_MAX_ITERS", "3"))
+ALPHA = float(os.environ.get("ART_SCORE_ALPHA", "0.7"))
+PER_QUERY_K = int(os.environ.get("ART_PER_QUERY_K", "10"))
+FINAL_K = int(os.environ.get("ART_FINAL_K", "30"))
+
 app = FastAPI()
-templates = Jinja2Templates(directory="/app/templates")
 
 
 class Timer:
@@ -34,54 +47,120 @@ class Timer:
         return elapsed
 
 
-# --- 1. GLOBAL STARTUP (Runs Once) ---
-print("⚙️  Server Starting: Loading Brain...")
+print("⚙️  Server Starting: Loading data + ChromaDB...")
 
-# Load JSON Data
-with open(DATA_FILE, "r") as f:
+with open(DATA_FILE, "r", encoding="utf-8") as f:
     static_data = json.load(f)
 
-# Load ChromaDB (The "Brain")
 client = chromadb.PersistentClient(path=DB_PATH)
 ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-    model_name="BAAI/bge-small-en-v1.5")
-collection = client.get_collection(
-    name="resume_experience", embedding_function=ef)
+    model_name=EMBED_MODEL)
+collection = client.get_collection(name=COLLECTION_NAME, embedding_function=ef)
 
-print("✅ Brain Loaded! Ready for requests.")
+print(
+    f"✅ Loaded collection '{COLLECTION_NAME}' with {collection.count()} records")
 
 
-# --- 2. CORE ALGORITHMS ---
+def try_parse_jd(jd_text: str):
+    if not USE_JD_PARSER:
+        return None
+    try:
+        import jd_parser  # src/jd_parser.py
+        if not hasattr(jd_parser, "parse_job_description"):
+            raise RuntimeError("jd_parser.parse_job_description not found")
+        model = os.environ.get("ART_JD_MODEL", "gpt-4.1-nano-2025-04-14")
+        try:
+            return jd_parser.parse_job_description(jd_text, model=model)
+        except TypeError:
+            return jd_parser.parse_job_description(jd_text)
+    except Exception as e:
+        print(f"⚠️ JD parser failed; continuing without profile. Reason: {e}")
+        return None
 
-def render_pdf(context):
+
+def bullet_id_for_exp(job: dict, b: dict) -> str:
+    job_id = job.get("job_id")
+    bid = b.get("id")
+    if not job_id or not bid:
+        raise ValueError("experience is missing job_id or bullet.id")
+    return f"exp:{job_id}:{bid}"
+
+
+def bullet_id_for_proj(proj: dict, b: dict) -> str:
+    proj_id = proj.get("project_id")
+    bid = b.get("id")
+    if not proj_id or not bid:
+        raise ValueError("project is missing project_id or bullet.id")
+    return f"proj:{proj_id}:{bid}"
+
+
+def rebuild_resume_with_selected_bullets(full_data: dict, selected_ids: list[str]) -> dict:
     """
-    Render the tailored resume to PDF using the LaTeX template.
-    Includes error handling for Jinja2 rendering and Tectonic compilation.
+    Filters experiences/projects based on selected bullet_ids, then converts bullets to list[str] (text_latex)
+    so your LaTeX template can render easily.
     """
-    t_render = Timer("Render & Compile PDF")
+    selected_set = set(selected_ids)
+    tailored = copy.deepcopy(full_data)
 
-    # 1. Setup Jinja2 Environment
+    # experiences
+    final_exps = []
+    for job in tailored.get("experiences", []):
+        kept = []
+        for b in job.get("bullets", []):
+            if not isinstance(b, dict):
+                continue
+            bid = bullet_id_for_exp(job, b)
+            if bid in selected_set:
+                kept.append(b.get("text_latex", ""))
+        kept = [x for x in kept if x]
+        if kept:
+            job["bullets"] = kept
+            final_exps.append(job)
+
+    # projects
+    final_projs = []
+    for proj in tailored.get("projects", []):
+        kept = []
+        for b in proj.get("bullets", []):
+            if not isinstance(b, dict):
+                continue
+            bid = bullet_id_for_proj(proj, b)
+            if bid in selected_set:
+                kept.append(b.get("text_latex", ""))
+        kept = [x for x in kept if x]
+        if kept:
+            proj["bullets"] = kept
+            final_projs.append(proj)
+
+    tailored["experiences"] = final_exps
+    tailored["projects"] = final_projs
+    return tailored
+
+
+def render_pdf(context: dict) -> str:
+    """
+    Renders tailored_resume.tex and compiles to tailored_resume.pdf.
+    Returns PDF path.
+    """
+    t = Timer("Render & Compile PDF")
+
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(TEMPLATE_DIR),
-        block_start_string='((%',
-        block_end_string='%))',
-        variable_start_string='<<',
-        variable_end_string='>>',
-        comment_start_string='((#',
-        comment_end_string='#))'
+        block_start_string="((%",
+        block_end_string="%))",
+        variable_start_string="<<",
+        variable_end_string=">>",
+        comment_start_string="((#",
+        comment_end_string="#))",
     )
 
     try:
-        # 2. Render the Template
-        print("📝 Rendering LaTeX template...")
-        template = env.get_template('resume.tex')
+        template = env.get_template("resume.tex")
         tex_content = template.render(context)
-
-        # 3. Write .tex file to disk
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
         tex_path = os.path.join(OUTPUT_DIR, "tailored_resume.tex")
-        with open(tex_path, "w") as f:
+        with open(tex_path, "w", encoding="utf-8") as f:
             f.write(tex_content)
-
     except TemplateError as e:
         print(f"❌ Jinja2 Template Error: {e}", file=sys.stderr)
         raise
@@ -90,175 +169,50 @@ def render_pdf(context):
         raise
 
     try:
-        # 4. Compile PDF with Tectonic
-        print(f"📄 Compiling PDF at {tex_path}...")
-
-        # capture_output=True allows us to see the error log when it fails
         subprocess.run(
             ["tectonic", tex_path],
             check=True,
             capture_output=True,
-            text=True
+            text=True,
         )
-
-        print("✅ PDF Compiled Successfully!")
-        t_render.stop()
-
     except subprocess.CalledProcessError as e:
-        # This block catches the Tectonic failure (Exit Status 1)
-        print("\n" + "="*40, file=sys.stderr)
+        print("\n" + "=" * 40, file=sys.stderr)
         print("❌ TECTONIC COMPILATION FAILED", file=sys.stderr)
-        print("="*40, file=sys.stderr)
-
-        # Print the actual LaTeX error log
-        print("STDOUT (LaTeX Logs):", file=sys.stderr)
+        print("=" * 40, file=sys.stderr)
+        print("STDOUT:", file=sys.stderr)
         print(e.stdout, file=sys.stderr)
-
-        print("-" * 20, file=sys.stderr)
         print("STDERR:", file=sys.stderr)
         print(e.stderr, file=sys.stderr)
-
-        print("="*40, file=sys.stderr)
-        print(
-            f"⚠️  Inspect the generated file at: {tex_path}", file=sys.stderr)
-
-        # Re-raise the exception so the server returns a 500 error
+        print("=" * 40, file=sys.stderr)
         raise
 
-    except FileNotFoundError:
-        print("❌ Error: 'tectonic' command not found. Is it installed and in PATH?", file=sys.stderr)
-        raise
+    pdf_path = os.path.join(OUTPUT_DIR, "tailored_resume.pdf")
+    t.stop()
+    return pdf_path
 
-
-def get_bullet_scores(jd_text, collection):
-    """
-    Scoring Engine: Compares JD against ALL experience bullets.
-    Returns: { "bullet_text": relevance_score (0.0 - 1.0) }
-    """
-    # Fetch broadly to catch all potential matches
-    results = collection.query(
-        query_texts=[jd_text],
-        n_results=100,  # Fetch everything relevant
-        include=["documents", "distances"]
-    )
-
-    scores = {}
-    if results['documents']:
-        for i, doc in enumerate(results['documents'][0]):
-            dist = results['distances'][0][i]
-            # Convert Distance (0=perfect, 2=bad) to Score (1.0=perfect, 0.0=bad)
-            # This formula gives a score of ~1.0 for exact matches, ~0.0 for unrelated
-            score = max(0, (1.5 - dist) / 1.5)
-            scores[doc] = score
-
-    return scores
-
-
-def optimize_resume(full_data, bullet_scores):
-    """
-    The Logic: "Fill First, Trim Later"
-    1. Collect ALL bullets.
-    2. If total > MAX_BULLETS, trim the lowest scoring ones.
-    3. Reconstruct the resume chronologically.
-    """
-    tailored = copy.deepcopy(full_data)
-    all_candidates = []
-
-    # --- PHASE A: COLLECT EVERYTHING ---
-    def collect_bullets(section_list, section_type):
-        for item in section_list:
-            for b in item.get('bullets', []):
-                # Default 0.0 if AI didn't pick it up
-                s = bullet_scores.get(b, 0.0)
-                all_candidates.append({
-                    'text': b,
-                    'score': s,
-                    'section_type': section_type
-                })
-
-    collect_bullets(tailored.get('experiences', []), 'exp')
-    collect_bullets(tailored.get('projects', []), 'proj')
-
-    # --- PHASE B: CAPACITY CHECK ---
-    current_count = len(all_candidates)
-    print(f"📊 Total Bullets Available: {current_count}")
-
-    if current_count <= MAX_BULLETS_ON_PAGE:
-        print("✅ Under capacity. Keeping EVERYTHING (no cuts).")
-        survivors = all_candidates
-    else:
-        print(
-            f"✂️  Over capacity ({current_count} > {MAX_BULLETS_ON_PAGE}). Trimming weak bullets...")
-        # Sort by Score (High -> Low)
-        all_candidates.sort(key=lambda x: x['score'], reverse=True)
-        # Keep Top N
-        survivors = all_candidates[:MAX_BULLETS_ON_PAGE]
-
-    # Create lookup set for fast filtering
-    surviving_texts = set(c['text'] for c in survivors)
-
-    # --- PHASE C: RECONSTRUCTION (Chronological) ---
-    final_experiences = []
-    final_projects = []
-
-    # 1. Rebuild Experience
-    for job in tailored.get('experiences', []):
-        # Filter bullets
-        job['bullets'] = [b for b in job['bullets'] if b in surviving_texts]
-
-        # Keep job if it has bullets
-        if job['bullets']:
-            final_experiences.append(job)
-
-    # 2. Rebuild Projects
-    for proj in tailored.get('projects', []):
-        proj['bullets'] = [b for b in proj['bullets'] if b in surviving_texts]
-
-        if proj['bullets']:
-            final_projects.append(proj)
-
-    # --- PHASE D: SAFETY NET (Current Job) ---
-    # Ensure most recent job exists, even if irrelevant
-    if tailored.get('experiences') and (not final_experiences or final_experiences[0]['company'] != tailored['experiences'][0]['company']):
-        print("⚠️  Warning: Most recent job was dropped. Forcing it back...")
-        recent_job = tailored['experiences'][0]
-        # Keep its top bullet (or generic one)
-        if recent_job['bullets']:
-            recent_job['bullets'] = [recent_job['bullets'][0]]
-        final_experiences.insert(0, recent_job)
-
-    tailored['experiences'] = final_experiences
-    tailored['projects'] = final_projects
-
-    print(
-        f"✅ Final Resume: {len(final_experiences)} Jobs, {len(final_projects)} Projects.")
-    return tailored
-
-
-# --- 3. WEB ROUTES ---
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     return """
     <html>
-        <head>
-            <title>Resume Agent</title>
-            <style>
-                body { font-family: -apple-system, system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; line-height: 1.6; }
-                textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-family: monospace; }
-                button { background: #2563eb; color: white; border: none; padding: 12px 24px; border-radius: 4px; cursor: pointer; font-size: 16px; margin-top: 10px;}
-                button:hover { background: #1d4ed8; }
-            </style>
-        </head>
-        <body>
-            <h1>🚀 AI Resume Tailor</h1>
-            <p>Paste the Job Description below. The AI will rank your experience and generate a one-page PDF.</p>
-            <form action="/generate" method="post">
-                <textarea name="jd_text" rows="15" placeholder="Paste Job Description here..."></textarea>
-                <br>
-                <button type="submit">Generate Optimized PDF</button>
-            </form>
-        </body>
+      <head>
+        <title>Resume Agent</title>
+        <style>
+          body { font-family: -apple-system, system-ui, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; line-height: 1.6; }
+          textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+          button { background: #2563eb; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-size: 16px; margin-top: 10px;}
+          button:hover { background: #1d4ed8; }
+        </style>
+      </head>
+      <body>
+        <h1>AI Resume Tailor</h1>
+        <p>Paste a JD. The system does multi-query retrieval + rerank + selection + optional retry loop.</p>
+        <form action="/generate" method="post">
+          <textarea name="jd_text" rows="18" placeholder="Paste Job Description here..."></textarea>
+          <br/>
+          <button type="submit">Generate PDF</button>
+        </form>
+      </body>
     </html>
     """
 
@@ -266,23 +220,40 @@ async def read_root(request: Request):
 @app.post("/generate")
 async def generate_resume(request: Request):
     form_data = await request.form()
-    jd_text = form_data['jd_text']
+    jd_text = str(form_data["jd_text"]).strip()
+    if not jd_text:
+        return HTMLResponse("JD is empty", status_code=400)
 
-    # 1. Score
-    scores = get_bullet_scores(jd_text, collection)
+    profile = try_parse_jd(jd_text)
 
-    # 2. Optimize (Fill & Trim)
-    tailored_data = optimize_resume(static_data, scores)
+    best, history = run_loop(
+        jd_text=jd_text,
+        collection=collection,
+        embedding_fn=ef,
+        profile=profile,
+        per_query_k=PER_QUERY_K,
+        final_k=FINAL_K,
+        max_bullets=MAX_BULLETS_ON_PAGE,
+        threshold=THRESHOLD,
+        max_iters=MAX_ITERS,
+        alpha=ALPHA,
+    )
 
-    # 3. Render
-    # Note: We assume render_pdf writes to /app/output/tailored_resume.pdf
-    render_pdf(tailored_data)
+    print("✅ Loop finished. Best iteration:", best.iter_idx)
+    if best.score is not None:
+        print("   score:", best.score.final_score,
+              "| missing must:", best.must_missing[:8])
+
+    tailored_data = rebuild_resume_with_selected_bullets(
+        static_data, best.selected_ids)
+    pdf_path = render_pdf(tailored_data)
 
     return FileResponse(
-        "/app/output/tailored_resume.pdf",
-        media_type='application/pdf',
-        filename="tailored_resume.pdf"
+        pdf_path,
+        media_type="application/pdf",
+        filename="tailored_resume.pdf",
     )
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
