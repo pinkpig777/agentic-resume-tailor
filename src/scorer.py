@@ -1,6 +1,15 @@
 from dataclasses import dataclass
-from typing import Any, Dict, List
-import math
+from typing import Any, Dict, List, Tuple
+
+
+# Higher tiers count more toward coverage.
+TIER_WEIGHTS = {
+    "exact": 1.0,
+    "alias": 0.85,
+    "family": 0.80,
+    "substring": 0.50,
+    "none": 0.0,
+}
 
 
 @dataclass
@@ -16,42 +25,96 @@ def clamp01(x: float) -> float:
     return max(0.0, min(1.0, x))
 
 
+def _mean(xs: List[float]) -> float:
+    return sum(xs) / len(xs) if xs else 0.0
+
+
 def compute_retrieval_norm(selected_candidates: List[Any], all_candidates: List[Any]) -> float:
     """
-    selected_candidates: list of Candidate objects (from retrieval.py) for selected ids
-    all_candidates: full candidate list for normalization reference
+    Normalize selection quality against the best achievable average for the same N.
+    Uses Candidate.total_weighted (multi-hit reward).
     """
     if not selected_candidates or not all_candidates:
         return 0.0
 
-    # Use total_weighted (multi-hit reward). If you prefer best_hit, swap it.
-    best = max(c.total_weighted for c in all_candidates) or 1e-9
-    avg_sel = sum(c.total_weighted for c in selected_candidates) / \
-        len(selected_candidates)
-    return clamp01(avg_sel / best)
+    n = min(len(selected_candidates), len(all_candidates))
+    if n <= 0:
+        return 0.0
+
+    selected_vals = [float(c.total_weighted) for c in selected_candidates]
+    selected_mean = _mean(selected_vals)
+
+    all_vals = sorted((float(c.total_weighted)
+                      for c in all_candidates), reverse=True)
+    best_possible_mean = _mean(all_vals[:n])
+
+    if best_possible_mean <= 1e-9:
+        return 0.0
+
+    return clamp01(selected_mean / best_possible_mean)
 
 
-def compute_coverage_norm(profile_keywords: Dict[str, List[Dict[str, str]]], must_evs, nice_evs) -> (float, List[str], List[str]):
-    must = [(k.get("canonical") or k.get("raw") or "").strip().lower()
-            for k in profile_keywords.get("must_have", [])]
-    nice = [(k.get("canonical") or k.get("raw") or "").strip().lower()
-            for k in profile_keywords.get("nice_to_have", [])]
-    must = [k for k in must if k]
-    nice = [k for k in nice if k]
+def _canonical_list(profile_keywords: Dict[str, List[Dict[str, str]]], key: str) -> List[str]:
+    items = profile_keywords.get(key, []) or []
+    out = []
+    for k in items:
+        v = (k.get("canonical") or k.get("raw") or "").strip().lower()
+        if v:
+            out.append(v)
+    # de-dupe while preserving order
+    seen = set()
+    deduped = []
+    for v in out:
+        if v not in seen:
+            seen.add(v)
+            deduped.append(v)
+    return deduped
 
-    must_cov = {e.keyword for e in must_evs if e.tier != "none"}
-    nice_cov = {e.keyword for e in nice_evs if e.tier != "none"}
 
-    must_covered = sum(1 for k in must if k in must_cov)
-    nice_covered = sum(1 for k in nice if k in nice_cov)
+def _best_tier_per_keyword(keywords: List[str], evidences) -> Tuple[float, List[str]]:
+    """
+    For each keyword, take the best tier score among evidences.
+    Returns (avg_score, missing_keywords)
+    """
+    if not keywords:
+        return 1.0, []
 
-    must_frac = (must_covered / len(must)) if must else 1.0
-    nice_frac = (nice_covered / len(nice)) if nice else 1.0
+    best = {k: 0.0 for k in keywords}
 
-    coverage = clamp01(0.8 * must_frac + 0.2 * nice_frac)
+    for e in evidences:
+        kw = getattr(e, "keyword", None)
+        if not kw or kw not in best:
+            continue
+        tier = getattr(e, "tier", "none")
+        score = float(TIER_WEIGHTS.get(tier, 0.0))
+        if score > best[kw]:
+            best[kw] = score
 
-    must_missing = [k for k in must if k not in must_cov]
-    nice_missing = [k for k in nice if k not in nice_cov]
+    avg = _mean(list(best.values()))
+    missing = [k for k, v in best.items() if v <= 1e-9]
+    return clamp01(avg), missing
+
+
+def compute_coverage_norm(
+    profile_keywords: Dict[str, List[Dict[str, str]]],
+    must_evs,
+    nice_evs,
+    must_weight: float = 0.8,
+) -> Tuple[float, List[str], List[str]]:
+    """
+    Coverage is tier-weighted (exact > alias/family > substring).
+    must_weight controls how much must-have dominates coverage.
+    """
+    must_weight = clamp01(float(must_weight))
+    nice_weight = 1.0 - must_weight
+
+    must = _canonical_list(profile_keywords, "must_have")
+    nice = _canonical_list(profile_keywords, "nice_to_have")
+
+    must_score, must_missing = _best_tier_per_keyword(must, must_evs)
+    nice_score, nice_missing = _best_tier_per_keyword(nice, nice_evs)
+
+    coverage = clamp01(must_weight * must_score + nice_weight * nice_score)
     return coverage, must_missing, nice_missing
 
 
@@ -61,8 +124,14 @@ def score(
     profile_keywords: Dict[str, List[Dict[str, str]]],
     must_evs,
     nice_evs,
-    alpha: float = 0.3,
+    alpha: float = 0.7,
 ) -> ScoreResult:
+    """
+    alpha blends retrieval vs coverage.
+    final_score is 0..100 (int).
+    """
+    alpha = clamp01(float(alpha))
+
     r = compute_retrieval_norm(selected_candidates, all_candidates)
     c, must_missing, nice_missing = compute_coverage_norm(
         profile_keywords, must_evs, nice_evs)
