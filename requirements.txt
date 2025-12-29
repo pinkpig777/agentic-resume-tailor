@@ -15,8 +15,10 @@ pydantic
 # UI & Utilities
 streamlit
 pydantic
+tqdm
 
 #server
 fastapi
 uvicorn
 python-multipart
+
