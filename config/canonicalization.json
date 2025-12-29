@@ -1,0 +1,181 @@
+{
+  "schema_version": "canon_config_v1",
+  "options": {
+    "keep_chars": "+#./-",
+    "collapse_whitespace": true,
+    "slash_to_space": true,
+    "dash_to_space": true,
+    "separator_exceptions": ["ci/cd", "node.js"]
+  },
+  "canon_groups": [
+    {
+      "canonical": "aws",
+      "variants": ["amazon web services", "amazon aws", "aws cloud"]
+    },
+    {
+      "canonical": "gcp",
+      "variants": ["google cloud platform", "google cloud", "g c p"]
+    },
+    {
+      "canonical": "azure",
+      "variants": ["microsoft azure", "azure cloud"]
+    },
+
+    {
+      "canonical": "kubernetes",
+      "variants": ["k8s", "kube", "kube orchestration"]
+    },
+    {
+      "canonical": "docker",
+      "variants": ["docker container", "docker containers"]
+    },
+    {
+      "canonical": "terraform",
+      "variants": ["tf", "hashicorp terraform"]
+    },
+
+    {
+      "canonical": "postgresql",
+      "variants": ["postgres", "postgre"]
+    },
+    {
+      "canonical": "mysql",
+      "variants": ["my sql"]
+    },
+    {
+      "canonical": "mongodb",
+      "variants": ["mongo db", "mongo"]
+    },
+    {
+      "canonical": "redis",
+      "variants": ["redis cache"]
+    },
+
+    {
+      "canonical": "ci/cd",
+      "variants": [
+        "cicd",
+        "ci cd",
+        "continuous integration and delivery",
+        "continuous integration",
+        "continuous delivery",
+        "continuous deployment"
+      ]
+    },
+    {
+      "canonical": "github actions",
+      "variants": ["github action", "gh actions"]
+    },
+    {
+      "canonical": "gitlab ci",
+      "variants": ["gitlab ci/cd", "gitlab pipelines", "gitlab pipeline"]
+    },
+    {
+      "canonical": "jenkins",
+      "variants": ["jenkins pipeline", "jenkins pipelines"]
+    },
+
+    {
+      "canonical": "rest",
+      "variants": [
+        "restful",
+        "rest api",
+        "restful api",
+        "rest APIs",
+        "restful APIs"
+      ]
+    },
+    {
+      "canonical": "grpc",
+      "variants": ["g rpc", "google rpc"]
+    },
+    {
+      "canonical": "graphql",
+      "variants": ["graph ql"]
+    },
+
+    {
+      "canonical": "microservices",
+      "variants": [
+        "micro service",
+        "micro-services",
+        "service oriented architecture",
+        "soa"
+      ]
+    },
+    {
+      "canonical": "distributed systems",
+      "variants": ["distributed system", "distributed computing"]
+    },
+
+    {
+      "canonical": "machine learning",
+      "variants": ["ml", "m l", "applied ml"]
+    },
+    {
+      "canonical": "deep learning",
+      "variants": ["dl", "d l"]
+    },
+    {
+      "canonical": "ml engineering",
+      "variants": [
+        "mle",
+        "ml engineer",
+        "machine learning engineer",
+        "machine learning engineering"
+      ]
+    },
+    {
+      "canonical": "data engineering",
+      "variants": ["de", "data engineer", "data engineering"]
+    },
+
+    {
+      "canonical": "pytorch",
+      "variants": ["torch", "py torch"]
+    },
+    {
+      "canonical": "tensorflow",
+      "variants": ["tf", "tensor flow"]
+    },
+    {
+      "canonical": "scikit-learn",
+      "variants": ["sklearn", "scikit learn"]
+    },
+
+    {
+      "canonical": "llm",
+      "variants": ["large language model", "large language models"]
+    },
+    {
+      "canonical": "rag",
+      "variants": [
+        "retrieval augmented generation",
+        "retrieval-augmented generation"
+      ]
+    },
+    {
+      "canonical": "vector database",
+      "variants": ["vectordb", "vector store", "vector stores"]
+    },
+
+    {
+      "canonical": "linux",
+      "variants": ["unix", "gnu/linux"]
+    },
+    {
+      "canonical": "node.js",
+      "variants": ["nodejs", "node js"]
+    },
+
+    {
+      "canonical": "swe",
+      "variants": [
+        "software engineer",
+        "software engineering",
+        "software development",
+        "software developer"
+      ]
+    }
+  ]
+}
