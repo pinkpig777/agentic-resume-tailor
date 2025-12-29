@@ -13,7 +13,7 @@ ef = embedding_functions.SentenceTransformerEmbeddingFunction(
 
 # Create (or get) a collection for your resume content
 collection = client.get_or_create_collection(
-    name="resume_experience", embedding_function=ef)
+    name="resume_experience", embedding_function=ef, metadata={"hnsw:space": "cosine"})
 
 
 def load_data():
