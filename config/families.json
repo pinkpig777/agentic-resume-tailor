@@ -1,0 +1,10 @@
+{
+  "schema_version": "families_v1",
+  "families": [
+    { "generic": "sql", "satisfied_by": ["postgresql", "mysql", "sqlite", "mssql"] },
+    { "generic": "cloud", "satisfied_by": ["aws", "gcp", "azure"] },
+    { "generic": "containers", "satisfied_by": ["docker", "kubernetes"] },
+    { "generic": "ml", "satisfied_by": ["pytorch", "tensorflow", "scikit-learn"] },
+    { "generic": "cv", "satisfied_by": ["opencv", "yolo"] }
+  ]
+}
