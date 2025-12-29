@@ -126,9 +126,6 @@ def canonicalize_text(text: str) -> str:
     s = _base_normalize(text, keep_chars, collapse_ws)
 
     # Replace variants by scanning (simple, fine for small configs)
-    # We do word-boundary-ish replacement for safety:
-    # If variant has spaces, we search as substring on the normalized string.
-    # If single token, we use boundaries.
     for var, canon in _VARIANT_TO_CANON.items():
         if not var or var == canon:
             continue
@@ -145,17 +142,7 @@ def canonicalize_text(text: str) -> str:
 # ----------------------------
 # Bullet text normalization (LaTeX-aware)
 # ----------------------------
-#
-# IMPORTANT:
-# We do NOT modify stored bullets. This is ONLY for matching.
-# We want to remove LaTeX markup while preserving the *content* inside commands.
-#
-# Example:
-#   "Saved \\textbf{3,000+} hours"  ->  "Saved 3,000+ hours"
-#
-# This matters because deleting the whole command would destroy important tokens.
 
-# Commands like: \\href{url}{text}, \\textbf{X}, \\emph{X}, \\texttt{X}, ...
 _LATEX_TWO_ARGS = re.compile(
     r"\\[a-zA-Z]+\*?(?:\[[^\]]*\])?\{([^{}]*)\}\{([^{}]*)\}"
 )
@@ -169,12 +156,10 @@ _BRACES = re.compile(r"[{}]")
 def latex_to_plain_for_matching(latex: str) -> str:
     """
     Remove common LaTeX markup while keeping human-readable content.
-    This is ONLY used for keyword matching / coverage checks.
+    ONLY used for matching / coverage checks.
     """
     s = latex or ""
 
-    # Unescape the common escaped characters we might store in bullets.
-    # (Keep them as characters; they don't hurt matching.)
     s = (
         s.replace(r"\\%", "%")
         .replace(r"\\&", "&")
@@ -183,16 +168,8 @@ def latex_to_plain_for_matching(latex: str) -> str:
         .replace(r"\\#", "#")
     )
 
-    # Keep content inside inline math if present: $...$ -> ...
-    # (Rare in bullets, but safe.)
     s = re.sub(r"\$(.*?)\$", r" \1 ", s)
 
-    # Preserve arguments of LaTeX commands.
-    #
-    # First handle 2-arg commands like \\href{url}{text} (keep visible text).
-    # Then handle 1-arg commands like \\textbf{X}, \\emph{X}, \\texttt{X}, etc. (keep X).
-    #
-    # We loop a few times to peel nested wrappers: \\textbf{\\emph{X}} -> X
     for _ in range(6):
         prev = s
         s = _LATEX_TWO_ARGS.sub(r" \2 ", s)
@@ -200,10 +177,7 @@ def latex_to_plain_for_matching(latex: str) -> str:
         if s == prev:
             break
 
-    # Remove any remaining command names (no args) like \\item, \\newline, etc.
     s = _LATEX_CMD_ONLY.sub(" ", s)
-
-    # Drop braces/backslashes residue and normalize whitespace.
     s = _BRACES.sub(" ", s)
     s = s.replace("\\", " ")
     s = re.sub(r"\s+", " ", s).strip()
@@ -249,22 +223,18 @@ MatchTier = str  # "exact" | "family" | "substring" | "none"
 class MatchEvidence:
     keyword: str                 # canonical
     tier: MatchTier
-    # canonical term that satisfied (for family/substring), else keyword
     satisfied_by: Optional[str]
-    bullet_ids: List[str]        # bullets that matched
+    bullet_ids: List[str]
     notes: str = ""
 
 
 def _safe_word_boundary_regex(phrase: str) -> re.Pattern:
-    # phrase is already normalized
-    # treat spaces as \s+
     parts = [re.escape(p) for p in phrase.split()]
     pat = r"(?<![a-z0-9])" + r"\s+".join(parts) + r"(?![a-z0-9])"
     return re.compile(pat)
 
 
 def _is_safe_substring_token(t: str) -> bool:
-    # Avoid false positives like "c" matching everything.
     if len(t) < 6:
         return False
     return bool(re.fullmatch(r"[a-z0-9]+", t))
@@ -278,7 +248,6 @@ def match_keywords_against_bullets(
     keywords: list of {raw, canonical, ...} (from TargetProfileV1 lists)
     bullets: list of {bullet_id, text_latex, meta}
     """
-    # Preprocess bullets for matching
     bullet_text: Dict[str, str] = {}
     for b in bullets:
         bid = b["bullet_id"]
@@ -347,10 +316,6 @@ def match_keywords_against_bullets(
 
 
 def extract_profile_keywords(profile: Any) -> Dict[str, List[Dict[str, Any]]]:
-    """
-    Accept TargetProfileV1 pydantic, or dict-like.
-    Returns dict with keys: must_have, nice_to_have
-    """
     if hasattr(profile, "model_dump"):
         profile = profile.model_dump()
 
@@ -360,3 +325,35 @@ def extract_profile_keywords(profile: Any) -> Dict[str, List[Dict[str, Any]]]:
         "must_have": must_have,
         "nice_to_have": nice_to_have,
     }
+
+
+# ----------------------------
+# NEW: build match corpus (skills + selected bullets)
+# ----------------------------
+
+def build_match_corpus(
+    resume_data: Dict[str, Any],
+    selected_bullets: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Build a unified matching corpus so keywords can be satisfied by:
+    - Skills section text (pseudo-bullets)
+    - Selected experience/project bullets
+
+    This avoids false "missing" when the keyword exists in Skills.
+    """
+    corpus: List[Dict[str, Any]] = []
+
+    skills = (resume_data or {}).get("skills", {}) or {}
+    if isinstance(skills, dict):
+        for field, val in skills.items():
+            if isinstance(val, str) and val.strip():
+                corpus.append({
+                    "bullet_id": f"skills:{field}",
+                    "text_latex": val,
+                    "meta": {"section": "skills", "field": field},
+                })
+
+    # Add selected bullets as-is
+    corpus.extend(selected_bullets or [])
+    return corpus
