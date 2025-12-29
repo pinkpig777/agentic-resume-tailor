@@ -1,11 +1,9 @@
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 
-# Higher tiers count more toward coverage.
 TIER_WEIGHTS = {
     "exact": 1.0,
-    "alias": 0.85,
     "family": 0.80,
     "substring": 0.50,
     "none": 0.0,
@@ -17,8 +15,14 @@ class ScoreResult:
     final_score: int
     retrieval_score: float     # 0..1
     coverage_score: float      # 0..1
+
+    # Missing in the FINAL resume text (skills + selected bullets). This is the one users care about.
     must_missing: List[str]
     nice_missing: List[str]
+
+    # Missing in selected bullets only (proof signal). Optional but useful.
+    must_missing_bullets_only: List[str]
+    nice_missing_bullets_only: List[str]
 
 
 def clamp01(x: float) -> float:
@@ -30,6 +34,11 @@ def _mean(xs: List[float]) -> float:
 
 
 def compute_retrieval_norm(selected_candidates: List[Any], all_candidates: List[Any]) -> float:
+    """
+    Normalization you requested:
+    - numerator: mean(total_weighted) over selected candidates (after selection)
+    - denominator: mean(top-N total_weighted) among all candidates (ceiling)
+    """
     if not selected_candidates or not all_candidates:
         return 0.0
 
@@ -37,11 +46,9 @@ def compute_retrieval_norm(selected_candidates: List[Any], all_candidates: List[
     if n <= 0:
         return 0.0
 
-    # after selection
     selected_mean = sum(float(c.total_weighted)
                         for c in selected_candidates) / len(selected_candidates)
 
-    # best possible for the same N (ceiling)
     all_vals = sorted((float(c.total_weighted)
                       for c in all_candidates), reverse=True)
     best_possible_mean = sum(all_vals[:n]) / n
@@ -59,7 +66,7 @@ def _canonical_list(profile_keywords: Dict[str, List[Dict[str, str]]], key: str)
         v = (k.get("canonical") or k.get("raw") or "").strip().lower()
         if v:
             out.append(v)
-    # de-dupe while preserving order
+
     seen = set()
     deduped = []
     for v in out:
@@ -70,10 +77,6 @@ def _canonical_list(profile_keywords: Dict[str, List[Dict[str, str]]], key: str)
 
 
 def _best_tier_per_keyword(keywords: List[str], evidences) -> Tuple[float, List[str]]:
-    """
-    For each keyword, take the best tier score among evidences.
-    Returns (avg_score, missing_keywords)
-    """
     if not keywords:
         return 1.0, []
 
@@ -95,13 +98,12 @@ def _best_tier_per_keyword(keywords: List[str], evidences) -> Tuple[float, List[
 
 def compute_coverage_norm(
     profile_keywords: Dict[str, List[Dict[str, str]]],
-    must_evs,
-    nice_evs,
+    must_evs_all,
+    nice_evs_all,
     must_weight: float = 0.8,
 ) -> Tuple[float, List[str], List[str]]:
     """
-    Coverage is tier-weighted (exact > alias/family > substring).
-    must_weight controls how much must-have dominates coverage.
+    Coverage computed against the FINAL resume text (skills + selected bullets).
     """
     must_weight = clamp01(float(must_weight))
     nice_weight = 1.0 - must_weight
@@ -109,8 +111,8 @@ def compute_coverage_norm(
     must = _canonical_list(profile_keywords, "must_have")
     nice = _canonical_list(profile_keywords, "nice_to_have")
 
-    must_score, must_missing = _best_tier_per_keyword(must, must_evs)
-    nice_score, nice_missing = _best_tier_per_keyword(nice, nice_evs)
+    must_score, must_missing = _best_tier_per_keyword(must, must_evs_all)
+    nice_score, nice_missing = _best_tier_per_keyword(nice, nice_evs_all)
 
     coverage = clamp01(must_weight * must_score + nice_weight * nice_score)
     return coverage, must_missing, nice_missing
@@ -120,19 +122,46 @@ def score(
     selected_candidates: List[Any],
     all_candidates: List[Any],
     profile_keywords: Dict[str, List[Dict[str, str]]],
-    must_evs,
-    nice_evs,
+
+    # evidences for FINAL resume (skills + selected bullets)
+    must_evs_all,
+    nice_evs_all,
+
+    # optional: evidences for bullets only (proof)
+    must_evs_bullets_only=None,
+    nice_evs_bullets_only=None,
+
     alpha: float = 0.7,
 ) -> ScoreResult:
     """
     alpha blends retrieval vs coverage.
     final_score is 0..100 (int).
+
+    - coverage uses (skills + selected bullets), so you don't falsely mark "missing"
+      when it's already in Skills.
+    - bullets-only missing is returned separately as a "proof" signal.
     """
     alpha = clamp01(float(alpha))
 
     r = compute_retrieval_norm(selected_candidates, all_candidates)
     c, must_missing, nice_missing = compute_coverage_norm(
-        profile_keywords, must_evs, nice_evs)
+        profile_keywords, must_evs_all, nice_evs_all
+    )
+
+    # bullets-only missing (optional)
+    if must_evs_bullets_only is None:
+        must_missing_bullets_only = must_missing[:]
+    else:
+        must = _canonical_list(profile_keywords, "must_have")
+        _, must_missing_bullets_only = _best_tier_per_keyword(
+            must, must_evs_bullets_only)
+
+    if nice_evs_bullets_only is None:
+        nice_missing_bullets_only = nice_missing[:]
+    else:
+        nice = _canonical_list(profile_keywords, "nice_to_have")
+        _, nice_missing_bullets_only = _best_tier_per_keyword(
+            nice, nice_evs_bullets_only)
 
     final = int(round(100 * clamp01(alpha * r + (1 - alpha) * c)))
 
@@ -142,4 +171,6 @@ def score(
         coverage_score=c,
         must_missing=must_missing,
         nice_missing=nice_missing,
+        must_missing_bullets_only=must_missing_bullets_only,
+        nice_missing_bullets_only=nice_missing_bullets_only,
     )
