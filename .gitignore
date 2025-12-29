@@ -26,7 +26,7 @@ output/
 *.toc
 # personal data
 data/my_experience.json
-
+data/raw_experience_data.json
 # OS & IDE
 .DS_Store
 .vscode/
