@@ -1,73 +1,117 @@
 import json
+import re
 import chromadb
 from chromadb.utils import embedding_functions
-import uuid
+from tqdm import tqdm  #
 
-# 1. Setup ChromaDB
-# This creates a local folder 'data/processed/chroma_db' to store the vectors
-client = chromadb.PersistentClient(path="data/processed/chroma_db")
-
-# Use a free, local embedding model (no API key needed yet)
-ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-    model_name="all-MiniLM-L6-v2")
-
-# Create (or get) a collection for your resume content
-collection = client.get_or_create_collection(
-    name="resume_experience", embedding_function=ef, metadata={"hnsw:space": "cosine"})
+DB_PATH = "data/processed/chroma_db"
+COLLECTION_NAME = "resume_experience"
+JSON_PATH = "data/my_experience.json"
 
 
-def load_data():
-    with open("data/my_experience.json", "r") as f:
-        return json.load(f)
+def strip_latex(s: str) -> str:
+    if not s:
+        return ""
+    s = re.sub(r"\\[a-zA-Z]+\{([^}]*)\}", r"\1", s)
+    s = re.sub(r"\\[a-zA-Z]+", " ", s)
+    s = s.replace("{", " ").replace("}", " ")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
 
 def ingest():
-    data = load_data()
+    print("⏳ Initializing ChromaDB Client...")
+    client = chromadb.PersistentClient(path=DB_PATH)
+
+    print("⏳ Loading Embedding Model (this usually takes a few seconds)...")
+    ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+        model_name="all-MiniLM-L6-v2"
+    )
+    print("🚀 Model Loaded. Starting JSON processing...")
+    try:
+        client.delete_collection(COLLECTION_NAME)
+    except Exception:
+        pass
+
+    collection = client.get_or_create_collection(
+        name=COLLECTION_NAME,
+        embedding_function=ef,
+        metadata={"hnsw:space": "cosine"}
+    )
+
+    data = json.load(open(JSON_PATH, "r", encoding="utf-8"))
 
     documents = []
     metadatas = []
     ids = []
 
-    # 1. Ingest Work Experience
-    print("Ingesting Work Experience...")
-    for job in data.get("experiences", []):
-        company = job["company"]
-        role = job["role"]
+    # Calculate total items for the main progress bar
+    total_items = len(data.get("experiences", [])) + \
+        len(data.get("projects", []))
 
-        for bullet in job["bullets"]:
-            # The "text" the AI searches:
-            documents.append(bullet)
+    # 2. Initialize the main progress bar
+    pbar = tqdm(total=total_items, desc="Processing Experience & Projects")
 
-            # The "metadata" helps us filter later (e.g., only show "SaturnAI" bullets):
+    # Experiences
+    for exp in data.get("experiences", []):
+        job_id = exp["job_id"]
+        company = exp.get("company", "")
+        role = exp.get("role", "")
+        dates = exp.get("dates", "")
+        location = exp.get("location", "")
+
+        for b in exp.get("bullets", []):
+            local_id = b["id"]
+            text_latex = b["text_latex"]
+            bullet_id = f"exp:{job_id}:{local_id}"
+
+            documents.append(strip_latex(text_latex))
             metadatas.append({
-                "type": "experience",
+                "section": "experience",
+                "job_id": job_id,
                 "company": company,
                 "role": role,
-                "category": "work"  # generic tag
+                "dates": dates,
+                "location": location,
+                "local_bullet_id": local_id,
+                "text_latex": text_latex,
             })
-            ids.append(str(uuid.uuid4()))
+            ids.append(bullet_id)
 
-    # 2. Ingest Projects
-    print("Ingesting Projects...")
-    for project in data.get("projects", []):
-        name = project["name"]
-        tech = project["technologies"]
+        pbar.update(1)  # Update for each job processed
 
-        for bullet in project["bullets"]:
-            documents.append(bullet)
+    # Projects
+    for proj in data.get("projects", []):
+        project_id = proj["project_id"]
+        name = proj.get("name", "")
+        technologies = proj.get("technologies", "")
+
+        for b in proj.get("bullets", []):
+            local_id = b["id"]
+            text_latex = b["text_latex"]
+            bullet_id = f"proj:{project_id}:{local_id}"
+
+            documents.append(strip_latex(text_latex))
             metadatas.append({
-                "type": "project",
+                "section": "project",
+                "project_id": project_id,
                 "name": name,
-                "technologies": tech,
-                "category": "project"
+                "technologies": technologies,
+                "local_bullet_id": local_id,
+                "text_latex": text_latex,
             })
-            ids.append(str(uuid.uuid4()))
+            ids.append(bullet_id)
 
-    # 3. Save to DB
+        pbar.update(1)  # Update for each project processed
+
+    pbar.close()
+
     if documents:
-        collection.add(documents=documents, metadatas=metadatas, ids=ids)
+        # 3. Add a specialized message for the embedding process
         print(
-            f"Successfully stored {len(documents)} resume bullet points in ChromaDB!")
+            f"✨ Generating embeddings and storing {len(documents)} bullets...")
+        collection.add(documents=documents, metadatas=metadatas, ids=ids)
+        print(f"✅ Successfully stored in ChromaDB.")
     else:
         print("No bullets found to ingest.")
 
