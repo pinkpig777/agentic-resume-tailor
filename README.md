@@ -108,6 +108,7 @@ docker run --rm \
 Environment knobs:
 - `ART_JD_MODEL` (default: `gpt-4.1-nano-2025-04-14`)
 - `ART_CANON_CONFIG` (default: `config/canonicalization.json`)
+- `ART_FAMILY_CONFIG` (default: `config/config/families.json`)
 - `ART_SCORE_ALPHA` (default: `0.7`) – hybrid weighting (retrieval vs coverage)
 
 ### 4) Run JD parser directly (optional)
