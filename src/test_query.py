@@ -4,7 +4,7 @@ import chromadb
 from chromadb.utils import embedding_functions
 
 from retrieval import multi_query_retrieve
-
+from selection import select_topk
 
 DB_PATH = "data/processed/chroma_db"
 COLLECTION_NAME = "resume_experience"
@@ -90,7 +90,9 @@ Bonus if you have worked with Docker and CI/CD pipelines.
         per_query_k=10,
         final_k=30,
     )
+    selected_ids, decisions = select_topk(cands, max_bullets=16)
 
-    print("\n🔎 RETRIEVAL RESULTS (multi-query + cosine rerank)")
+    print("\n✅ SELECTED (Top-K)")
     print("-" * 60)
-    print_results(cands, show_hits=True, top=12)
+    for i, bid in enumerate(selected_ids, start=1):
+        print(f"[{i}] {bid}")
