@@ -1,14 +1,14 @@
 import os
+import json
 import traceback
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import chromadb
 from chromadb.utils import embedding_functions
 
-from retrieval import multi_query_retrieve
-from selection import select_topk
+from loop_controller import run_loop
 from keyword_matcher import extract_profile_keywords, match_keywords_against_bullets
-from scorer import score as hybrid_score  # retrieval+coverage hybrid
+from scorer import score as hybrid_score
 
 
 DB_PATH = os.environ.get("ART_DB_PATH", "data/processed/chroma_db")
@@ -68,6 +68,7 @@ def fallback_queries_from_jd(jd_text: str, max_q: int = 6) -> List[str]:
     if condensed and condensed not in out:
         out.insert(0, condensed)
 
+    # de-dupe keep order
     seen = set()
     deduped: List[str] = []
     for q in out:
@@ -98,7 +99,17 @@ def build_skills_pseudo_bullet(static_data: Dict[str, Any]) -> Optional[Dict[str
     return {"bullet_id": "__skills__", "text_latex": txt, "meta": {"section": "skills"}}
 
 
-def print_results(cands, top=12, show_hits=True):
+def _load_static_data() -> Dict[str, Any]:
+    path = os.environ.get("ART_DATA_FILE", "data/my_experience.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"⚠️ Failed to load {path}: {e}")
+        return {}
+
+
+def print_top_candidates(cands: List[Any], top: int = 12, show_hits: bool = True):
     print("\n🔎 RETRIEVAL RESULTS")
     print("-" * 60)
     for i, c in enumerate(cands[:top], start=1):
@@ -120,7 +131,6 @@ def print_results(cands, top=12, show_hits=True):
 if __name__ == "__main__":
     collection, ef = load_collection()
 
-    # Robust JD for stress testing
     jd_text = """
 Software Engineer (Full Stack), AI Product
 
@@ -147,91 +157,73 @@ Responsibilities:
 - Collaborate with PM/design and lead small initiatives
 """.strip()
 
+    static_data = _load_static_data()
+    skills_b = build_skills_pseudo_bullet(static_data)
+
     profile = try_parse_jd(jd_text)
+    initial_queries = fallback_queries_from_jd(jd_text)
 
-    if profile is None:
-        print("ℹ️ No TargetProfile produced. Using manual multi-query retrieval only.")
-        profile_or_queries = fallback_queries_from_jd(jd_text)
-    else:
-        profile_or_queries = profile
-
-    # Retrieval
-    cands = multi_query_retrieve(
+    best_it, history, best_candidates = run_loop(
+        jd_text=jd_text,
         collection=collection,
         embedding_fn=ef,
-        jd_parser_result=profile_or_queries,
+        profile=profile,  # if None -> retrieval-only mode
+        initial_queries=initial_queries,
+        skills_pseudo_bullet=skills_b,
         per_query_k=int(os.environ.get("ART_PER_QUERY_K", "10")),
         final_k=int(os.environ.get("ART_FINAL_K", "30")),
+        max_bullets=int(os.environ.get("ART_MAX_BULLETS", "16")),
+        threshold=int(os.environ.get("ART_SCORE_THRESHOLD", "80")),
+        max_iters=int(os.environ.get("ART_MAX_ITERS", "3")),
+        alpha=float(os.environ.get("ART_SCORE_ALPHA", "0.7")),
+        must_weight=float(os.environ.get("ART_MUST_WEIGHT", "0.8")),
     )
 
-    print_results(cands, top=12, show_hits=True)
-
-    # Selection (Top-K)
-    selected_ids, _ = select_topk(cands, max_bullets=int(
-        os.environ.get("ART_MAX_BULLETS", "16")))
-    print("\n✅ SELECTED (Top-K)")
+    print("\n🧠 LOOP SUMMARY")
     print("-" * 60)
-    for i, bid in enumerate(selected_ids, start=1):
+    print(f"profile_used: {profile is not None}")
+    print(f"iters_ran: {len(history)}")
+    print(f"best_iter: {best_it.iter_idx}")
+
+    # show top candidates of the best iteration
+    print_top_candidates(best_candidates, top=12, show_hits=True)
+
+    print("\n✅ SELECTED (Top-K) [best iteration]")
+    print("-" * 60)
+    for i, bid in enumerate(best_it.selected_ids, start=1):
         print(f"[{i}] {bid}")
 
-    # Build selected bullets payload + selected candidates (for hybrid scoring)
-    selected_set = set(selected_ids)
-    selected_candidates = [c for c in cands if c.bullet_id in selected_set]
-
-    selected_bullets = [{"bullet_id": c.bullet_id, "text_latex": c.text_latex,
-                         "meta": c.meta} for c in selected_candidates]
-    all_bullets = [{"bullet_id": c.bullet_id,
-                    "text_latex": c.text_latex, "meta": c.meta} for c in cands]
-
-    # Hybrid scoring only if we have a TargetProfile
-    if profile is None:
+    # If profile is None: no scoring
+    if profile is None or best_it.score is None:
         print("\nℹ️ Skipping hybrid scoring because no TargetProfile was produced.")
-    else:
-        pk = extract_profile_keywords(profile)
+        raise SystemExit(0)
 
-        # bullets-only: what will actually appear on the rendered page
-        must_evs_bullets_only = match_keywords_against_bullets(
-            pk["must_have"], selected_bullets)
-        nice_evs_bullets_only = match_keywords_against_bullets(
-            pk["nice_to_have"], selected_bullets)
+    # Best iteration score
+    s = best_it.score
+    print("\n🧪 HYBRID SCORE (best iteration)")
+    print(
+        f"final={s.final_score} | retrieval={s.retrieval_score:.3f} | "
+        f"cov(bullets)={s.coverage_bullets_only:.3f} | cov(all)={s.coverage_all:.3f}"
+    )
 
-        # all: allow matching against all retrieved bullets + Skills (so user isn't misled)
-        # NOTE: this does NOT change selection. It's scoring/explainability only.
-        try:
-            import json
-            with open(os.environ.get("ART_DATA_FILE", "data/my_experience.json"), "r", encoding="utf-8") as f:
-                static_data = json.load(f)
-        except Exception:
-            static_data = {}
+    print("\nMissing (bullets only, proof):")
+    print("  must:", s.must_missing_bullets_only)
+    print("  nice:", s.nice_missing_bullets_only)
 
-        skills_b = build_skills_pseudo_bullet(static_data)
-        all_bullets_plus_skills = all_bullets + \
-            ([skills_b] if skills_b else [])
+    print("\nMissing (all + skills):")
+    print("  must:", s.must_missing_all)
+    print("  nice:", s.nice_missing_all)
 
-        must_evs_all = match_keywords_against_bullets(
-            pk["must_have"], all_bullets_plus_skills)
-        nice_evs_all = match_keywords_against_bullets(
-            pk["nice_to_have"], all_bullets_plus_skills)
-
-        hybrid = hybrid_score(
-            selected_candidates=selected_candidates,
-            all_candidates=cands,
-            profile_keywords=pk,
-            must_evs_all=must_evs_all,
-            nice_evs_all=nice_evs_all,
-            must_evs_bullets_only=must_evs_bullets_only,
-            nice_evs_bullets_only=nice_evs_bullets_only,
-            alpha=float(os.environ.get("ART_SCORE_ALPHA", "0.7")),
-            must_weight=float(os.environ.get("ART_MUST_WEIGHT", "0.8")),
-        )
-
-        print("\n🧪 HYBRID SCORE")
-        print(f"final={hybrid.final_score} | retrieval={hybrid.retrieval_score:.3f} | cov(bullets)={hybrid.coverage_bullets_only:.3f} | cov(all)={hybrid.coverage_all:.3f}")
-
-        print("\nMissing (bullets only, proof):")
-        print("  must:", hybrid.must_missing_bullets_only)
-        print("  nice:", hybrid.nice_missing_bullets_only)
-
-        print("\nMissing (all + skills):")
-        print("  must:", hybrid.must_missing_all)
-        print("  nice:", hybrid.nice_missing_all)
+    print("\n📜 ITERATION HISTORY")
+    print("-" * 60)
+    for it in history:
+        if it.score is None:
+            print(
+                f"[iter {it.iter_idx}] score=None boosted_terms={it.boosted_terms}")
+        else:
+            print(
+                f"[iter {it.iter_idx}] final={it.score.final_score} "
+                f"retrieval={it.score.retrieval_score:.3f} "
+                f"cov(bullets)={it.score.coverage_bullets_only:.3f} "
+                f"boosted_terms={it.boosted_terms}"
+            )

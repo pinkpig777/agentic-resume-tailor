@@ -1,0 +1,38 @@
+services:
+  api:
+    build: .
+    container_name: resume-agent-api
+    env_file:
+      - .env
+    command: python /app/src/server.py
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./src:/app/src
+      - ./templates:/app/templates
+      - ./config:/app/config
+      - ./.cache_docker:/root/.cache
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  ui:
+    build: .
+    container_name: resume-agent-ui
+    env_file:
+      - .env
+    environment:
+      # IMPORTANT: in Docker, Streamlit must call the backend by service name
+      ART_API_URL: http://api:8000
+    command: streamlit run /app/src/app.py --server.address=0.0.0.0 --server.port=8501
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./src:/app/src
+    depends_on:
+      api:
+        condition: service_healthy

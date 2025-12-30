@@ -1,8 +1,4 @@
 # AI & Agents
-langchain
-langgraph
-langchain-openai
-langchain-community
 openai
 
 # Data & Vector DB
@@ -16,7 +12,8 @@ pydantic
 streamlit
 pydantic
 tqdm
-
+requests
+pandas
 #server
 fastapi
 uvicorn

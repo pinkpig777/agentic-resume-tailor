@@ -3,6 +3,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
+import copy
+import os
+
 
 from retrieval import multi_query_retrieve
 from selection import select_topk
@@ -11,228 +14,318 @@ from scorer import score as hybrid_score
 
 
 @dataclass
-class IterationResult:
-    iter_idx: int
-    selected_ids: List[str]
-    selected_candidates: List[Any]
-    score: Optional[Any]  # ScoreResult from scorer.py
-    must_missing: List[str]
-    nice_missing: List[str]
-    boosted_terms: List[str]
-    used_queries: List[str]
+class LoopConfig:
+    max_iters: int = 3
+    threshold: int = 80
+
+    per_query_k: int = 10
+    final_k: int = 30
+    max_bullets: int = 16
+
+    alpha: float = 0.7
+    must_weight: float = 0.8
+
+    # boosting behavior
+    boost_weight: float = 1.6
+    boost_top_n_missing: int = 6
 
 
-def _profile_to_dict(profile: Any) -> Dict[str, Any]:
-    if hasattr(profile, "model_dump"):
-        return profile.model_dump()
-    if isinstance(profile, dict):
-        return profile
-    raise TypeError("profile must be a TargetProfile-like object or dict")
+@dataclass
+class LoopResult:
+    best_iteration_index: int
+    best_selected_ids: List[str]
+    best_candidates: List[Any]          # list[Candidate]
+    best_selected_candidates: List[Any]  # list[Candidate]
+    best_hybrid: Optional[Any]          # ScoreResult
+    # must/nice evidences (bullets_only/all_plus_skills)
+    best_evidence: Dict[str, Any]
+    iterations: List[Dict[str, Any]]    # explain trace
 
 
-def _get_queries_from_profile(profile_dict: Dict[str, Any]) -> List[str]:
-    rp = (profile_dict.get("retrieval_plan") or {})
-    eq = (rp.get("experience_queries") or [])
+def _dedupe_keep_order(xs: List[str]) -> List[str]:
+    seen = set()
     out = []
-    for it in eq:
-        if isinstance(it, dict) and it.get("query"):
-            out.append(str(it["query"]))
+    for x in xs:
+        k = (x or "").strip()
+        if not k:
+            continue
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(k)
     return out
 
 
-def apply_boosts_to_profile(
-    profile: Any,
-    boosted_terms: List[str],
-    top_n: int = 10,
-    per_query_append: int = 4,
-    add_boost_queries: bool = True,
-) -> Dict[str, Any]:
+def build_skills_pseudo_bullet(static_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
-    Generic boosting (no hardcoding):
-    - take top N boosted terms
-    - append a few (per_query_append) to each existing query's boost_keywords
-    - optionally add 1-2 extra "boost-only" queries with higher weight
+    Skills aren't embedded in Chroma, but we want coverage_all to give credit.
+    This is NOT used for selection, only scoring/explainability.
     """
-    profile_dict = _profile_to_dict(profile)
-    boosted_terms = [t.strip().lower()
-                     for t in (boosted_terms or []) if t and t.strip()]
-    boosted_terms = boosted_terms[:top_n]
-
-    rp = profile_dict.setdefault("retrieval_plan", {})
-    eq = rp.setdefault("experience_queries", [])
-
-    # append boosts to existing queries
-    if isinstance(eq, list):
-        for it in eq:
-            if not isinstance(it, dict):
-                continue
-            b = it.get("boost_keywords") or []
-            if not isinstance(b, list):
-                b = []
-            # add a few boosts to each query to avoid bloating embeddings
-            for term in boosted_terms[:per_query_append]:
-                if term not in b:
-                    b.append(term)
-            it["boost_keywords"] = b
-
-    # add extra boost-only queries
-    if add_boost_queries and boosted_terms:
-        # One “must coverage” query + one “systems” query; both are generic.
-        boost_q1 = " ".join(["must have skills"] +
-                            boosted_terms[: min(8, len(boosted_terms))])
-        boost_q2 = " ".join(["production experience"] +
-                            boosted_terms[: min(8, len(boosted_terms))])
-
-        eq.append(
-            {
-                "query": boost_q1,
-                "purpose": "general",
-                "boost_keywords": [],
-                "weight": 1.8,
-            }
-        )
-        eq.append(
-            {
-                "query": boost_q2,
-                "purpose": "general",
-                "boost_keywords": [],
-                "weight": 1.6,
-            }
-        )
-
-    # safety: cap total queries to avoid query explosion
-    rp["experience_queries"] = eq[:9]
-    return profile_dict
+    skills = static_data.get("skills", {}) or {}
+    parts = []
+    for k in ["languages_frameworks", "ai_ml", "db_tools"]:
+        v = skills.get(k)
+        if v:
+            parts.append(str(v))
+    txt = " | ".join(parts).strip()
+    if not txt:
+        return None
+    return {"bullet_id": "__skills__", "text_latex": txt, "meta": {"section": "skills"}}
 
 
-def build_selected_payloads(
-    candidates: List[Any], selected_ids: List[str]
-) -> Tuple[List[Any], List[Dict[str, Any]]]:
+def _profile_to_query_payload(profile: Any) -> Dict[str, Any]:
+    """
+    Convert TargetProfile pydantic/dict into a dict payload that retrieval._build_query_items accepts.
+    """
+    if hasattr(profile, "model_dump"):
+        return profile.model_dump()
+    if isinstance(profile, dict):
+        return copy.deepcopy(profile)
+    # last resort: try object -> dict
+    return dict(profile)
+
+
+def _boost_query_payload(
+    base_profile_or_queries: Any,
+    boost_terms: List[str],
+    boost_weight: float,
+) -> Tuple[Any, List[str]]:
     """
     Returns:
-      selected_candidates: Candidate objects (for scorer normalization)
-      selected_bullets: list of dicts for keyword_matcher
+      - jd_parser_result payload for retrieval.py
+      - queries_used list[str] for reporting
     """
-    selected_set = set(selected_ids)
-    selected_candidates: List[Any] = []
-    selected_bullets: List[Dict[str, Any]] = []
+    boost_terms = _dedupe_keep_order([t.lower().strip() for t in boost_terms])
 
-    for c in candidates:
-        if c.bullet_id in selected_set:
-            selected_candidates.append(c)
-            selected_bullets.append(
-                {
-                    "bullet_id": c.bullet_id,
-                    "text_latex": c.text_latex,
-                    "meta": c.meta,
-                }
-            )
-    return selected_candidates, selected_bullets
+    # Case A: TargetProfile-like
+    if not (isinstance(base_profile_or_queries, list) and all(isinstance(x, str) for x in base_profile_or_queries)):
+        payload = _profile_to_query_payload(base_profile_or_queries)
+        rp = payload.get("retrieval_plan", {}) or {}
+        eq = rp.get("experience_queries", []) or []
+
+        new_eq = []
+        queries_used = []
+        for it in eq:
+            if not isinstance(it, dict) or not it.get("query"):
+                continue
+            cur_boost = list(it.get("boost_keywords") or [])
+            cur_boost = _dedupe_keep_order(
+                [b.lower().strip() for b in cur_boost] + boost_terms)
+
+            new_it = dict(it)
+            new_it["boost_keywords"] = cur_boost
+
+            # optionally increase weights a bit when boosting is active
+            if boost_terms:
+                try:
+                    new_it["weight"] = float(
+                        max(float(new_it.get("weight", 1.0)), 1.0))
+                except Exception:
+                    new_it["weight"] = 1.0
+
+            new_eq.append(new_it)
+            # what will actually be embedded by retrieval.py:
+            qtxt = str(new_it["query"]).strip()
+            if cur_boost:
+                qtxt = qtxt + " " + " ".join(cur_boost)
+            queries_used.append(qtxt)
+
+        # Add one dedicated boost query to pull missing terms hard
+        if boost_terms:
+            boost_query = {
+                "query": " ".join(boost_terms),
+                "purpose": "general",
+                "boost_keywords": [],
+                "weight": float(boost_weight),
+            }
+            new_eq.append(boost_query)
+            queries_used.append(boost_query["query"])
+
+        payload["retrieval_plan"] = dict(rp)
+        payload["retrieval_plan"]["experience_queries"] = new_eq
+        return payload, queries_used
+
+    # Case B: list[str] fallback queries
+    base_queries: List[str] = [q.strip()
+                               for q in base_profile_or_queries if q.strip()]
+    queries_used = list(base_queries)
+
+    if boost_terms:
+        # Add a boost-only query + append boosts to the first few queries
+        queries_used = []
+        for i, q in enumerate(base_queries):
+            if i < 3:
+                queries_used.append(q + " " + " ".join(boost_terms))
+            else:
+                queries_used.append(q)
+        queries_used.append(" ".join(boost_terms))  # boost-only
+
+    # retrieval.py can take list[str] directly
+    return queries_used, queries_used
 
 
 def run_loop(
     *,
     jd_text: str,
+    static_data: Dict[str, Any],
     collection: Any,
     embedding_fn: Any,
-    profile: Optional[Any],
-    per_query_k: int = 10,
-    final_k: int = 30,
-    max_bullets: int = 16,
-    threshold: int = 80,
-    max_iters: int = 3,
-    alpha: float = 0.7,
-) -> Tuple[IterationResult, List[IterationResult]]:
+    base_profile_or_queries: Any,  # TargetProfile OR list[str]
+    cfg: LoopConfig,
+) -> LoopResult:
     """
-    Agentic loop:
-      - retrieve -> select -> keyword match -> hybrid score
-      - if score < threshold: boost missing must-have and retry
-      - always returns best iteration
+    The loop does NOT call OpenAI.
+    It just re-runs retrieval with boosted keywords based on missing must-haves (bullets-only).
     """
-    history: List[IterationResult] = []
-    best: Optional[IterationResult] = None
 
-    # If no profile: single-pass retrieval only, no loop / no scoring
-    if profile is None:
-        candidates = multi_query_retrieve(
+    iterations: List[Dict[str, Any]] = []
+
+    best_score = -1
+    best_idx = 0
+    best_selected_ids: List[str] = []
+    best_candidates: List[Any] = []
+    best_selected_candidates: List[Any] = []
+    best_hybrid = None
+    best_evidence: Dict[str, Any] = {}
+
+    # We can only do scoring if we have a real profile with must/nice lists.
+    has_profile = not (isinstance(base_profile_or_queries, list) and all(
+        isinstance(x, str) for x in base_profile_or_queries))
+
+    pk = None
+    if has_profile:
+        pk = extract_profile_keywords(base_profile_or_queries)
+
+    boost_terms: List[str] = []
+
+    for it in range(cfg.max_iters):
+        jd_payload, queries_used = _boost_query_payload(
+            base_profile_or_queries=base_profile_or_queries,
+            boost_terms=boost_terms,
+            boost_weight=cfg.boost_weight,
+        )
+
+        # Node 2: retrieval
+        cands = multi_query_retrieve(
             collection=collection,
             embedding_fn=embedding_fn,
-            jd_parser_result=[jd_text],  # just use the JD as a single query
-            per_query_k=per_query_k,
-            final_k=final_k,
+            jd_parser_result=jd_payload,
+            per_query_k=cfg.per_query_k,
+            final_k=cfg.final_k,
         )
-        selected_ids, _ = select_topk(candidates, max_bullets=max_bullets)
-        sel_cands, sel_bullets = build_selected_payloads(
-            candidates, selected_ids)
-        it = IterationResult(
-            iter_idx=1,
-            selected_ids=selected_ids,
-            selected_candidates=sel_cands,
-            score=None,
-            must_missing=[],
-            nice_missing=[],
-            boosted_terms=[],
-            used_queries=[jd_text],
-        )
-        history.append(it)
-        return it, history
 
-    # Start with the original profile, then boosted variants
-    current_profile: Any = profile
-    boosted_terms: List[str] = []
+        # Node 3: selection
+        selected_ids, _ = select_topk(cands, max_bullets=cfg.max_bullets)
+        selected_set = set(selected_ids)
+        selected_candidates = [c for c in cands if c.bullet_id in selected_set]
 
-    for it_idx in range(1, max_iters + 1):
-        candidates = multi_query_retrieve(
-            collection=collection,
-            embedding_fn=embedding_fn,
-            jd_parser_result=current_profile,
-            per_query_k=per_query_k,
-            final_k=final_k,
-        )
-        selected_ids, _ = select_topk(candidates, max_bullets=max_bullets)
-        sel_cands, sel_bullets = build_selected_payloads(
-            candidates, selected_ids)
+        # Default iteration record (even if no scoring)
+        iter_entry: Dict[str, Any] = {
+            "iteration": it,
+            "queries_used": queries_used,
+            "selected_ids": selected_ids,
+            "candidate_count": len(cands),
+            "scored": False,
+        }
 
-        pk = extract_profile_keywords(current_profile)
-        must_evs = match_keywords_against_bullets(pk["must_have"], sel_bullets)
-        nice_evs = match_keywords_against_bullets(
-            pk["nice_to_have"], sel_bullets)
+        # If no profile, we can't compute keyword coverage.
+        if not has_profile or pk is None:
+            iterations.append(iter_entry)
+            # still track "best" by retrieval-only heuristic (mean total_weighted)
+            retrieval_only = 0.0
+            if selected_candidates:
+                retrieval_only = sum(float(c.total_weighted)
+                                     for c in selected_candidates) / len(selected_candidates)
+            if retrieval_only > best_score:
+                best_score = retrieval_only
+                best_idx = it
+                best_selected_ids = selected_ids
+                best_candidates = cands
+                best_selected_candidates = selected_candidates
+                best_hybrid = None
+                best_evidence = {}
+            continue
 
-        s = hybrid_score(
-            selected_candidates=sel_cands,
-            all_candidates=candidates,
+        # Build bullet payloads for matcher
+        selected_bullets = [
+            {"bullet_id": c.bullet_id, "text_latex": c.text_latex, "meta": c.meta}
+            for c in selected_candidates
+        ]
+        all_bullets = [
+            {"bullet_id": c.bullet_id, "text_latex": c.text_latex, "meta": c.meta}
+            for c in cands
+        ]
+        skills_b = build_skills_pseudo_bullet(static_data)
+        all_plus_skills = all_bullets + ([skills_b] if skills_b else [])
+
+        must_evs_bullets_only = match_keywords_against_bullets(
+            pk["must_have"], selected_bullets)
+        nice_evs_bullets_only = match_keywords_against_bullets(
+            pk["nice_to_have"], selected_bullets)
+
+        must_evs_all = match_keywords_against_bullets(
+            pk["must_have"], all_plus_skills)
+        nice_evs_all = match_keywords_against_bullets(
+            pk["nice_to_have"], all_plus_skills)
+
+        hybrid = hybrid_score(
+            selected_candidates=selected_candidates,
+            all_candidates=cands,
             profile_keywords=pk,
-            must_evs=must_evs,
-            nice_evs=nice_evs,
-            alpha=alpha,
+            must_evs_all=must_evs_all,
+            nice_evs_all=nice_evs_all,
+            must_evs_bullets_only=must_evs_bullets_only,
+            nice_evs_bullets_only=nice_evs_bullets_only,
+            alpha=cfg.alpha,
+            must_weight=cfg.must_weight,
         )
 
-        used_queries = _get_queries_from_profile(
-            _profile_to_dict(current_profile))
+        iter_entry["scored"] = True
+        iter_entry["scores"] = {
+            "final": hybrid.final_score,
+            "retrieval": hybrid.retrieval_score,
+            "coverage_bullets_only": hybrid.coverage_bullets_only,
+            "coverage_all": hybrid.coverage_all,
+        }
+        iter_entry["missing"] = {
+            "must_bullets_only": list(hybrid.must_missing_bullets_only),
+            "nice_bullets_only": list(hybrid.nice_missing_bullets_only),
+            "must_all": list(hybrid.must_missing_all),
+            "nice_all": list(hybrid.nice_missing_all),
+        }
 
-        result = IterationResult(
-            iter_idx=it_idx,
-            selected_ids=selected_ids,
-            selected_candidates=sel_cands,
-            score=s,
-            must_missing=list(s.must_missing),
-            nice_missing=list(s.nice_missing),
-            boosted_terms=list(boosted_terms),
-            used_queries=used_queries,
-        )
-        history.append(result)
+        iterations.append(iter_entry)
 
-        if best is None or (result.score and best.score and result.score.final_score > best.score.final_score):
-            best = result
-        elif best is None:
-            best = result
+        # Track best
+        if hybrid.final_score > best_score:
+            best_score = hybrid.final_score
+            best_idx = it
+            best_selected_ids = selected_ids
+            best_candidates = cands
+            best_selected_candidates = selected_candidates
+            best_hybrid = hybrid
+            best_evidence = {
+                "must_evs_bullets_only": must_evs_bullets_only,
+                "nice_evs_bullets_only": nice_evs_bullets_only,
+                "must_evs_all": must_evs_all,
+                "nice_evs_all": nice_evs_all,
+            }
 
-        # stop if good enough
-        if s.final_score >= threshold:
+        # Stop if good enough
+        if hybrid.final_score >= cfg.threshold:
             break
 
-        # boost missing MUST terms for next iteration
-        boosted_terms = s.must_missing[:12]
-        current_profile = apply_boosts_to_profile(profile, boosted_terms)
+        # Prepare next iteration boosts:
+        # We boost what is missing ON PAGE (bullets-only), because that's what we want to fix.
+        missing = list(hybrid.must_missing_bullets_only)
+        boost_terms = _dedupe_keep_order(missing)[: cfg.boost_top_n_missing]
 
-    return best or history[-1], history
+    return LoopResult(
+        best_iteration_index=best_idx,
+        best_selected_ids=best_selected_ids,
+        best_candidates=best_candidates,
+        best_selected_candidates=best_selected_candidates,
+        best_hybrid=best_hybrid,
+        best_evidence=best_evidence,
+        iterations=iterations,
+    )
