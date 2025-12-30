@@ -15,7 +15,13 @@ services:
       - ./config:/app/config
       - ./.cache_docker:/root/.cache
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()",
+        ]
       interval: 5s
       timeout: 3s
       retries: 10
