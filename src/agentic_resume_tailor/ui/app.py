@@ -374,6 +374,19 @@ def render_resume_editor(api_url: str) -> None:
         st.error(f"Failed to load projects: {err}")
         return
 
+    profile_empty = (
+        not any(value.strip() for value in personal_info.values() if isinstance(value, str))
+        and not any(value.strip() for value in skills.values() if isinstance(value, str))
+        and not (education or [])
+        and not (experiences or [])
+        and not (projects or [])
+    )
+    if profile_empty:
+        st.info(
+            "Create your profile below. Start with personal info and skills, then add education, "
+            "experiences, projects, and bullets."
+        )
+
     st.subheader("Work Experience")
     for exp in experiences or []:
         job_id = exp.get("job_id", "")
