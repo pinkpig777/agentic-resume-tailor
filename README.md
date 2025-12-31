@@ -5,7 +5,7 @@ Local, privacy-first resume tailoring agent. ART stores only your own bullets in
 This repo supports two runtimes:
 
 - FastAPI backend (`src/server.py`): API endpoints, agent loop, rendering, artifact/report generation.
-- Streamlit UI (`src/app.py`): frontend that calls the API and visualizes the report.
+- Streamlit UI (`src/app.py`): frontend that calls the API, includes the Resume Editor, and visualizes reports.
 
 ---
 
@@ -22,6 +22,7 @@ This repo supports two runtimes:
 - Within-experience ordering: sorts selected bullets inside each job/project by relevance (ties by bullet id).
 - LaTeX rendering: Jinja2 -> `.tex` -> Tectonic -> `.pdf`.
 - Report: writes `output/<run_id>_report.json` with queries used, selected bullet IDs, missing keywords, scores, and iteration history.
+- Resume Editor: CRUD experiences, projects, and bullets with a one-click re-ingest to Chroma.
 
 ---
 
@@ -159,7 +160,14 @@ Examples:
 
 - The API seeds the resume DB from `data/my_experience.json` if the SQL DB is empty.
 - CRUD endpoints are available at `/personal_info`, `/skills`, `/experiences`, `/projects`, and `/education`.
-- After edits, call `POST /admin/export` to regenerate `data/my_experience.json` (add `?reingest=1` to rebuild Chroma).
+- Use `POST /admin/ingest` to export the DB, rebuild Chroma, and refresh in-memory data.
+- Use `POST /admin/export` to regenerate `data/my_experience.json` without re-ingesting.
+
+## Resume Editor (UI)
+
+- Open the Streamlit app and switch to **Resume Editor** in the sidebar.
+- Create, edit, and delete experiences/projects and their bullets.
+- Click **Re-ingest ChromaDB** after edits so retrieval reflects the latest data.
 
 ---
 
@@ -373,13 +381,39 @@ Artifacts are written under `output/` and exposed via:
 - `/runs/{run_id}/tex`
 - `/runs/{run_id}/report`
 
+### Resume CRUD
+
+- `GET /experiences`, `GET /projects`
+- `POST /experiences`, `POST /projects`
+- `PUT /experiences/{job_id}`, `PUT /projects/{project_id}`
+- `DELETE /experiences/{job_id}`, `DELETE /projects/{project_id}`
+- `POST /experiences/{job_id}/bullets`, `PUT /experiences/{job_id}/bullets/{local_id}`,
+  `DELETE /experiences/{job_id}/bullets/{local_id}`
+- `POST /projects/{project_id}/bullets`, `PUT /projects/{project_id}/bullets/{local_id}`,
+  `DELETE /projects/{project_id}/bullets/{local_id}`
+
+### Admin operations
+
+- `POST /admin/export` regenerates `data/my_experience.json` from the DB.
+- `POST /admin/ingest` exports and re-ingests Chroma (returns counts + elapsed time).
+
 ---
 
 ## Work flow
 
 ```mermaid
 flowchart TD
+  subgraph Resume_Data[Resume Data]
+    UI[Resume Editor] --> CRUD[FastAPI CRUD]
+    CRUD --> DB[(SQL DB)]
+    DB -->|/admin/export| JSON[data/my_experience.json]
+    DB -->|/admin/ingest| INGEST[Re-ingest Chroma]
+    INGEST --> CHROMA[(ChromaDB)]
+    JSON --> CHROMA
+  end
+
   A[Client submits JD text + settings] --> B[FastAPI /generate]
+  JSON --> B
   B --> C[Normalize JD text]
 
   C --> D{JD Parser enabled?}
@@ -404,6 +438,8 @@ flowchart TD
   L --> N[Node 7: Compile PDF<br/>Tectonic]
   N --> O[Write artifacts to output/<br/>run_id.pdf<br/>run_id.tex<br/>run_id_report.json]
   O --> P[Return response to client<br/>download links / streamed PDF]
+
+  CHROMA --> F
 ```
 
 ---
@@ -413,7 +449,7 @@ flowchart TD
 - JD parser requires `OPENAI_API_KEY`. If it fails or is disabled, the system falls back to local queries and skips keyword coverage scoring.
 - The agent never rewrites bullet text; it only selects and arranges existing bullets.
 - Retrieval quality depends heavily on query quality. The JD parser is designed to produce dense retrieval queries.
-- Re-ingesting deletes and rebuilds the Chroma collection; run it any time you change `data/my_experience.json`.
+- Re-ingesting deletes and rebuilds the Chroma collection; run it after CRUD changes or when `data/my_experience.json` changes.
 
 ---
 
@@ -425,6 +461,12 @@ Run the ingest step first:
 
 ```bash
 python src/ingest.py
+```
+
+Or via API (exports from DB first):
+
+```bash
+curl -sS -X POST http://localhost:8000/admin/ingest
 ```
 
 Docker Compose:
