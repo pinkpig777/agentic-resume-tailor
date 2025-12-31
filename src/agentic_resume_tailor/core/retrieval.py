@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
+from dataclasses import dataclass
+from typing import Any, Dict, List, Tuple
 
-import math
 import numpy as np
 
 
@@ -84,13 +83,15 @@ def _build_query_items(jd_parser_result: Any) -> List[QueryItem]:
                     purpose = it.get("purpose", "general") or "general"
                     boost = tuple((it.get("boost_keywords") or []))
                     weight = float(it.get("weight", 1.0))
-                    items.append(QueryItem(query=q, purpose=purpose,
-                                 boost_keywords=boost, weight=weight))
+                    items.append(
+                        QueryItem(query=q, purpose=purpose, boost_keywords=boost, weight=weight)
+                    )
         if items:
             return items
 
     raise ValueError(
-        "Unsupported JD parser result shape. Need experience_queries or retrieval_plan.experience_queries.")
+        "Unsupported JD parser result shape. Need experience_queries or retrieval_plan.experience_queries."
+    )
 
 
 def multi_query_retrieve(
@@ -130,7 +131,7 @@ def multi_query_retrieve(
             query_texts=[boosted_query],
             n_results=per_query_k,
             # ids returned automatically
-            include=["documents", "metadatas", "embeddings"]
+            include=["documents", "metadatas", "embeddings"],
         )
 
         ids = (res.get("ids") or [[]])[0]
@@ -152,8 +153,9 @@ def multi_query_retrieve(
             cos = cosine_similarity(q_emb, d_emb)  # [-1, 1], higher is better
             weighted = qi.weight * cos
 
-            source = meta.get("company") or meta.get(
-                "name") or meta.get("project") or "Unknown Source"
+            source = (
+                meta.get("company") or meta.get("name") or meta.get("project") or "Unknown Source"
+            )
             text = meta.get("text_latex") or doc
 
             hit = Hit(
@@ -199,9 +201,6 @@ def multi_query_retrieve(
             )
         )
 
-    candidates.sort(
-        key=lambda c: (c.best_hit.weighted, c.total_weighted),
-        reverse=True
-    )
+    candidates.sort(key=lambda c: (c.best_hit.weighted, c.total_weighted), reverse=True)
 
     return candidates[:final_k]

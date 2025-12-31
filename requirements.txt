@@ -8,9 +8,9 @@ jinja2
 python-dotenv
 sentence_transformers
 pydantic
+pydantic-settings
 # UI & Utilities
 streamlit
-pydantic
 tqdm
 requests
 pandas
@@ -18,4 +18,3 @@ pandas
 fastapi
 uvicorn
 python-multipart
-

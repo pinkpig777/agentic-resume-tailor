@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 ROLE_SPLIT_TOKEN = "$|$"
 
@@ -86,8 +86,7 @@ def normalize_bullets(bullets: Any) -> Tuple[List[Dict[str, Any]], List[str]]:
     for item in raw_items:
         if isinstance(item, dict):
             bid = item.get("id")
-            txt = item.get(
-                "text_latex") if "text_latex" in item else item.get("text")
+            txt = item.get("text_latex") if "text_latex" in item else item.get("text")
             if isinstance(bid, str) and isinstance(txt, str):
                 bid_norm = bid.strip()
                 text_to_id[txt] = bid_norm
@@ -110,23 +109,19 @@ def normalize_bullets(bullets: Any) -> Tuple[List[Dict[str, Any]], List[str]]:
         elif isinstance(item, dict):
             if "id" in item and ("text_latex" in item or "text" in item):
                 bid = str(item.get("id")).strip()
-                txt = item.get(
-                    "text_latex") if "text_latex" in item else item.get("text")
+                txt = item.get("text_latex") if "text_latex" in item else item.get("text")
                 if not isinstance(txt, str):
-                    warnings.append(
-                        f"Bullet with id {bid} has non-string text, skipped")
+                    warnings.append(f"Bullet with id {bid} has non-string text, skipped")
                     continue
                 if not bid:
                     bid = allocate_id(txt)
                 if bid in used_ids:
-                    warnings.append(
-                        f"Duplicate bullet id {bid} detected, reassigned")
+                    warnings.append(f"Duplicate bullet id {bid} detected, reassigned")
                     bid = allocate_id(txt)
                 used_ids.add(bid)
                 normalized.append({"id": bid, "text_latex": txt})
             else:
-                warnings.append(
-                    "Found bullet dict not in expected shape, skipped")
+                warnings.append("Found bullet dict not in expected shape, skipped")
         else:
             warnings.append("Found bullet item not string or dict, skipped")
 
@@ -178,17 +173,13 @@ def main() -> None:
 
     p = argparse.ArgumentParser()
     p.add_argument("--input", type=str, help="Path to input JSON file")
-    p.add_argument("--output", type=str,
-                   help="Path to write converted JSON file")
-    p.add_argument("--in-place", type=str,
-                   help="Convert and overwrite this JSON file")
-    p.add_argument("--print-warnings", action="store_true",
-                   help="Print warnings to stderr")
+    p.add_argument("--output", type=str, help="Path to write converted JSON file")
+    p.add_argument("--in-place", type=str, help="Convert and overwrite this JSON file")
+    p.add_argument("--print-warnings", action="store_true", help="Print warnings to stderr")
     args = p.parse_args()
 
     if bool(args.in_place) == bool(args.input):
-        raise SystemExit(
-            "Provide exactly one of --in-place or --input/--output")
+        raise SystemExit("Provide exactly one of --in-place or --input/--output")
 
     if args.in_place:
         in_path = Path(args.in_place)
@@ -203,11 +194,13 @@ def main() -> None:
         raise SystemExit(f"Input file not found: {in_path}")
 
     converted, warnings = convert(in_path)
-    out_path.write_text(json.dumps(
-        converted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    out_path.write_text(
+        json.dumps(converted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
 
     if args.print_warnings and warnings:
         import sys
+
         for w in warnings:
             print(w, file=sys.stderr)
 

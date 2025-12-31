@@ -1,11 +1,10 @@
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 
-
 # Higher tiers count more toward coverage.
 TIER_WEIGHTS = {
     "exact": 1.0,
-    "alias": 0.85,      # kept for compatibility if you add alias tier later
+    "alias": 0.85,  # kept for compatibility if you add alias tier later
     "family": 0.80,
     "substring": 0.50,
     "none": 0.0,
@@ -15,9 +14,9 @@ TIER_WEIGHTS = {
 @dataclass
 class ScoreResult:
     final_score: int
-    retrieval_score: float             # 0..1
-    coverage_bullets_only: float       # 0..1
-    coverage_all: float                # 0..1 (includes skills pseudo-bullet)
+    retrieval_score: float  # 0..1
+    coverage_bullets_only: float  # 0..1
+    coverage_all: float  # 0..1 (includes skills pseudo-bullet)
     must_missing_bullets_only: List[str]
     nice_missing_bullets_only: List[str]
     must_missing_all: List[str]
@@ -46,11 +45,11 @@ def compute_retrieval_norm(selected_candidates: List[Any], all_candidates: List[
     if n <= 0:
         return 0.0
 
-    selected_mean = sum(float(c.total_weighted)
-                        for c in selected_candidates) / len(selected_candidates)
+    selected_mean = sum(float(c.total_weighted) for c in selected_candidates) / len(
+        selected_candidates
+    )
 
-    all_vals = sorted((float(c.total_weighted)
-                      for c in all_candidates), reverse=True)
+    all_vals = sorted((float(c.total_weighted) for c in all_candidates), reverse=True)
     best_possible_mean = sum(all_vals[:n]) / n
 
     if best_possible_mean <= 1e-9:

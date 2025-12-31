@@ -1,41 +1,43 @@
-import os
-import json
-import re
 import hashlib
+import json
+import logging
+import re
 from datetime import datetime, timezone
-from typing import List, Literal, Dict, Any, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from openai import OpenAI
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
+from agentic_resume_tailor.settings import get_settings
+
+logger = logging.getLogger(__name__)
 
 # =============================
 # Target Profile v1 (STRICT schema for Structured Outputs)
 # =============================
 
-KeywordType = Literal["hard_skill", "soft_skill",
-                      "tool", "framework", "domain", "responsibility"]
-QueryPurpose = Literal["core_stack", "domain_fit",
-                       "deployment", "scale_reliability", "leadership", "general"]
+KeywordType = Literal["hard_skill", "soft_skill", "tool", "framework", "domain", "responsibility"]
+QueryPurpose = Literal[
+    "core_stack", "domain_fit", "deployment", "scale_reliability", "leadership", "general"
+]
 
 
 class EvidenceSpan(BaseModel):
     model_config = ConfigDict(extra="forbid")
     # We do NOT trust model-provided offsets. We'll repair them server-side.
     start: int = Field(
-        ge=0, description="Character start offset into original jd_text (repaired server-side).")
+        ge=0, description="Character start offset into original jd_text (repaired server-side)."
+    )
     end: int = Field(
-        ge=0, description="Character end offset into original jd_text (repaired server-side).")
-    snippet: str = Field(
-        min_length=1, description="Exact substring copied from jd_text.")
+        ge=0, description="Character end offset into original jd_text (repaired server-side)."
+    )
+    snippet: str = Field(min_length=1, description="Exact substring copied from jd_text.")
 
 
 class KeywordItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    raw: str = Field(
-        min_length=1, description="Original phrase as it appears in the JD.")
-    canonical: str = Field(
-        min_length=1, description="Canonicalized (lowercase, normalized).")
+    raw: str = Field(min_length=1, description="Original phrase as it appears in the JD.")
+    canonical: str = Field(min_length=1, description="Canonicalized (lowercase, normalized).")
     type: KeywordType
     evidence: List[EvidenceSpan] = Field(default_factory=list)
     priority: int = Field(ge=1, le=5, description="1 is highest priority.")
@@ -73,8 +75,7 @@ class MetaInfo(BaseModel):
 class TargetProfileV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_version: Literal["target_profile_v1"] = "target_profile_v1"
-    role_title: str = Field(
-        default="", description="Job title if identifiable.")
+    role_title: str = Field(default="", description="Job title if identifiable.")
     role_summary: str = Field(default="", description="1-2 sentence summary.")
     must_have: List[KeywordItem] = Field(default_factory=list)
     nice_to_have: List[KeywordItem] = Field(default_factory=list)
@@ -109,20 +110,21 @@ def load_canon_config(path: str) -> Dict[str, Any]:
         if not isinstance(data, dict):
             raise ValueError("canonicalization config must be a JSON object")
         if data.get("schema_version") != "canon_config_v1":
-            raise ValueError(
-                "canonicalization config schema_version must be canon_config_v1")
+            raise ValueError("canonicalization config schema_version must be canon_config_v1")
         return data
     except FileNotFoundError:
-        print(f"⚠️ {path} not found; using empty canonical config")
+        logger.warning("%s not found; using empty canonical config", path)
         return DEFAULT_CANON_CONFIG
     except Exception as e:
-        print(
-            f"⚠️ Failed to load canonicalization config ({e}); using empty canonical config")
+        logger.warning(
+            "Failed to load canonicalization config (%s); using empty canonical config",
+            e,
+        )
         return DEFAULT_CANON_CONFIG
 
 
-CANON_CONFIG_PATH = os.environ.get(
-    "ART_CANON_CONFIG", "config/canonicalization.json")
+settings = get_settings()
+CANON_CONFIG_PATH = settings.canon_config
 _CANON_CONFIG = load_canon_config(CANON_CONFIG_PATH)
 
 
@@ -140,7 +142,7 @@ def build_variant_to_canonical_map(config: Dict[str, Any]) -> Dict[str, str]:
     keep_chars = str(opts.get("keep_chars", "+#./-"))
 
     out: Dict[str, str] = {}
-    for group in (config.get("canon_groups", []) or []):
+    for group in config.get("canon_groups", []) or []:
         if not isinstance(group, dict):
             continue
         canonical = group.get("canonical")
@@ -187,6 +189,7 @@ def canonicalize(text: str) -> str:
 # =============================
 # Evidence span repair + salvage (best-effort; never hard-fail)
 # =============================
+
 
 def find_all_spans(haystack: str, needle: str) -> List[Tuple[int, int]]:
     spans: List[Tuple[int, int]] = []
@@ -245,17 +248,14 @@ def validate_evidence_spans(jd_text: str, item: KeywordItem) -> List[str]:
 
     for ev in item.evidence:
         if ev.start < 0 or ev.end <= ev.start:
-            errs.append(
-                f"Invalid offsets for '{item.raw}': start={ev.start}, end={ev.end}")
+            errs.append(f"Invalid offsets for '{item.raw}': start={ev.start}, end={ev.end}")
             continue
         if ev.end > n:
-            errs.append(
-                f"Out of range for '{item.raw}': end={ev.end} > len={n}")
+            errs.append(f"Out of range for '{item.raw}': end={ev.end} > len={n}")
             continue
-        expected = jd_text[ev.start:ev.end]
+        expected = jd_text[ev.start : ev.end]
         if ev.snippet != expected:
-            errs.append(
-                f"Snippet mismatch for '{item.raw}' at [{ev.start}:{ev.end}]")
+            errs.append(f"Snippet mismatch for '{item.raw}' at [{ev.start}:{ev.end}]")
     return errs
 
 
@@ -293,8 +293,7 @@ def salvage_evidence_for_item(jd_text: str, item: KeywordItem) -> None:
         span = _first_case_insensitive_span(jd_text, cand)
         if span:
             s, e = span
-            item.evidence = [EvidenceSpan(
-                start=s, end=e, snippet=jd_text[s:e])]
+            item.evidence = [EvidenceSpan(start=s, end=e, snippet=jd_text[s:e])]
             return
 
     item.evidence = []
@@ -303,6 +302,7 @@ def salvage_evidence_for_item(jd_text: str, item: KeywordItem) -> None:
 # =============================
 # Postprocess + constraints
 # =============================
+
 
 def jd_hash(jd_text: str) -> str:
     return hashlib.sha256((jd_text or "").encode("utf-8")).hexdigest()
@@ -323,10 +323,9 @@ def dedupe_by_canonical(items: List[KeywordItem]) -> List[KeywordItem]:
 
 
 def sanitize_query_for_embeddings(q: str) -> str:
-    q = (q or "")
+    q = q or ""
     q = re.sub(r"\bAND\b|\bOR\b|\bNOT\b", " ", q, flags=re.IGNORECASE)
-    q = q.replace("(", " ").replace(")", " ").replace(
-        '"', " ").replace("'", " ")
+    q = q.replace("(", " ").replace(")", " ").replace('"', " ").replace("'", " ")
     q = re.sub(r"\s+", " ", q).strip()
     return q
 
@@ -342,23 +341,23 @@ def postprocess(profile: TargetProfileV1, jd_text: str, model_name: str) -> Targ
     # Retrieval plan constraints
     eq = profile.retrieval_plan.experience_queries
     if len(eq) < 3:
-        raise ValueError(
-            "retrieval_plan.experience_queries must have at least 3 queries")
+        raise ValueError("retrieval_plan.experience_queries must have at least 3 queries")
     if len(eq) > 7:
         profile.retrieval_plan.experience_queries = eq[:7]
 
     # sanitize queries and canonicalize boosts
     for qi in profile.retrieval_plan.experience_queries:
         qi.query = sanitize_query_for_embeddings(qi.query)
-        qi.boost_keywords = [canonicalize(b)
-                             for b in (qi.boost_keywords or []) if b]
+        qi.boost_keywords = [canonicalize(b) for b in (qi.boost_keywords or []) if b]
         qi.weight = min(3.0, max(0.1, float(qi.weight)))
 
     # Evidence is best-effort: never fail pipeline if missing
     missing = [it.raw for it in profile.must_have if not it.evidence]
     if missing:
-        print(
-            f"⚠️ Must-have items missing evidence (best-effort mode): {missing[:12]}")
+        logger.warning(
+            "Must-have items missing evidence (best-effort mode): %s",
+            missing[:12],
+        )
 
     # Fill meta
     profile.meta = MetaInfo(
@@ -421,6 +420,7 @@ jd_text:
 # Main parse function (Node 1)
 # =============================
 
+
 def parse_job_description(
     jd_text: str,
     model: str = "gpt-4.1-nano-2025-04-14",
@@ -430,22 +430,20 @@ def parse_job_description(
         raise ValueError("jd_text is empty")
 
     client = OpenAI(
-        api_key=os.environ.get("OPENAI_API_KEY"),
+        api_key=settings.openai_api_key,
         timeout=60.0,
         max_retries=0,
     )
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT.strip()},
-        {"role": "user", "content": USER_TEMPLATE.format(
-            jd_text=jd_text).strip()},
+        {"role": "user", "content": USER_TEMPLATE.format(jd_text=jd_text).strip()},
     ]
 
     last_error: Optional[str] = None
 
     for attempt in range(1, max_attempts + 1):
-        print(
-            f"🤖 Analyzing Job Description (attempt {attempt}/{max_attempts})...")
+        logger.info("Analyzing job description (attempt %s/%s)...", attempt, max_attempts)
 
         completion = client.beta.chat.completions.parse(
             model=model,
@@ -455,7 +453,12 @@ def parse_job_description(
         profile: TargetProfileV1 = completion.choices[0].message.parsed
 
         # 1) Canonicalize the canonical fields early (helps salvage matching)
-        for grp in [profile.must_have, profile.nice_to_have, profile.responsibilities, profile.domain_terms]:
+        for grp in [
+            profile.must_have,
+            profile.nice_to_have,
+            profile.responsibilities,
+            profile.domain_terms,
+        ]:
             for it in grp:
                 it.canonical = canonicalize(it.canonical or it.raw)
 
@@ -474,7 +477,7 @@ def parse_job_description(
                 all_errors.extend(errs)
 
         if all_errors:
-            print("⚠️ Evidence issues detected; continuing in best-effort mode.")
+            logger.warning("Evidence issues detected; continuing in best-effort mode.")
             last_error = "Evidence had mismatches; best-effort salvage applied."
 
         # 4) Postprocess contract checks (queries, dedupe, meta)

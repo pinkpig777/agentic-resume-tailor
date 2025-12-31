@@ -1,16 +1,16 @@
-# src/loop_controller.py
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
-import copy
-import os
 
-
-from retrieval import multi_query_retrieve
-from selection import select_topk
-from keyword_matcher import extract_profile_keywords, match_keywords_against_bullets
-from scorer import score as hybrid_score
+from agentic_resume_tailor.core.keyword_matcher import (
+    extract_profile_keywords,
+    match_keywords_against_bullets,
+)
+from agentic_resume_tailor.core.retrieval import multi_query_retrieve
+from agentic_resume_tailor.core.scorer import score as hybrid_score
+from agentic_resume_tailor.core.selection import select_topk
 
 
 @dataclass
@@ -34,12 +34,12 @@ class LoopConfig:
 class LoopResult:
     best_iteration_index: int
     best_selected_ids: List[str]
-    best_candidates: List[Any]          # list[Candidate]
+    best_candidates: List[Any]  # list[Candidate]
     best_selected_candidates: List[Any]  # list[Candidate]
-    best_hybrid: Optional[Any]          # ScoreResult
+    best_hybrid: Optional[Any]  # ScoreResult
     # must/nice evidences (bullets_only/all_plus_skills)
     best_evidence: Dict[str, Any]
-    iterations: List[Dict[str, Any]]    # explain trace
+    iterations: List[Dict[str, Any]]  # explain trace
 
 
 def _dedupe_keep_order(xs: List[str]) -> List[str]:
@@ -98,7 +98,10 @@ def _boost_query_payload(
     boost_terms = _dedupe_keep_order([t.lower().strip() for t in boost_terms])
 
     # Case A: TargetProfile-like
-    if not (isinstance(base_profile_or_queries, list) and all(isinstance(x, str) for x in base_profile_or_queries)):
+    if not (
+        isinstance(base_profile_or_queries, list)
+        and all(isinstance(x, str) for x in base_profile_or_queries)
+    ):
         payload = _profile_to_query_payload(base_profile_or_queries)
         rp = payload.get("retrieval_plan", {}) or {}
         eq = rp.get("experience_queries", []) or []
@@ -109,8 +112,7 @@ def _boost_query_payload(
             if not isinstance(it, dict) or not it.get("query"):
                 continue
             cur_boost = list(it.get("boost_keywords") or [])
-            cur_boost = _dedupe_keep_order(
-                [b.lower().strip() for b in cur_boost] + boost_terms)
+            cur_boost = _dedupe_keep_order([b.lower().strip() for b in cur_boost] + boost_terms)
 
             new_it = dict(it)
             new_it["boost_keywords"] = cur_boost
@@ -118,8 +120,7 @@ def _boost_query_payload(
             # optionally increase weights a bit when boosting is active
             if boost_terms:
                 try:
-                    new_it["weight"] = float(
-                        max(float(new_it.get("weight", 1.0)), 1.0))
+                    new_it["weight"] = float(max(float(new_it.get("weight", 1.0)), 1.0))
                 except Exception:
                     new_it["weight"] = 1.0
 
@@ -146,8 +147,7 @@ def _boost_query_payload(
         return payload, queries_used
 
     # Case B: list[str] fallback queries
-    base_queries: List[str] = [q.strip()
-                               for q in base_profile_or_queries if q.strip()]
+    base_queries: List[str] = [q.strip() for q in base_profile_or_queries if q.strip()]
     queries_used = list(base_queries)
 
     if boost_terms:
@@ -189,8 +189,10 @@ def run_loop(
     best_evidence: Dict[str, Any] = {}
 
     # We can only do scoring if we have a real profile with must/nice lists.
-    has_profile = not (isinstance(base_profile_or_queries, list) and all(
-        isinstance(x, str) for x in base_profile_or_queries))
+    has_profile = not (
+        isinstance(base_profile_or_queries, list)
+        and all(isinstance(x, str) for x in base_profile_or_queries)
+    )
 
     pk = None
     if has_profile:
@@ -234,8 +236,9 @@ def run_loop(
             # still track "best" by retrieval-only heuristic (mean total_weighted)
             retrieval_only = 0.0
             if selected_candidates:
-                retrieval_only = sum(float(c.total_weighted)
-                                     for c in selected_candidates) / len(selected_candidates)
+                retrieval_only = sum(float(c.total_weighted) for c in selected_candidates) / len(
+                    selected_candidates
+                )
             if retrieval_only > best_score:
                 best_score = retrieval_only
                 best_idx = it
@@ -252,21 +255,16 @@ def run_loop(
             for c in selected_candidates
         ]
         all_bullets = [
-            {"bullet_id": c.bullet_id, "text_latex": c.text_latex, "meta": c.meta}
-            for c in cands
+            {"bullet_id": c.bullet_id, "text_latex": c.text_latex, "meta": c.meta} for c in cands
         ]
         skills_b = build_skills_pseudo_bullet(static_data)
         all_plus_skills = all_bullets + ([skills_b] if skills_b else [])
 
-        must_evs_bullets_only = match_keywords_against_bullets(
-            pk["must_have"], selected_bullets)
-        nice_evs_bullets_only = match_keywords_against_bullets(
-            pk["nice_to_have"], selected_bullets)
+        must_evs_bullets_only = match_keywords_against_bullets(pk["must_have"], selected_bullets)
+        nice_evs_bullets_only = match_keywords_against_bullets(pk["nice_to_have"], selected_bullets)
 
-        must_evs_all = match_keywords_against_bullets(
-            pk["must_have"], all_plus_skills)
-        nice_evs_all = match_keywords_against_bullets(
-            pk["nice_to_have"], all_plus_skills)
+        must_evs_all = match_keywords_against_bullets(pk["must_have"], all_plus_skills)
+        nice_evs_all = match_keywords_against_bullets(pk["nice_to_have"], all_plus_skills)
 
         hybrid = hybrid_score(
             selected_candidates=selected_candidates,

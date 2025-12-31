@@ -1,15 +1,17 @@
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any, List, Tuple
 
 
 @dataclass
 class SelectionDecision:
     bullet_id: str
-    action: str   # "selected" | "skipped"
+    action: str  # "selected" | "skipped"
     reason: str
 
 
-def select_topk(candidates: List[Any], max_bullets: int = 16) -> Tuple[List[str], List[SelectionDecision]]:
+def select_topk(
+    candidates: List[Any], max_bullets: int = 16
+) -> Tuple[List[str], List[SelectionDecision]]:
     selected: List[str] = []
     seen = set()
     decisions: List[SelectionDecision] = []
@@ -23,13 +25,15 @@ def select_topk(candidates: List[Any], max_bullets: int = 16) -> Tuple[List[str]
             continue
 
         if bid in seen:
-            decisions.append(SelectionDecision(
-                bullet_id=bid, action="skipped", reason="duplicate_bullet_id"))
+            decisions.append(
+                SelectionDecision(bullet_id=bid, action="skipped", reason="duplicate_bullet_id")
+            )
             continue
 
         seen.add(bid)
         selected.append(bid)
-        decisions.append(SelectionDecision(
-            bullet_id=bid, action="selected", reason="topk_relevance"))
+        decisions.append(
+            SelectionDecision(bullet_id=bid, action="selected", reason="topk_relevance")
+        )
 
     return selected, decisions

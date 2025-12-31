@@ -1,0 +1,12 @@
+{
+  "jd_text": "Backend Software Engineer\n\nMust-have:\n- Python\n- FastAPI\n- SQL\n- Docker\n\nNice-to-have:\n- Redis\n- AWS\n- CI/CD\n",
+  "max_bullets": 8,
+  "per_query_k": 8,
+  "final_k": 24,
+  "max_iters": 2,
+  "threshold": 70,
+  "alpha": 0.7,
+  "must_weight": 0.8,
+  "boost_weight": 1.6,
+  "boost_top_n_missing": 4
+}
