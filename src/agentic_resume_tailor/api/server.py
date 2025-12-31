@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
+from agentic_resume_tailor.core.jd_utils import fallback_queries_from_jd, try_parse_jd
 from agentic_resume_tailor.core.loop_controller import LoopConfig, run_loop
 from agentic_resume_tailor.settings import get_settings
 from agentic_resume_tailor.utils.logging import configure_logging
@@ -34,8 +35,6 @@ SKIP_PDF_RENDER = settings.skip_pdf
 
 COLLECTION_NAME = settings.collection_name
 EMBED_MODEL = settings.embed_model
-
-USE_JD_PARSER = settings.use_jd_parser
 
 DEFAULT_MAX_BULLETS = settings.max_bullets
 DEFAULT_PER_QUERY_K = settings.per_query_k
@@ -109,64 +108,6 @@ def _load_collection():
     collection = client.get_collection(name=COLLECTION_NAME, embedding_function=ef)
     logger.info("Loaded Chroma collection '%s' (%s records)", COLLECTION_NAME, collection.count())
     return collection, ef
-
-
-def try_parse_jd(jd_text: str):
-    """
-    Optional Node 1 parser (OpenAI). If it fails, we fall back to local multi-query.
-    """
-    if not USE_JD_PARSER:
-        return None
-
-    try:
-        from agentic_resume_tailor import jd_parser
-
-        if not hasattr(jd_parser, "parse_job_description"):
-            raise RuntimeError("jd_parser.parse_job_description not found")
-
-        model = settings.jd_model
-        try:
-            return jd_parser.parse_job_description(jd_text, model=model)
-        except TypeError:
-            return jd_parser.parse_job_description(jd_text)
-
-    except Exception as e:
-        logger.warning("JD parser failed. Reason: %s", e)
-        return None
-
-
-def fallback_queries_from_jd(jd_text: str, max_q: int = 6) -> List[str]:
-    """
-    Minimal heuristic fallback.
-    Produces embedding-friendly queries from bullet lines + a condensed full query.
-    """
-    lines = [ln.strip() for ln in jd_text.splitlines() if ln.strip()]
-    bulletish = [
-        ln.lstrip("-•* ").strip() for ln in lines if ln.strip().startswith(("-", "•", "*"))
-    ]
-
-    out: List[str] = []
-    for b in bulletish:
-        if len(b) >= 12:
-            out.append(b)
-
-    condensed = " ".join(lines[:20])
-    condensed = " ".join(condensed.split())
-    if condensed and condensed not in out:
-        out.insert(0, condensed)
-
-    # de-dupe keep order
-    seen = set()
-    deduped: List[str] = []
-    for q in out:
-        qn = q.lower()
-        if qn not in seen:
-            seen.add(qn)
-            deduped.append(q)
-        if len(deduped) >= max_q:
-            break
-
-    return deduped[:max_q] if deduped else [jd_text.strip()]
 
 
 def select_and_rebuild(
