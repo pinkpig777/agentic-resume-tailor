@@ -169,44 +169,60 @@ def fallback_queries_from_jd(jd_text: str, max_q: int = 6) -> List[str]:
     return deduped[:max_q] if deduped else [jd_text.strip()]
 
 
-def select_and_rebuild(static_data: Dict[str, Any], selected_ids: List[str]) -> Dict[str, Any]:
+def select_and_rebuild(
+    static_data: Dict[str, Any],
+    selected_ids: List[str],
+    selected_candidates: List[Any] | None = None,
+) -> Dict[str, Any]:
     """
     Rebuild resume data from my_experience.json, keeping ONLY bullets whose deterministic ids survive.
     Convert bullets to list[str] of text_latex because the LaTeX template expects strings.
     """
     selected_set = set(selected_ids)
     tailored = copy.deepcopy(static_data)
+    score_map: Dict[str, float] = {}
+    for c in selected_candidates or []:
+        score = getattr(c, "selection_score", None)
+        if score is None:
+            score = getattr(getattr(c, "best_hit", None), "weighted", 0.0)
+        score_map[getattr(c, "bullet_id", "")] = float(score or 0.0)
 
     # Experiences
     new_exps = []
     for exp in tailored.get("experiences", []) or []:
         job_id = exp.get("job_id")
-        kept_texts: List[str] = []
-        for b in exp.get("bullets", []) or []:
+        kept_bullets: List[tuple[float, str, str]] = []
+        for idx, b in enumerate(exp.get("bullets", []) or []):
             local_id = b.get("id")
             if not job_id or not local_id:
                 continue
             bid = f"exp:{job_id}:{local_id}"
             if bid in selected_set:
-                kept_texts.append(b.get("text_latex", ""))
-        if kept_texts:
-            exp["bullets"] = kept_texts
+                score = score_map.get(bid, 0.0)
+                tie = local_id or f"idx:{idx:04d}"
+                kept_bullets.append((score, tie, b.get("text_latex", "")))
+        if kept_bullets:
+            kept_bullets.sort(key=lambda item: (-item[0], item[1]))
+            exp["bullets"] = [text for _, _, text in kept_bullets]
             new_exps.append(exp)
 
     # Projects
     new_projs = []
     for proj in tailored.get("projects", []) or []:
         project_id = proj.get("project_id")
-        kept_texts: List[str] = []
-        for b in proj.get("bullets", []) or []:
+        kept_bullets: List[tuple[float, str, str]] = []
+        for idx, b in enumerate(proj.get("bullets", []) or []):
             local_id = b.get("id")
             if not project_id or not local_id:
                 continue
             bid = f"proj:{project_id}:{local_id}"
             if bid in selected_set:
-                kept_texts.append(b.get("text_latex", ""))
-        if kept_texts:
-            proj["bullets"] = kept_texts
+                score = score_map.get(bid, 0.0)
+                tie = local_id or f"idx:{idx:04d}"
+                kept_bullets.append((score, tie, b.get("text_latex", "")))
+        if kept_bullets:
+            kept_bullets.sort(key=lambda item: (-item[0], item[1]))
+            proj["bullets"] = [text for _, _, text in kept_bullets]
             new_projs.append(proj)
 
     tailored["experiences"] = new_exps
@@ -320,7 +336,11 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
     )
 
     # Build final resume and render artifacts from best iteration
-    tailored_data = select_and_rebuild(STATIC_DATA, loop.best_selected_ids)
+    tailored_data = select_and_rebuild(
+        STATIC_DATA,
+        loop.best_selected_ids,
+        loop.best_selected_candidates,
+    )
     pdf_path, tex_path = render_pdf(tailored_data, run_id)
 
     report = {
