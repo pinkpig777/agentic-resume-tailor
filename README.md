@@ -65,9 +65,9 @@ This repo supports two runtimes:
 ## Data workflow (DB-first)
 
 - The SQL database is the source of truth (created on first launch).
-- The Resume Editor writes directly to the DB.
-- `output/my_experience.json` is an exported artifact used for inspection or backups.
-- Re-ingest uses the latest DB state (no stale file reads).
+- The Resume Editor writes directly to the DB via CRUD endpoints.
+- Re-ingest always exports the DB to `output/my_experience.json`, then ingests Chroma.
+- `output/my_experience.json` is an exported artifact for inspection/backups, not the primary store.
 
 ### Export format (`my_experience.json`)
 
@@ -364,7 +364,7 @@ Artifacts are written under `output/` and exposed via:
 ### Admin operations
 
 - `POST /admin/export` regenerates `output/my_experience.json` from the DB.
-- `POST /admin/ingest` exports and re-ingests Chroma (returns counts + elapsed time).
+- `POST /admin/ingest` exports `output/my_experience.json` and re-ingests Chroma (returns counts + elapsed time).
 
 ---
 
@@ -375,8 +375,8 @@ flowchart TD
   subgraph Resume_Data[Resume Data]
     UI[Resume Editor] --> CRUD[FastAPI CRUD]
     CRUD --> DB[(SQL DB)]
-    DB -->|/admin/export| JSON[output/my_experience.json]
-    DB -->|/admin/ingest| INGEST[Re-ingest Chroma]
+    DB -->|export| JSON[output/my_experience.json]
+    JSON -->|ingest| INGEST[Re-ingest Chroma]
     INGEST --> CHROMA[(ChromaDB)]
   end
 
