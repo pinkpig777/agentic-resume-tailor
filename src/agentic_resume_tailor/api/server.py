@@ -194,15 +194,18 @@ class EducationUpdate(BaseModel):
 
 
 def _ensure_dirs() -> None:
+    """Ensure output directories exist."""
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 def _load_static_data() -> Dict[str, Any]:
+    """Load the resume snapshot from the SQL database."""
     with SessionLocal() as db:
         return export_resume_data(db)
 
 
 def _load_collection():
+    """Load the Chroma collection and embedding function."""
     client = chromadb.PersistentClient(path=DB_PATH)
     ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=EMBED_MODEL)
     collection = client.get_collection(name=COLLECTION_NAME, embedding_function=ef)
@@ -211,25 +214,30 @@ def _load_collection():
 
 
 def _reload_static_data() -> Dict[str, Any]:
+    """Refresh the in-memory resume snapshot."""
     global STATIC_DATA
     STATIC_DATA = _load_static_data()
     return STATIC_DATA
 
 
 def _reload_collection() -> None:
+    """Refresh the in-memory Chroma collection."""
     global COLLECTION, EMB_FN
     COLLECTION, EMB_FN = _load_collection()
 
 
 def _export_latest(db: Session) -> None:
+    """Export the latest DB state to the resume JSON file."""
     write_resume_json(db, EXPORT_FILE)
 
 
 def _get_user_setting(key: str, default: Any) -> Any:
+    """Fetch a user setting with a default fallback."""
     return USER_CONFIG.get(key, default)
 
 
 def _maybe_auto_reingest() -> None:
+    """Auto re-ingest Chroma when enabled and idle."""
     if not _get_user_setting("auto_reingest_on_save", settings.auto_reingest_on_save):
         return
     if not INGEST_LOCK.acquire(blocking=False):
@@ -245,11 +253,13 @@ def _maybe_auto_reingest() -> None:
 
 
 def _next_sort_order_for(query) -> int:
+    """Compute the next sort order from a query result."""
     max_order = query.scalar()
     return next_sort_order([max_order])
 
 
 def _experience_to_dict(exp: Experience) -> Dict[str, Any]:
+    """Serialize an experience model for API responses."""
     bullets = sorted(exp.bullets, key=lambda b: (b.sort_order, b.id))
     return {
         "job_id": exp.job_id,
@@ -266,6 +276,7 @@ def _experience_to_dict(exp: Experience) -> Dict[str, Any]:
 
 
 def _project_to_dict(proj: Project) -> Dict[str, Any]:
+    """Serialize a project model for API responses."""
     bullets = sorted(proj.bullets, key=lambda b: (b.sort_order, b.id))
     return {
         "project_id": proj.project_id,
@@ -280,6 +291,7 @@ def _project_to_dict(proj: Project) -> Dict[str, Any]:
 
 
 def _education_to_dict(edu: Education) -> Dict[str, Any]:
+    """Serialize an education model for API responses."""
     bullets = sorted(edu.bullets, key=lambda b: (b.sort_order, b.id))
     return {
         "id": edu.id,
@@ -293,6 +305,7 @@ def _education_to_dict(edu: Education) -> Dict[str, Any]:
 
 
 def _personal_info_to_dict(info: PersonalInfo | None) -> Dict[str, str]:
+    """Serialize personal info for API responses."""
     return {
         "name": info.name if info else "",
         "phone": info.phone if info else "",
@@ -305,6 +318,7 @@ def _personal_info_to_dict(info: PersonalInfo | None) -> Dict[str, str]:
 
 
 def _skills_to_dict(skills: Skills | None) -> Dict[str, str]:
+    """Serialize skills for API responses."""
     return {
         "languages_frameworks": skills.languages_frameworks if skills else "",
         "ai_ml": skills.ai_ml if skills else "",
@@ -317,10 +331,7 @@ def select_and_rebuild(
     selected_ids: List[str],
     selected_candidates: List[Any] | None = None,
 ) -> Dict[str, Any]:
-    """
-    Rebuild resume data from the DB snapshot, keeping ONLY bullets whose deterministic ids survive.
-    Convert bullets to list[str] of text_latex because the LaTeX template expects strings.
-    """
+    """Build a tailored resume snapshot with selected bullets only."""
     selected_set = set(selected_ids)
     tailored = copy.deepcopy(static_data)
     score_map: Dict[str, float] = {}
@@ -374,10 +385,7 @@ def select_and_rebuild(
 
 
 def render_pdf(context: Dict[str, Any], run_id: str) -> Tuple[str, str]:
-    """
-    Render the tailored resume to PDF using the LaTeX template.
-    Returns (pdf_path, tex_path).
-    """
+    """Render a resume context to LaTeX/PDF artifacts."""
     _ensure_dirs()
 
     env = jinja2.Environment(
@@ -422,6 +430,7 @@ def render_pdf(context: Dict[str, Any], run_id: str) -> Tuple[str, str]:
 
 
 def _run_id() -> str:
+    """Generate a run id for artifacts."""
     override = settings.run_id
     if override:
         return override
@@ -445,11 +454,13 @@ logger.info("API Server ready.")
 # -----------------------------
 @app.get("/health")
 def health():
+    """Return API health metadata."""
     return {"status": "ok", "collection": COLLECTION_NAME, "embed_model": EMBED_MODEL}
 
 
 @app.get("/settings")
 def get_user_settings():
+    """Return merged settings with user overrides."""
     base = settings.model_dump()
     base.pop("openai_api_key", None)
     merged = {**base, **USER_CONFIG}
@@ -459,6 +470,7 @@ def get_user_settings():
 
 @app.put("/settings")
 def update_user_settings(payload: Dict[str, Any]):
+    """Persist user settings updates to JSON."""
     allowed = set(settings.model_fields.keys()) - {"openai_api_key"}
     updates = {k: v for k, v in (payload or {}).items() if k in allowed}
     if not updates:
@@ -473,12 +485,14 @@ def update_user_settings(payload: Dict[str, Any]):
 
 @app.get("/personal_info")
 def get_personal_info(db: Session = Depends(get_db)):
+    """Return the personal info record."""
     info = db.query(PersonalInfo).first()
     return _personal_info_to_dict(info)
 
 
 @app.put("/personal_info")
 def update_personal_info(payload: PersonalInfoUpdate, db: Session = Depends(get_db)):
+    """Create or update the personal info record."""
     info = db.query(PersonalInfo).first()
     if info is None:
         info = PersonalInfo()
@@ -496,12 +510,14 @@ def update_personal_info(payload: PersonalInfoUpdate, db: Session = Depends(get_
 
 @app.get("/skills")
 def get_skills(db: Session = Depends(get_db)):
+    """Return the skills record."""
     skills = db.query(Skills).first()
     return _skills_to_dict(skills)
 
 
 @app.put("/skills")
 def update_skills(payload: SkillsUpdate, db: Session = Depends(get_db)):
+    """Create or update the skills record."""
     skills = db.query(Skills).first()
     if skills is None:
         skills = Skills()
@@ -519,6 +535,7 @@ def update_skills(payload: SkillsUpdate, db: Session = Depends(get_db)):
 
 @app.get("/education")
 def list_education(db: Session = Depends(get_db)):
+    """List education entries."""
     educations = (
         db.query(Education)
         .options(selectinload(Education.bullets))
@@ -530,6 +547,7 @@ def list_education(db: Session = Depends(get_db)):
 
 @app.post("/education")
 def create_education(payload: EducationCreate, db: Session = Depends(get_db)):
+    """Create a new education entry."""
     sort_order = payload.sort_order
     if sort_order is None:
         sort_order = _next_sort_order_for(db.query(func.max(Education.sort_order)))
@@ -563,6 +581,7 @@ def create_education(payload: EducationCreate, db: Session = Depends(get_db)):
 
 @app.put("/education/{education_id}")
 def update_education(education_id: int, payload: EducationUpdate, db: Session = Depends(get_db)):
+    """Update an education entry."""
     edu = (
         db.query(Education)
         .options(selectinload(Education.bullets))
@@ -598,6 +617,7 @@ def update_education(education_id: int, payload: EducationUpdate, db: Session = 
 
 @app.delete("/education/{education_id}")
 def delete_education(education_id: int, db: Session = Depends(get_db)):
+    """Delete an education entry."""
     edu = db.query(Education).filter(Education.id == education_id).first()
     if edu is None:
         raise HTTPException(status_code=404, detail="Education entry not found")
@@ -610,6 +630,7 @@ def delete_education(education_id: int, db: Session = Depends(get_db)):
 
 @app.get("/experiences")
 def list_experiences(db: Session = Depends(get_db)):
+    """List experience entries."""
     experiences = (
         db.query(Experience)
         .options(selectinload(Experience.bullets))
@@ -621,6 +642,7 @@ def list_experiences(db: Session = Depends(get_db)):
 
 @app.get("/experiences/{job_id}")
 def get_experience(job_id: str, db: Session = Depends(get_db)):
+    """Return a single experience by job_id."""
     exp = (
         db.query(Experience)
         .options(selectinload(Experience.bullets))
@@ -634,6 +656,7 @@ def get_experience(job_id: str, db: Session = Depends(get_db)):
 
 @app.post("/experiences")
 def create_experience(payload: ExperienceCreate, db: Session = Depends(get_db)):
+    """Create a new experience entry."""
     job_id = make_job_id(payload.company, payload.role)
     if db.query(Experience).filter(Experience.job_id == job_id).first():
         raise HTTPException(status_code=409, detail="Experience with job_id already exists")
@@ -682,6 +705,7 @@ def create_experience(payload: ExperienceCreate, db: Session = Depends(get_db)):
 
 @app.put("/experiences/{job_id}")
 def update_experience(job_id: str, payload: ExperienceUpdate, db: Session = Depends(get_db)):
+    """Update an experience entry."""
     exp = (
         db.query(Experience)
         .options(selectinload(Experience.bullets))
@@ -722,6 +746,7 @@ def update_experience(job_id: str, payload: ExperienceUpdate, db: Session = Depe
 
 @app.delete("/experiences/{job_id}")
 def delete_experience(job_id: str, db: Session = Depends(get_db)):
+    """Delete an experience entry."""
     exp = db.query(Experience).filter(Experience.job_id == job_id).first()
     if exp is None:
         raise HTTPException(status_code=404, detail="Experience not found")
@@ -734,6 +759,7 @@ def delete_experience(job_id: str, db: Session = Depends(get_db)):
 
 @app.get("/experiences/{job_id}/bullets")
 def list_experience_bullets(job_id: str, db: Session = Depends(get_db)):
+    """List bullets for an experience."""
     exp = db.query(Experience).filter(Experience.job_id == job_id).first()
     if exp is None:
         raise HTTPException(status_code=404, detail="Experience not found")
@@ -751,6 +777,7 @@ def list_experience_bullets(job_id: str, db: Session = Depends(get_db)):
 
 @app.post("/experiences/{job_id}/bullets")
 def create_experience_bullet(job_id: str, payload: BulletCreate, db: Session = Depends(get_db)):
+    """Create a bullet under an experience."""
     exp = db.query(Experience).filter(Experience.job_id == job_id).first()
     if exp is None:
         raise HTTPException(status_code=404, detail="Experience not found")
@@ -788,6 +815,7 @@ def create_experience_bullet(job_id: str, payload: BulletCreate, db: Session = D
 def update_experience_bullet(
     job_id: str, local_id: str, payload: BulletUpdate, db: Session = Depends(get_db)
 ):
+    """Update a bullet under an experience."""
     bullet = (
         db.query(ExperienceBullet)
         .join(Experience, Experience.id == ExperienceBullet.experience_id)
@@ -810,6 +838,7 @@ def update_experience_bullet(
 
 @app.delete("/experiences/{job_id}/bullets/{local_id}")
 def delete_experience_bullet(job_id: str, local_id: str, db: Session = Depends(get_db)):
+    """Delete a bullet under an experience."""
     bullet = (
         db.query(ExperienceBullet)
         .join(Experience, Experience.id == ExperienceBullet.experience_id)
@@ -827,6 +856,7 @@ def delete_experience_bullet(job_id: str, local_id: str, db: Session = Depends(g
 
 @app.get("/projects")
 def list_projects(db: Session = Depends(get_db)):
+    """List project entries."""
     projects = (
         db.query(Project)
         .options(selectinload(Project.bullets))
@@ -838,6 +868,7 @@ def list_projects(db: Session = Depends(get_db)):
 
 @app.get("/projects/{project_id}")
 def get_project(project_id: str, db: Session = Depends(get_db)):
+    """Return a single project by project_id."""
     proj = (
         db.query(Project)
         .options(selectinload(Project.bullets))
@@ -851,6 +882,7 @@ def get_project(project_id: str, db: Session = Depends(get_db)):
 
 @app.post("/projects")
 def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
+    """Create a new project entry."""
     base_id = make_project_id(payload.name)
     existing_ids = [row[0] for row in db.query(Project.project_id).all()]
     project_id = ensure_unique_slug(base_id, existing_ids)
@@ -897,6 +929,7 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
 
 @app.put("/projects/{project_id}")
 def update_project(project_id: str, payload: ProjectUpdate, db: Session = Depends(get_db)):
+    """Update a project entry."""
     proj = (
         db.query(Project)
         .options(selectinload(Project.bullets))
@@ -938,6 +971,7 @@ def update_project(project_id: str, payload: ProjectUpdate, db: Session = Depend
 
 @app.delete("/projects/{project_id}")
 def delete_project(project_id: str, db: Session = Depends(get_db)):
+    """Delete a project entry."""
     proj = db.query(Project).filter(Project.project_id == project_id).first()
     if proj is None:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -950,6 +984,7 @@ def delete_project(project_id: str, db: Session = Depends(get_db)):
 
 @app.get("/projects/{project_id}/bullets")
 def list_project_bullets(project_id: str, db: Session = Depends(get_db)):
+    """List bullets for a project."""
     proj = db.query(Project).filter(Project.project_id == project_id).first()
     if proj is None:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -967,6 +1002,7 @@ def list_project_bullets(project_id: str, db: Session = Depends(get_db)):
 
 @app.post("/projects/{project_id}/bullets")
 def create_project_bullet(project_id: str, payload: BulletCreate, db: Session = Depends(get_db)):
+    """Create a bullet under a project."""
     proj = db.query(Project).filter(Project.project_id == project_id).first()
     if proj is None:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1002,6 +1038,7 @@ def create_project_bullet(project_id: str, payload: BulletCreate, db: Session = 
 def update_project_bullet(
     project_id: str, local_id: str, payload: BulletUpdate, db: Session = Depends(get_db)
 ):
+    """Update a bullet under a project."""
     bullet = (
         db.query(ProjectBullet)
         .join(Project, Project.id == ProjectBullet.project_id)
@@ -1024,6 +1061,7 @@ def update_project_bullet(
 
 @app.delete("/projects/{project_id}/bullets/{local_id}")
 def delete_project_bullet(project_id: str, local_id: str, db: Session = Depends(get_db)):
+    """Delete a bullet under a project."""
     bullet = (
         db.query(ProjectBullet)
         .join(Project, Project.id == ProjectBullet.project_id)
@@ -1041,6 +1079,7 @@ def delete_project_bullet(project_id: str, local_id: str, db: Session = Depends(
 
 @app.post("/admin/export")
 def export_resume(reingest: bool = False, db: Session = Depends(get_db)):
+    """Export DB to JSON and optionally re-ingest Chroma."""
     write_resume_json(db, EXPORT_FILE)
     _reload_static_data()
 
@@ -1057,6 +1096,7 @@ def export_resume(reingest: bool = False, db: Session = Depends(get_db)):
 
 @app.post("/admin/ingest")
 def ingest_resume(db: Session = Depends(get_db)):
+    """Ingest the exported resume JSON into Chroma."""
     if not INGEST_LOCK.acquire(blocking=False):
         return JSONResponse(
             {"status": "error", "count": 0, "elapsed_s": 0.0, "error": "ingest already running"},
@@ -1091,6 +1131,7 @@ def ingest_resume(db: Session = Depends(get_db)):
 
 @app.post("/generate", response_model=GenerateResponse)
 async def generate(req: GenerateRequest) -> GenerateResponse:
+    """Run the resume generation pipeline."""
     jd_text = (req.jd_text or "").strip()
     if not jd_text:
         return JSONResponse({"error": "jd_text is empty"}, status_code=400)
@@ -1173,6 +1214,7 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
 
 @app.get("/runs/{run_id}/pdf")
 def get_pdf(run_id: str):
+    """Serve a rendered PDF artifact."""
     path = os.path.join(OUTPUT_DIR, f"{run_id}.pdf")
     if not os.path.exists(path):
         return JSONResponse({"error": "pdf not found"}, status_code=404)
@@ -1181,6 +1223,7 @@ def get_pdf(run_id: str):
 
 @app.get("/runs/{run_id}/tex")
 def get_tex(run_id: str):
+    """Serve a rendered TeX artifact."""
     path = os.path.join(OUTPUT_DIR, f"{run_id}.tex")
     if not os.path.exists(path):
         return JSONResponse({"error": "tex not found"}, status_code=404)
@@ -1189,6 +1232,7 @@ def get_tex(run_id: str):
 
 @app.get("/runs/{run_id}/report")
 def get_report(run_id: str):
+    """Serve a run report artifact."""
     path = os.path.join(OUTPUT_DIR, f"{run_id}_report.json")
     if not os.path.exists(path):
         return JSONResponse({"error": "report not found"}, status_code=404)
@@ -1196,6 +1240,7 @@ def get_report(run_id: str):
 
 
 def main() -> None:
+    """Run the API server entrypoint."""
     uvicorn.run(app, host="0.0.0.0", port=settings.port)
 
 

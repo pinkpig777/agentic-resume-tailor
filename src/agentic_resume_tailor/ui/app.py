@@ -12,9 +12,7 @@ from agentic_resume_tailor.settings import get_settings
 # Health check
 # ----------------------------
 def check_server_health(api_base: str, timeout_s: float = 1.5) -> Tuple[bool, Any]:
-    """
-    Returns (ok: bool, payload_or_error: dict|str)
-    """
+    """Check the API health endpoint and return status."""
     url = api_base.rstrip("/") + "/health"
     try:
         r = requests.get(url, timeout=timeout_s)
@@ -26,6 +24,7 @@ def check_server_health(api_base: str, timeout_s: float = 1.5) -> Tuple[bool, An
 
 
 def get_health_cached(api_base: str, ttl_s: float = 2.0) -> Tuple[bool, Any]:
+    """Return cached health status with a TTL."""
     now = time.time()
     last = st.session_state.get("_health_last_checked", 0.0)
     force = st.session_state.get("_health_force_refresh", 0.0)
@@ -44,6 +43,7 @@ def get_health_cached(api_base: str, ttl_s: float = 2.0) -> Tuple[bool, Any]:
 def api_request(
     method: str, api_base: str, path: str, timeout_s: float = 10.0, **kwargs: Any
 ) -> Tuple[bool, Any, str]:
+    """Call the API and normalize success/error responses."""
     url = api_base.rstrip("/") + path
     try:
         resp = requests.request(method, url, timeout=timeout_s, **kwargs)
@@ -62,6 +62,7 @@ def api_request(
 
 
 def _fetch_app_settings(api_url: str) -> Tuple[bool, Dict[str, Any], str]:
+    """Fetch settings from the API."""
     ok, data, err = api_request("GET", api_url, "/settings", timeout_s=10)
     if ok and isinstance(data, dict):
         return True, data, ""
@@ -69,10 +70,12 @@ def _fetch_app_settings(api_url: str) -> Tuple[bool, Dict[str, Any], str]:
 
 
 def _set_editor_message(level: str, text: str) -> None:
+    """Store a flash message for the editor."""
     st.session_state["editor_message"] = {"level": level, "text": text}
 
 
 def _show_editor_message() -> None:
+    """Render and clear the editor flash message."""
     msg = st.session_state.pop("editor_message", None)
     if not msg:
         return
@@ -89,6 +92,7 @@ def _show_editor_message() -> None:
 def _render_bullet_controls(
     api_url: str, section: str, parent_id: str, bullet: dict
 ) -> None:
+    """Render edit/delete controls for a bullet."""
     bullet_id = bullet.get("id", "")
     text = bullet.get("text_latex", "")
     edit_key = f"edit_{section}_{parent_id}_{bullet_id}"
@@ -129,6 +133,7 @@ def _render_bullet_controls(
 
 
 def render_health_sidebar(api_url: str) -> Tuple[bool, Any]:
+    """Show the server status icon in the sidebar."""
     ok, info = get_health_cached(api_url)
     icon = "🟢" if ok else "🔴"
     st.sidebar.markdown(f"**Server** {icon}")
@@ -136,6 +141,7 @@ def render_health_sidebar(api_url: str) -> Tuple[bool, Any]:
 
 
 def render_settings_page(api_url: str) -> None:
+    """Render the Settings page UI."""
     st.header("Settings")
 
     ok, app_settings, err = _fetch_app_settings(api_url)
@@ -287,6 +293,7 @@ def render_settings_page(api_url: str) -> None:
 
 
 def render_resume_editor(api_url: str) -> None:
+    """Render the Resume Editor page UI."""
     st.header("Resume Editor")
 
     _show_editor_message()
@@ -736,6 +743,7 @@ def render_resume_editor(api_url: str) -> None:
 
 
 def render_generate_page(api_url: str) -> None:
+    """Render the Generate page UI."""
     st.header("Generate")
 
     st.subheader("Job Description")
@@ -886,6 +894,7 @@ def render_generate_page(api_url: str) -> None:
 
 
 def main() -> None:
+    """Run the Streamlit app."""
     settings = get_settings()
     api_url = settings.api_url.rstrip("/")
 
