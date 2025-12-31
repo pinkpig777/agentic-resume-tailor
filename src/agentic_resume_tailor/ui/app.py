@@ -129,20 +129,9 @@ def _render_bullet_controls(
 
 
 def render_health_sidebar(api_url: str) -> Tuple[bool, Any]:
-    st.sidebar.markdown("## Server Health")
-    col1, col2 = st.sidebar.columns([1, 1])
-
-    if col2.button("Re-check"):
-        st.session_state["_health_force_refresh"] = time.time()
-
     ok, info = get_health_cached(api_url)
-    st.sidebar.caption(f"Health URL: {api_url}/health")
-    if ok:
-        st.sidebar.success(f"UP: {api_url}")
-        st.sidebar.caption(f"Response: {info}")
-    else:
-        st.sidebar.error(f"DOWN: {api_url}")
-        st.sidebar.caption(f"Error: {info}")
+    icon = "🟢" if ok else "🔴"
+    st.sidebar.markdown(f"**Server** {icon}")
     return ok, info
 
 
