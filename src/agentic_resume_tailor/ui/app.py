@@ -161,19 +161,28 @@ def render_settings_page(api_url: str) -> None:
             auto_reingest = st.checkbox(
                 "Auto re-ingest on save",
                 value=bool(app_settings.get("auto_reingest_on_save", False)),
+                help="Automatically export and re-ingest Chroma after any profile edit.",
             )
             export_file = st.text_input(
-                "Export file path", value=app_settings.get("export_file", "")
+                "Export file path",
+                value=app_settings.get("export_file", ""),
+                help="Path for the exported resume JSON (written on saves and ingest).",
             )
         with col2:
             use_jd_parser = st.checkbox(
                 "Enable JD parser",
                 value=bool(app_settings.get("use_jd_parser", True)),
+                help="Use the LLM-based JD parser to build retrieval queries.",
             )
-            jd_model = st.text_input("JD model", value=app_settings.get("jd_model", ""))
+            jd_model = st.text_input(
+                "JD model",
+                value=app_settings.get("jd_model", ""),
+                help="OpenAI model name for JD parsing.",
+            )
             skip_pdf = st.checkbox(
                 "Skip PDF render (dev/testing)",
                 value=bool(app_settings.get("skip_pdf", False)),
+                help="When enabled, generation skips the LaTeX/PDF step.",
             )
 
         st.subheader("Generation defaults")
@@ -185,6 +194,7 @@ def render_settings_page(api_url: str) -> None:
                 max_value=10,
                 value=int(app_settings.get("max_iters", 3) or 3),
                 step=1,
+                help="Maximum agent iterations before stopping.",
             )
             per_query_k = st.number_input(
                 "per_query_k",
@@ -192,6 +202,7 @@ def render_settings_page(api_url: str) -> None:
                 max_value=50,
                 value=int(app_settings.get("per_query_k", 10) or 10),
                 step=1,
+                help="Top-K results retrieved per query before merging.",
             )
         with colB:
             max_bullets = st.number_input(
@@ -200,6 +211,7 @@ def render_settings_page(api_url: str) -> None:
                 max_value=32,
                 value=int(app_settings.get("max_bullets", 16) or 16),
                 step=1,
+                help="Maximum bullets selected for the final resume.",
             )
             final_k = st.number_input(
                 "final_k",
@@ -207,6 +219,7 @@ def render_settings_page(api_url: str) -> None:
                 max_value=200,
                 value=int(app_settings.get("final_k", 30) or 30),
                 step=1,
+                help="Final candidate pool size before selection.",
             )
 
         with st.expander("Advanced tuning", expanded=False):
@@ -216,6 +229,7 @@ def render_settings_page(api_url: str) -> None:
                 max_value=100,
                 value=int(app_settings.get("threshold", 80) or 80),
                 step=1,
+                help="Stop early if the hybrid score reaches this value.",
             )
             alpha = st.number_input(
                 "Alpha (retrieval weight)",
@@ -223,6 +237,7 @@ def render_settings_page(api_url: str) -> None:
                 max_value=1.0,
                 value=float(app_settings.get("alpha", 0.7) or 0.7),
                 step=0.05,
+                help="Blend weight between retrieval and keyword coverage.",
             )
             must_weight = st.number_input(
                 "Must-have weight",
@@ -230,6 +245,7 @@ def render_settings_page(api_url: str) -> None:
                 max_value=1.0,
                 value=float(app_settings.get("must_weight", 0.8) or 0.8),
                 step=0.05,
+                help="Weight applied to must-have keyword coverage.",
             )
             boost_weight = st.number_input(
                 "Boost query weight",
@@ -237,6 +253,7 @@ def render_settings_page(api_url: str) -> None:
                 max_value=3.0,
                 value=float(app_settings.get("boost_weight", 1.6) or 1.6),
                 step=0.1,
+                help="Strength of boosted queries for missing must-have terms.",
             )
             boost_top_n_missing = st.number_input(
                 "Boost top-N missing must-have",
@@ -244,6 +261,7 @@ def render_settings_page(api_url: str) -> None:
                 max_value=20,
                 value=int(app_settings.get("boost_top_n_missing", 6) or 6),
                 step=1,
+                help="How many missing must-have terms to boost per iteration.",
             )
 
         submitted = st.form_submit_button("Save settings")
