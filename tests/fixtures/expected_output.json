@@ -15,30 +15,30 @@
   },
   "best_iteration_index": 0,
   "selected_ids": [
-    "proj:zapmail_ai_driven_email_automation_platform:b02",
-    "proj:sentiment_aware_chatroom_monitor:b01",
-    "exp:computer_graphics_and_vision_lab_nthu__research_assistant:b01",
-    "exp:saturnai__ai_software_engineer:b02",
-    "exp:fortune_technology_systems_corp__assistant_engineer:b01",
-    "proj:kuiz_educational_video_platform:b02",
-    "exp:computer_graphics_and_vision_lab_nthu__research_assistant:b02",
-    "proj:kuiz_educational_video_platform:b03"
+    "<ID>",
+    "<ID>",
+    "<ID>",
+    "<ID>",
+    "<ID>",
+    "<ID>",
+    "<ID>",
+    "<ID>"
   ],
   "iterations": [
     {
       "iteration": 0,
       "queries_used": [
-        "Backend Software Engineer Must-have: - Python - FastAPI - SQL - Docker Nice-to-have: - Redis - AWS - CI/CD"
+        "<QUERY>"
       ],
       "selected_ids": [
-        "proj:zapmail_ai_driven_email_automation_platform:b02",
-        "proj:sentiment_aware_chatroom_monitor:b01",
-        "exp:computer_graphics_and_vision_lab_nthu__research_assistant:b01",
-        "exp:saturnai__ai_software_engineer:b02",
-        "exp:fortune_technology_systems_corp__assistant_engineer:b01",
-        "proj:kuiz_educational_video_platform:b02",
-        "exp:computer_graphics_and_vision_lab_nthu__research_assistant:b02",
-        "proj:kuiz_educational_video_platform:b03"
+        "<ID>",
+        "<ID>",
+        "<ID>",
+        "<ID>",
+        "<ID>",
+        "<ID>",
+        "<ID>",
+        "<ID>"
       ],
       "candidate_count": 8,
       "scored": false
@@ -46,17 +46,17 @@
     {
       "iteration": 1,
       "queries_used": [
-        "Backend Software Engineer Must-have: - Python - FastAPI - SQL - Docker Nice-to-have: - Redis - AWS - CI/CD"
+        "<QUERY>"
       ],
       "selected_ids": [
-        "proj:zapmail_ai_driven_email_automation_platform:b02",
-        "proj:sentiment_aware_chatroom_monitor:b01",
-        "exp:computer_graphics_and_vision_lab_nthu__research_assistant:b01",
-        "exp:saturnai__ai_software_engineer:b02",
-        "exp:fortune_technology_systems_corp__assistant_engineer:b01",
-        "proj:kuiz_educational_video_platform:b02",
-        "exp:computer_graphics_and_vision_lab_nthu__research_assistant:b02",
-        "proj:kuiz_educational_video_platform:b03"
+        "<ID>",
+        "<ID>",
+        "<ID>",
+        "<ID>",
+        "<ID>",
+        "<ID>",
+        "<ID>",
+        "<ID>"
       ],
       "candidate_count": 8,
       "scored": false

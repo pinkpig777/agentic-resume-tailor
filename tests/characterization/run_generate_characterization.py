@@ -27,7 +27,30 @@ def _normalize_report(report: dict) -> dict:
     if isinstance(artifacts, dict):
         artifacts["pdf"] = "RUN_ID.pdf"
         artifacts["tex"] = "RUN_ID.tex"
+    _mask_variable_fields(normalized)
     return normalized
+
+
+def _mask_variable_fields(value: object) -> None:
+    if isinstance(value, dict):
+        for key, item in list(value.items()):
+            if key in {"queries_used"}:
+                if isinstance(item, list):
+                    has_text = any(isinstance(x, str) and x.strip() for x in item)
+                    value[key] = ["<QUERY>"] if has_text else []
+                continue
+            if key in {"selected_ids"}:
+                if isinstance(item, list):
+                    value[key] = ["<ID>"] * len(item)
+                continue
+            if key in {"analysis", "jd_text", "jd_text_preview", "summary"}:
+                if isinstance(item, str) and item.strip():
+                    value[key] = "<REDACTED>"
+                continue
+            _mask_variable_fields(item)
+    elif isinstance(value, list):
+        for item in value:
+            _mask_variable_fields(item)
 
 
 def _ensure_env(tmp_dir: str) -> None:
