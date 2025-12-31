@@ -19,6 +19,18 @@ class TestScorer(unittest.TestCase):
 
         self.assertAlmostEqual(compute_retrieval_norm(selected, all_candidates), 1.0)
 
+    def test_compute_retrieval_norm_uses_effective_weight(self) -> None:
+        selected = [
+            SimpleNamespace(total_weighted=0.5, effective_total_weighted=0.7),
+            SimpleNamespace(total_weighted=0.5, effective_total_weighted=0.7),
+        ]
+        all_candidates = [
+            SimpleNamespace(total_weighted=1.0, effective_total_weighted=1.0),
+            SimpleNamespace(total_weighted=0.5, effective_total_weighted=0.7),
+        ]
+
+        self.assertAlmostEqual(compute_retrieval_norm(selected, all_candidates), 0.7)
+
     def test_score_returns_full_match(self) -> None:
         selected = [SimpleNamespace(total_weighted=2.0), SimpleNamespace(total_weighted=1.0)]
         all_candidates = [

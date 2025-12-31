@@ -31,6 +31,10 @@ def _mean(xs: List[float]) -> float:
     return sum(xs) / len(xs) if xs else 0.0
 
 
+def _candidate_weight(c: Any) -> float:
+    return float(getattr(c, "effective_total_weighted", getattr(c, "total_weighted", 0.0)) or 0.0)
+
+
 def compute_retrieval_norm(selected_candidates: List[Any], all_candidates: List[Any]) -> float:
     """
     Normalize retrieval strength:
@@ -45,11 +49,11 @@ def compute_retrieval_norm(selected_candidates: List[Any], all_candidates: List[
     if n <= 0:
         return 0.0
 
-    selected_mean = sum(float(c.total_weighted) for c in selected_candidates) / len(
+    selected_mean = sum(_candidate_weight(c) for c in selected_candidates) / len(
         selected_candidates
     )
 
-    all_vals = sorted((float(c.total_weighted) for c in all_candidates), reverse=True)
+    all_vals = sorted((_candidate_weight(c) for c in all_candidates), reverse=True)
     best_possible_mean = sum(all_vals[:n]) / n
 
     if best_possible_mean <= 1e-9:
