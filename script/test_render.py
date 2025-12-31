@@ -1,13 +1,24 @@
-import os
+from __future__ import annotations
+
+import logging
 import subprocess
+from pathlib import Path
+from typing import Any, Dict
 
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, TemplateNotFound
+
+from agentic_resume_tailor.settings import get_settings
+from agentic_resume_tailor.utils.logging import configure_logging
+
+configure_logging()
+logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
-def render_resume(data):
-    # Setup Jinja2 with custom delimiters to avoid clashing with LaTeX
-    env = Environment(
-        loader=FileSystemLoader("templates"),
+def _build_env(template_dir: Path) -> Environment:
+    # Custom delimiters avoid clashing with LaTeX syntax.
+    return Environment(
+        loader=FileSystemLoader(str(template_dir)),
         block_start_string="((%",
         block_end_string="%))",
         variable_start_string="<<",
@@ -16,21 +27,32 @@ def render_resume(data):
         comment_end_string="#))",
     )
 
-    template = env.get_template("resume.tex")
+
+def render_resume(data: Dict[str, Any], template_dir: Path, output_dir: Path) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    env = _build_env(template_dir)
+    try:
+        template = env.get_template("resume.tex")
+    except TemplateNotFound as exc:
+        raise SystemExit(f"Template not found: {template_dir / 'resume.tex'}") from exc
+
     rendered_tex = template.render(data)
+    tex_path = output_dir / "temp_resume.tex"
+    tex_path.write_text(rendered_tex, encoding="utf-8")
+    return tex_path
 
-    with open("output/temp_resume.tex", "w") as f:
-        f.write(rendered_tex)
 
-    print("Compiling PDF...")
+def compile_pdf(tex_path: Path, output_dir: Path) -> Path:
     # --interaction=nonstopmode helps Tectonic/LaTeX finish even if there are small warnings
-    result = subprocess.run(["tectonic", "output/temp_resume.tex"], capture_output=True, text=True)
-
-    if result.returncode == 0:
-        print("Success! Resume generated: output/temp_resume.pdf")
-    else:
-        print("Error during compilation:")
-        print(result.stderr)
+    result = subprocess.run(
+        ["tectonic", str(tex_path), "--outdir", str(output_dir)],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        logger.error("Tectonic compilation failed: %s", result.stderr.strip())
+        raise SystemExit(1)
+    return output_dir / "temp_resume.pdf"
 
 
 # Mock Data (This is what your RAG Agent will eventually generate)
@@ -79,6 +101,8 @@ sample_data = {
 }
 
 if __name__ == "__main__":
-    if not os.path.exists("output"):
-        os.makedirs("output")
-    render_resume(sample_data)
+    template_dir = Path(settings.template_dir)
+    output_dir = Path(settings.output_dir)
+    tex_path = render_resume(sample_data, template_dir, output_dir)
+    pdf_path = compile_pdf(tex_path, output_dir)
+    logger.info("Resume generated: %s", pdf_path)
