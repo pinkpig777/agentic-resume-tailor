@@ -54,13 +54,22 @@ def _mask_variable_fields(value: object) -> None:
 
 
 def _ensure_env(tmp_dir: str) -> None:
-    os.environ["ART_USE_JD_PARSER"] = "0"
-    os.environ["ART_RUN_ID"] = "RUN_ID"
-    os.environ["ART_SKIP_PDF"] = "1"
-    os.environ["ART_OUTPUT_DIR"] = tmp_dir
-    os.environ["ART_DB_PATH"] = str(REPO_ROOT / "data" / "processed" / "chroma_db")
-    os.environ["ART_SQL_DB_URL"] = f"sqlite:///{tmp_dir}/resume.db"
-    os.environ["ART_TEMPLATE_DIR"] = str(REPO_ROOT / "templates")
+    settings_path = Path(tmp_dir) / "user_settings.json"
+    settings_payload = {
+        "db_path": str(REPO_ROOT / "data" / "processed" / "chroma_db"),
+        "sql_db_url": f"sqlite:///{tmp_dir}/resume.db",
+        "export_file": str(Path(tmp_dir) / "my_experience.json"),
+        "template_dir": str(REPO_ROOT / "templates"),
+        "output_dir": tmp_dir,
+        "use_jd_parser": False,
+        "skip_pdf": True,
+        "run_id": "RUN_ID",
+        "api_url": "http://localhost:8000",
+    }
+    settings_path.write_text(
+        json.dumps(settings_payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    os.environ["USER_SETTINGS_FILE"] = str(settings_path)
 
 
 def _seed_db_from_json() -> None:
