@@ -30,7 +30,7 @@ This repo supports two runtimes:
 
 - `data/`
   - `raw_experience_data_example.json` - legacy JSON sample (not used by default)
-  - `my_experience.json` - legacy JSON export format (now exported to `output/`)
+- `my_experience.json` - JSON export artifact (written on saves and ingest)
   - `processed/chroma_db/` - local ChromaDB store
   - `processed/resume.db` - SQLite CRUD store (default)
 - `script/`
@@ -66,8 +66,8 @@ This repo supports two runtimes:
 
 - The SQL database is the source of truth (created on first launch).
 - The Resume Editor writes directly to the DB via CRUD endpoints.
-- Re-ingest always exports the DB to `output/my_experience.json`, then ingests Chroma.
-- `output/my_experience.json` is an exported artifact for inspection/backups, not the primary store.
+- Re-ingest always exports the DB to `data/my_experience.json`, then ingests Chroma.
+- `data/my_experience.json` is an exported artifact for inspection/backups, not the primary store.
 
 ### Export format (`my_experience.json`)
 
@@ -103,7 +103,7 @@ Examples:
 
 - CRUD endpoints are available at `/personal_info`, `/skills`, `/experiences`, `/projects`, and `/education`.
 - Use `POST /admin/ingest` to export the DB, rebuild Chroma, and refresh in-memory data.
-- Use `POST /admin/export` to regenerate `output/my_experience.json` without re-ingesting.
+- Use `POST /admin/export` to regenerate `data/my_experience.json` without re-ingesting.
 
 ## Database schema (SQLite/Postgres)
 
@@ -164,7 +164,8 @@ Common environment variables and defaults:
 - `OPENAI_API_KEY` (required only if JD parser is enabled)
 - `ART_DB_PATH` (default `/app/data/processed/chroma_db`)
 - `ART_SQL_DB_URL` (default `sqlite:///data/processed/resume.db`)
-- `ART_EXPORT_FILE` (default `output/my_experience.json`)
+- `ART_EXPORT_FILE` (default `data/my_experience.json`)
+- `ART_AUTO_REINGEST` (default `0`, re-ingest after every save)
 - `ART_TEMPLATE_DIR` (default `/app/templates`)
 - `ART_OUTPUT_DIR` (default `/app/output`)
 - `ART_COLLECTION` (default `resume_experience`)
@@ -272,7 +273,7 @@ pip install -r requirements.txt
 
 export ART_DB_PATH=data/processed/chroma_db
 export ART_SQL_DB_URL=sqlite:///data/processed/resume.db
-export ART_EXPORT_FILE=output/my_experience.json
+export ART_EXPORT_FILE=data/my_experience.json
 export ART_TEMPLATE_DIR=templates
 export ART_OUTPUT_DIR=output
 export ART_USE_JD_PARSER=0  # optional, disable OpenAI parser
@@ -353,8 +354,8 @@ Artifacts are written under `output/` and exposed via:
 
 ### Admin operations
 
-- `POST /admin/export` regenerates `output/my_experience.json` from the DB.
-- `POST /admin/ingest` exports `output/my_experience.json` and re-ingests Chroma (returns counts + elapsed time).
+- `POST /admin/export` regenerates `data/my_experience.json` from the DB.
+- `POST /admin/ingest` exports `data/my_experience.json` and re-ingests Chroma (returns counts + elapsed time).
 
 ---
 
@@ -365,7 +366,7 @@ flowchart TD
   subgraph Resume_Data[Resume Data]
     UI[Resume Editor] --> CRUD[FastAPI CRUD]
     CRUD --> DB[(SQL DB)]
-    DB -->|export| JSON[output/my_experience.json]
+    DB -->|export| JSON[data/my_experience.json]
     JSON -->|ingest| INGEST[Re-ingest Chroma]
     INGEST --> CHROMA[(ChromaDB)]
   end
