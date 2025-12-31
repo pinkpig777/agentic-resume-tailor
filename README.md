@@ -1,39 +1,133 @@
 # Agentic Resume Tailor (ART)
 
-Local, privacy-first resume tailoring agent. ART stores **only your own bullets** in a local ChromaDB vector store, retrieves the most relevant bullets for a job description (JD), and renders a **one-page** LaTeX PDF via Tectonic.
+Local, privacy-first resume tailoring agent. ART stores only your own bullets in a local ChromaDB vector store, retrieves the most relevant bullets for a job description (JD), and renders a single-page LaTeX PDF via Tectonic.
+
+This repo supports two runtimes:
+
+- FastAPI backend (`src/server.py`): API endpoints, agent loop, rendering, artifact/report generation.
+- Streamlit UI (`src/app.py`): frontend that calls the API and visualizes the report.
+
+---
 
 ## What it does
 
-- **Local vector store (ChromaDB)**: Embeds each bullet with `BAAI/bge-small-en-v1.5` and stores it locally.
-- **Deterministic provenance**: Every bullet is stored with a stable `bullet_id` (no random UUIDs). Output always traces back to your JSON.
-- **Multi-query retrieval**: Uses JD parser output (`experience_queries`) to run multiple searches, merge, dedupe by `bullet_id`, and rerank.
-- **Selection**: Pure **Top-K** selection (cap: 16 bullets). (Safety Anchor is optional and currently not enforced by default.)
-- **Hybrid scoring (recommended)**: Combines retrieval strength + keyword coverage (alias/family matching) to evaluate the selected set.
-- **JD parser (optional)**: LLM-based parser outputs **Target Profile v1** with atomic skills + evidence snippets and a retrieval plan.
-- **LaTeX rendering**: Jinja2 → `tailored_resume.tex` → Tectonic → `tailored_resume.pdf`.
+- Local vector store (ChromaDB): embeds each bullet with `BAAI/bge-small-en-v1.5`.
+- Deterministic provenance: each bullet is stored with a stable `bullet_id`.
+- Multi-query retrieval: uses JD parser output (`experience_queries`) or fallback queries, merges + dedupes by `bullet_id`, then reranks.
+- Selection (Top-K): selects the top `N` bullets (default `16`).
+- Agentic loop: iteratively boosts missing must-have keywords into the next retrieval pass (no OpenAI needed for boosting).
+- Keyword matching: canonicalization + family matching for explainability and coverage scoring.
+- Hybrid scoring: blends retrieval strength + keyword coverage per iteration.
+- LaTeX rendering: Jinja2 -> `.tex` -> Tectonic -> `.pdf`.
+- Report: writes `output/<run_id>_report.json` with queries used, selected bullet IDs, missing keywords, scores, and iteration history.
+
+---
 
 ## Repo map
 
 - `data/`
-  - `my_experience_v2.json` – **source of truth** (LaTeX-ready bullets + stable IDs)
-  - `processed/chroma_db/` – local ChromaDB store
+  - `raw_experience_data_example.json` - template for your raw data (editable)
+  - `my_experience.json` - source of truth (LaTeX-ready bullets + stable IDs)
+  - `processed/chroma_db/` - local ChromaDB store
+- `script/`
+  - `convert_experience_json.py` - normalize raw data and assign stable IDs
 - `config/`
-  - `canonicalization.json` – alias/canonical rules (file-driven)
+  - `canonicalization.json` - alias/canonical rules
+  - `families.json` - family taxonomy (generic -> satisfied_by)
 - `src/`
-  - `convert_experience_json.py` – converts older JSON into v2 with deterministic IDs
-  - `ingest.py` – upserts bullets into Chroma using `bullet_id`
-  - `jd_parser.py` – optional OpenAI JD parser (Target Profile v1)
-  - `test_query.py` – CLI probe for multi-query retrieval + hybrid scoring
-  - `server.py` – FastAPI app (generate artifacts)
-  - `retrieval.py`, `selection.py`, `keyword_matcher.py`, `scorer.py` – pipeline modules
-- `templates/resume.tex` – Jinja2-ready LaTeX template with `<< >>` and `((% %))` delimiters
+  - `ingest.py` - upserts bullets into Chroma using deterministic `bullet_id`
+  - `jd_parser.py` - optional OpenAI JD parser (Target Profile v1)
+  - `loop_controller.py` - iterative loop (boost missing must-have keywords, retry retrieval)
+  - `retrieval.py`, `selection.py`, `keyword_matcher.py`, `scorer.py` - pipeline modules
+  - `server.py` - FastAPI backend (API-only, writes artifacts + report)
+  - `app.py` - Streamlit UI (calls backend, visualizes report, downloads PDF)
+  - `test_render.py` - renders a PDF from template using current JSON (debugging)
+- `templates/resume.tex` - Jinja2 LaTeX template with `<< >>` and `((% %))` delimiters
+- `output/` - generated artifacts (`<run_id>.pdf`, `<run_id>.tex`, `<run_id>_report.json`)
+
+---
 
 ## Data contract (important)
 
-### Source of truth: `data/my_experience.json`
+### 1) Raw input format (easy to edit)
 
-- Bullets are **LaTeX-ready** (`text_latex`) and are never rewritten by the system.
-- The system must never invent new bullet content outside this file.
+Start from `data/raw_experience_data_example.json`, copy it, and edit:
+
+```bash
+cp data/raw_experience_data_example.json data/raw_experience_data.json
+```
+
+Minimal shape (see the example file for full fields):
+
+```json
+{
+  "personal_info": {
+    "name": "Firstname Lastname",
+    "phone": "(123)-456-7890",
+    "email": "email@example.com",
+    "linkedin_id": "linkedin-handle",
+    "github_id": "github-handle"
+  },
+  "skills": {
+    "languages_frameworks": "Python, FastAPI, React",
+    "ai_ml": "PyTorch, Transformers",
+    "db_tools": "PostgreSQL, Redis, Docker"
+  },
+  "education": [
+    {
+      "school": "University Name",
+      "dates": "Start Date -- End Date",
+      "degree": "Degree Name",
+      "location": "City, State",
+      "bullets": []
+    }
+  ],
+  "experiences": [
+    {
+      "company": "Company Name",
+      "role": "Job Title $|$ Team or Focus",
+      "dates": "Start Date -- End Date",
+      "location": "City, Country",
+      "bullets": [
+        "LaTeX-ready bullet text with \\textbf{metrics}"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "Project Name",
+      "technologies": "Tech A, Tech B",
+      "bullets": [
+        "Project bullet in LaTeX-ready format"
+      ]
+    }
+  ]
+}
+```
+
+Notes:
+- Use `$|$` inside `role` to separate primary title from team/focus. The script uses the primary title to create a stable `job_id`.
+- Bullets are LaTeX-ready and are never rewritten by the system.
+- The template expects `personal_info`, `skills`, `education`, `experiences`, and `projects` to exist (use empty lists when needed).
+
+### 2) Normalize to `data/my_experience.json` (source of truth)
+
+Run the converter (adds `job_id`, `project_id`, and bullet IDs):
+
+```bash
+python script/convert_experience_json.py \
+  --input data/raw_experience_data.json \
+  --output data/my_experience.json
+```
+
+The normalized file stores bullets as objects:
+
+```json
+{ "id": "b01", "text_latex": "..." }
+```
+
+The system only ever selects from this file; it never invents new bullets.
+If you want IDs to remain stable after editing bullet text, edit `data/my_experience.json` directly and keep the existing `id` fields.
 
 ### `bullet_id` convention
 
@@ -41,89 +135,106 @@ Local, privacy-first resume tailoring agent. ART stores **only your own bullets*
 - Project bullets: `proj:<project_id>:<bullet_local_id>`
 
 Examples:
+
 - `exp:saturnai__ai_software_engineer:b03`
 - `proj:zapmail_ai_driven_email_automation_platform:b02`
 
-## JD Parser contract (Target Profile v1)
+---
 
-`script/jd_parser.py` optionally converts raw JD text into a **Target Profile v1**:
+## Environment
 
-- **Atomic keywords** only (1–3 tokens)
-  - ✅ `python`, `computer vision`, `fastapi`, `ruby on rails`, `sql`, `docker`, `ci/cd`
-  - ❌ `python engineer`, `computer vision experience`
-- Must-haves include **evidence snippets** copied verbatim from the JD text.
-- Produces a retrieval plan (`experience_queries`) for multi-query retrieval.
-- Canonicalization is **file-driven** via `config/canonicalization.json`.
+Create a `.env` in the repo root (used by Docker and optional for local runs):
 
-> Note: Evidence offsets are not trusted. The parser repairs offsets server-side by locating the evidence snippet in the original JD text.
+```env
+OPENAI_API_KEY=YOUR_OPENAI_API_KEY
+
+# Keyword matching configs
+ART_CANON_CONFIG=config/canonicalization.json
+ART_FAMILY_CONFIG=config/families.json
+
+# Streamlit UI: use localhost when running outside Docker
+ART_API_URL=http://localhost:8000
+```
+
+If you run locally, load `.env` with `python -m dotenv run -- <command>` or export variables in your shell.
+
+Common environment variables and defaults:
+
+- `OPENAI_API_KEY` (required only if JD parser is enabled)
+- `ART_DB_PATH` (default `/app/data/processed/chroma_db`)
+- `ART_DATA_FILE` (default `/app/data/my_experience.json`)
+- `ART_TEMPLATE_DIR` (default `/app/templates`)
+- `ART_OUTPUT_DIR` (default `/app/output`)
+- `ART_COLLECTION` (default `resume_experience`)
+- `ART_EMBED_MODEL` (default `BAAI/bge-small-en-v1.5`)
+- `ART_CANON_CONFIG` (default `config/canonicalization.json`)
+- `ART_FAMILY_CONFIG` (default `config/families.json`)
+- `ART_USE_JD_PARSER` (default `1`)
+- `ART_JD_MODEL` (default `gpt-4.1-nano-2025-04-14`)
+- `ART_API_URL` (default `http://localhost:8000`, Streamlit only)
+- `ART_MAX_BULLETS`, `ART_PER_QUERY_K`, `ART_FINAL_K`
+- `ART_MAX_ITERS`, `ART_SCORE_THRESHOLD`, `ART_SCORE_ALPHA`, `ART_MUST_WEIGHT`
+- `ART_BOOST_WEIGHT`, `ART_BOOST_TOP_N`
+- `ART_CORS_ORIGINS` (default `*`)
+
+---
 
 ## Prerequisites
 
-- Docker Desktop (recommended), or Python 3.10+ with `pip`
+- Docker, or Python 3.10+ with `pip`
 - Internet access for the initial embedding model download (cached afterwards)
 - Keep `data/*.json` and `.env` private (gitignored)
 
-## Quickstart
+---
 
-### 0) Build the Docker image
+## Quickstart (Docker Compose, recommended)
+
+1) Prepare `data/my_experience.json` (see Data contract above).
+2) Ingest once (or any time you change the data):
+
+```bash
+docker compose run --rm api python /app/src/ingest.py
+```
+
+3) Start API + UI:
+
+```bash
+docker compose up --build
+```
+
+Open:
+
+- API health: `http://localhost:8000/health`
+- Streamlit UI: `http://localhost:8501`
+
+Stop:
+
+```bash
+docker compose down
+```
+
+---
+
+## Docker (no Compose)
+
+### 0) Build the image
 
 ```bash
 docker build -t resume-agent .
 ```
 
-### 1) Convert your resume JSON (stable bullet IDs)
-
-If you already have a `raw_experience_data.json`, convert it:
-
-```bash
-python script/convert_experience_json.py --input raw_experience_data.json --output my_experience.json
-```
-
-This will write a json file (example): `data/my_experience.json`.
-
-### 2) Ingest (upsert) bullets into ChromaDB
+### 1) Ingest bullets into ChromaDB
 
 ```bash
 docker run --rm \
   -v "$(pwd)/data:/app/data" \
   -v "$(pwd)/src:/app/src" \
+  -v "$(pwd)/config:/app/config" \
   -v "$(pwd)/.cache_docker:/root/.cache" \
   resume-agent python src/ingest.py
 ```
 
-This writes the local DB to: `data/processed/chroma_db`.
-
-### 3) Test retrieval + hybrid scoring (CLI)
-
-```bash
-docker run --rm \
-  --env-file .env \
-  -v "$(pwd)/data:/app/data" \
-  -v "$(pwd)/src:/app/src" \
-  -v "$(pwd)/config:/app/config" \
-  -v "$(pwd)/.cache_docker:/root/.cache" \
-  resume-agent python src/test_query.py
-```
-
-Environment knobs:
-- `ART_JD_MODEL` (default: `gpt-4.1-nano-2025-04-14`)
-- `ART_CANON_CONFIG` (default: `config/canonicalization.json`)
-- `ART_FAMILY_CONFIG` (default: `config/config/families.json`)
-- `ART_SCORE_ALPHA` (default: `0.7`) – hybrid weighting (retrieval vs coverage)
-
-### 4) Run JD parser directly (optional)
-
-```bash
-docker run --rm \
-  --env-file .env \
-  -v "$(pwd)/data:/app/data" \
-  -v "$(pwd)/src:/app/src" \
-  -v "$(pwd)/config:/app/config" \
-  -v "$(pwd)/.cache_docker:/root/.cache" \
-  resume-agent python src/jd_parser.py
-```
-
-### 5) Start the FastAPI server
+### 2) Run the FastAPI backend (API)
 
 ```bash
 docker run --rm -p 8000:8000 \
@@ -137,51 +248,82 @@ docker run --rm -p 8000:8000 \
   resume-agent python src/server.py
 ```
 
-Then open: `http://localhost:8000`
+Health check:
 
-## How it works (pipeline)
+```bash
+curl -sS http://localhost:8000/health
+```
 
-1. **Ingest**: `src/ingest.py` reads `data/my_experience.json` and upserts each bullet into ChromaDB using `bullet_id`.
-2. **Parse JD (optional)**: `src/jd_parser.py` produces Target Profile v1 (atomic keywords + evidence + experience queries).
-3. **Retrieve (multi-query)**: `src/retrieval.py` runs multiple queries, merges results, dedupes by `bullet_id`, and reranks.
-4. **Select**: `src/selection.py` keeps the top 16 bullets by reranked score.
-5. **Score (hybrid)**: `src/scorer.py` combines retrieval strength + keyword coverage to evaluate the selection.
-6. **Render**: Jinja2 fills `templates/resume.tex` → Tectonic compiles PDF.
-7. **Artifacts**: server writes outputs into `output/`.
+### 3) Run the Streamlit UI (separate container)
 
-## Notes and limitations
+```bash
+docker run --rm -p 8501:8501 \
+  --env-file .env \
+  -e ART_API_URL=http://host.docker.internal:8000 \
+  -v "$(pwd)/src:/app/src" \
+  resume-agent streamlit run /app/src/app.py --server.address=0.0.0.0 --server.port=8501
+```
 
-- JD parser requires `OPENAI_API_KEY`. Everything else can run fully local.
-- Bullets are treated as LaTeX-ready; the system does not rewrite bullet text.
-- Query quality heavily affects retrieval. The JD parser is designed to produce **dense** retrieval queries to avoid generic IT matches.
+Open Streamlit: `http://localhost:8501`
 
-## Troubleshooting
+---
 
-- **Embedding model download slow**: mount cache volume:
-  - `-v "$(pwd)/.cache_docker:/root/.cache"`
-- **Chroma has unexpected matches**: inspect with `src/test_query.py` and tune:
-  - `experience_queries` density (JD parser prompt)
-  - query weights / purposes in retrieval plan
-  - canonicalization + family match rules
-- **LaTeX error**: fix template issues or LaTeX syntax inside bullets.
-- **Jinja/LaTeX collisions**: keep delimiters `<< >>`, `((% %))`.
+## Local run (Python)
 
-## TODO (next)
+If you run outside Docker, set local paths via env vars:
 
-- [ ] **C) Retrieval + Selection**
-  - [ ] Implement “purpose-aware” query weighting (domain/core/deploy/etc.)
-  - [ ] Improve merge + rerank strategy (combine multi-hit signals more robustly)
-- [ ] **D) Keyword matching**
-  - [ ] Expand family taxonomy (SQL/Cloud/Containers/ML/CV/SWE)
-  - [ ] Improve controlled substring matching rules
-- [ ] **E) Agentic loop**
-  - [ ] Add best-effort retry loop using hybrid score threshold
-  - [ ] Boost missing must-have keywords into the next retrieval pass
-- [ ] **G) Explainability**
-  - [ ] Write `resume_report.json` (target profile summary + selected bullets + match evidence + iteration history)
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 
+export ART_DB_PATH=data/processed/chroma_db
+export ART_DATA_FILE=data/my_experience.json
+export ART_TEMPLATE_DIR=templates
+export ART_OUTPUT_DIR=output
+export ART_USE_JD_PARSER=0  # optional, disable OpenAI parser
 
-## Work Flow
+python src/ingest.py
+python src/server.py
+streamlit run src/app.py
+```
+
+Note: Tectonic must be installed on your machine to render PDFs locally.
+
+---
+
+## API usage
+
+### `GET /health`
+
+Returns status JSON used by UI and Compose healthchecks.
+
+### `POST /generate`
+
+Input: JD text + settings (max bullets, loop knobs, scoring weights).  
+Output: `run_id` + URLs for artifacts (PDF / TEX / report).
+
+Example:
+
+```bash
+curl -sS http://localhost:8000/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jd_text": "Paste job description here",
+    "max_bullets": 16,
+    "max_iters": 3
+  }'
+```
+
+Artifacts are written under `output/` and exposed via:
+
+- `/runs/{run_id}/pdf`
+- `/runs/{run_id}/tex`
+- `/runs/{run_id}/report`
+
+---
+
+## Work flow
 
 ```mermaid
 flowchart TD
@@ -200,14 +342,50 @@ flowchart TD
   F --> G[Merge + Dedupe by bullet_id<br/>Rerank multi-hit + weights]
   G --> H[Node 3: Select bullets<br/>Top-K max 16]
   H --> I[Node 4: Keyword Matcher<br/>exact + alias + family tiers]
-  I --> J[Node 5: Hybrid Score<br/>alpha\*retrieval + 1-alpha\*coverage]
+  I --> J[Node 5: Hybrid Score<br/>alpha*retrieval + 1-alpha*coverage]
 
   J --> K{Loop enabled<br/>and score less than threshold?}
   K -- No --> L[Node 6: Render .tex<br/>from template + selected bullets]
   K -- Yes --> M[Boost missing must-have keywords<br/>into next retrieval pass]
   M --> F
 
-  L --> N[Node 7: Compile PDF<br/>Tectonic Docker]
-  N --> O[Write artifacts to output/<br/>tailored_resume.pdf<br/>tailored_resume.tex<br/>resume_report.json]
+  L --> N[Node 7: Compile PDF<br/>Tectonic]
+  N --> O[Write artifacts to output/<br/>run_id.pdf<br/>run_id.tex<br/>run_id_report.json]
   O --> P[Return response to client<br/>download links / streamed PDF]
 ```
+
+---
+
+## Notes and limitations
+
+- JD parser requires `OPENAI_API_KEY`. If it fails or is disabled, the system falls back to local queries and skips keyword coverage scoring.
+- The agent never rewrites bullet text; it only selects and arranges existing bullets.
+- Retrieval quality depends heavily on query quality. The JD parser is designed to produce dense retrieval queries.
+- Re-ingesting deletes and rebuilds the Chroma collection; run it any time you change `data/my_experience.json`.
+
+---
+
+## Troubleshooting
+
+### "Collection does not exist" or 0 records
+
+Run the ingest step first:
+
+```bash
+python src/ingest.py
+```
+
+Docker Compose:
+
+```bash
+docker compose run --rm api python /app/src/ingest.py
+```
+
+### Streamlit cannot connect to API
+
+- Streamlit inside Docker must call the API by service name: `http://api:8000` (Compose sets this).
+- Streamlit outside Docker should call `http://localhost:8000`.
+
+### UI loads but `/health` fails in Compose
+
+The Compose healthcheck uses a Python urllib command. If you replace it with `curl`, install curl in the image.

@@ -12,8 +12,7 @@ What it does
 - Assigns ids only to new bullets
 
 Usage
-  python convert_experience_json.py --input raw_experience_data.json --output my_experience.json
-  python convert_experience_json.py --in-place my_experience.json
+  python convert_experience_json.py --input data/raw_experience_data.json --output data/my_experience.json
 
 Notes
 - Bullets are assumed to be LaTeX-ready. This script does NOT sanitize LaTeX.
