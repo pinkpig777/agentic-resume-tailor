@@ -1,4 +1,3 @@
-import json
 import time
 from typing import Any, Tuple
 
@@ -141,6 +140,79 @@ def render_resume_editor(api_url: str) -> None:
         export_file = st.text_input(
             "Export file path", value=app_settings.get("export_file", "")
         )
+        use_jd_parser = st.checkbox(
+            "Enable JD parser",
+            value=bool(app_settings.get("use_jd_parser", True)),
+        )
+        jd_model = st.text_input("JD model", value=app_settings.get("jd_model", ""))
+        skip_pdf = st.checkbox(
+            "Skip PDF render (dev/testing)", value=bool(app_settings.get("skip_pdf", False))
+        )
+
+        st.markdown("**Loop settings**")
+        max_iters = st.number_input(
+            "Max loop iterations",
+            min_value=1,
+            max_value=10,
+            value=int(app_settings.get("max_iters", 3) or 3),
+            step=1,
+        )
+        max_bullets = st.number_input(
+            "Max bullets on page",
+            min_value=4,
+            max_value=32,
+            value=int(app_settings.get("max_bullets", 16) or 16),
+            step=1,
+        )
+        per_query_k = st.number_input(
+            "per_query_k",
+            min_value=1,
+            max_value=50,
+            value=int(app_settings.get("per_query_k", 10) or 10),
+            step=1,
+        )
+        final_k = st.number_input(
+            "final_k",
+            min_value=5,
+            max_value=200,
+            value=int(app_settings.get("final_k", 30) or 30),
+            step=1,
+        )
+        threshold = st.number_input(
+            "Stop threshold (final score)",
+            min_value=0,
+            max_value=100,
+            value=int(app_settings.get("threshold", 80) or 80),
+            step=1,
+        )
+        alpha = st.number_input(
+            "Alpha (retrieval weight)",
+            min_value=0.0,
+            max_value=1.0,
+            value=float(app_settings.get("alpha", 0.7) or 0.7),
+            step=0.05,
+        )
+        must_weight = st.number_input(
+            "Must-have weight",
+            min_value=0.0,
+            max_value=1.0,
+            value=float(app_settings.get("must_weight", 0.8) or 0.8),
+            step=0.05,
+        )
+        boost_weight = st.number_input(
+            "Boost query weight",
+            min_value=0.1,
+            max_value=3.0,
+            value=float(app_settings.get("boost_weight", 1.6) or 1.6),
+            step=0.1,
+        )
+        boost_top_n_missing = st.number_input(
+            "Boost top-N missing must-have",
+            min_value=1,
+            max_value=20,
+            value=int(app_settings.get("boost_top_n_missing", 6) or 6),
+            step=1,
+        )
         submitted = st.form_submit_button("Save settings")
 
     if submitted:
@@ -151,6 +223,18 @@ def render_resume_editor(api_url: str) -> None:
             json={
                 "auto_reingest_on_save": auto_reingest,
                 "export_file": export_file,
+                "use_jd_parser": use_jd_parser,
+                "jd_model": jd_model,
+                "skip_pdf": skip_pdf,
+                "max_iters": max_iters,
+                "max_bullets": max_bullets,
+                "per_query_k": per_query_k,
+                "final_k": final_k,
+                "threshold": threshold,
+                "alpha": alpha,
+                "must_weight": must_weight,
+                "boost_weight": boost_weight,
+                "boost_top_n_missing": boost_top_n_missing,
             },
         )
         if ok:
@@ -160,23 +244,6 @@ def render_resume_editor(api_url: str) -> None:
             st.error(err)
 
     st.caption(f"Settings file: {app_settings.get('config_path', '')}")
-
-    with st.expander("Advanced settings (JSON)"):
-        raw_json = json.dumps(app_settings, indent=2)
-        edited = st.text_area("Edit JSON settings", value=raw_json, height=260)
-        if st.button("Save JSON settings"):
-            try:
-                payload = json.loads(edited)
-            except json.JSONDecodeError as exc:
-                st.error(f"Invalid JSON: {exc}")
-            else:
-                payload.pop("config_path", None)
-                ok, _, err = api_request("PUT", api_url, "/settings", json=payload)
-                if ok:
-                    _set_editor_message("success", "Saved JSON settings.")
-                    st.rerun()
-                else:
-                    st.error(err)
 
     ingest_running = st.session_state.get("ingest_running", False)
     st.warning("Re-ingesting may take ~10–60s the first time.")
