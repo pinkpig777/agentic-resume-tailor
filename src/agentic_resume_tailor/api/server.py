@@ -31,7 +31,7 @@ from agentic_resume_tailor.db.models import (
     Skills,
 )
 from agentic_resume_tailor.db.session import SessionLocal, get_db, init_db
-from agentic_resume_tailor.db.sync import seed_db_if_empty, write_resume_json
+from agentic_resume_tailor.db.sync import export_resume_data, seed_db_if_empty, write_resume_json
 from agentic_resume_tailor.db.utils import (
     ensure_unique_slug,
     make_job_id,
@@ -53,6 +53,7 @@ INGEST_LOCK = threading.Lock()
 # -----------------------------
 DB_PATH = settings.db_path
 DATA_FILE = settings.data_file
+EXPORT_FILE = settings.export_file
 TEMPLATE_DIR = settings.template_dir
 OUTPUT_DIR = settings.output_dir
 SKIP_PDF_RENDER = settings.skip_pdf
@@ -196,8 +197,8 @@ def _ensure_dirs() -> None:
 
 
 def _load_static_data() -> Dict[str, Any]:
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    with SessionLocal() as db:
+        return export_resume_data(db)
 
 
 def _load_collection():
@@ -293,7 +294,7 @@ def select_and_rebuild(
     selected_candidates: List[Any] | None = None,
 ) -> Dict[str, Any]:
     """
-    Rebuild resume data from my_experience.json, keeping ONLY bullets whose deterministic ids survive.
+    Rebuild resume data from the DB snapshot, keeping ONLY bullets whose deterministic ids survive.
     Convert bullets to list[str] of text_latex because the LaTeX template expects strings.
     """
     selected_set = set(selected_ids)
@@ -409,9 +410,10 @@ def _run_id() -> str:
 # -----------------------------
 logger.info("API Server starting: Initializing resume DB...")
 init_db()
-with SessionLocal() as _db:
-    if seed_db_if_empty(_db, DATA_FILE):
-        logger.info("Seeded resume DB from %s", DATA_FILE)
+if settings.seed_from_json:
+    with SessionLocal() as _db:
+        if seed_db_if_empty(_db, DATA_FILE):
+            logger.info("Seeded resume DB from %s", DATA_FILE)
 logger.info("API Server starting: Loading data + Chroma...")
 STATIC_DATA = _load_static_data()
 COLLECTION, EMB_FN = _load_collection()
@@ -962,7 +964,7 @@ def delete_project_bullet(project_id: str, local_id: str, db: Session = Depends(
 
 @app.post("/admin/export")
 def export_resume(reingest: bool = False, db: Session = Depends(get_db)):
-    write_resume_json(db, DATA_FILE)
+    write_resume_json(db, EXPORT_FILE)
     _reload_static_data()
 
     reingested = False
@@ -973,7 +975,7 @@ def export_resume(reingest: bool = False, db: Session = Depends(get_db)):
         _reload_collection()
         reingested = True
 
-    return {"status": "ok", "path": DATA_FILE, "reingested": reingested}
+    return {"status": "ok", "path": EXPORT_FILE, "reingested": reingested}
 
 
 @app.post("/admin/ingest")
@@ -986,7 +988,7 @@ def ingest_resume(db: Session = Depends(get_db)):
 
     start = time.time()
     try:
-        write_resume_json(db, DATA_FILE)
+        write_resume_json(db, EXPORT_FILE)
         from agentic_resume_tailor import ingest as ingest_module
 
         count = ingest_module.ingest()
@@ -1017,6 +1019,7 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
         return JSONResponse({"error": "jd_text is empty"}, status_code=400)
 
     run_id = _run_id()
+    static_data = _load_static_data()
 
     profile = try_parse_jd(jd_text)
     base_profile_or_queries = profile if profile is not None else fallback_queries_from_jd(jd_text)
@@ -1035,7 +1038,7 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
 
     loop = run_loop(
         jd_text=jd_text,
-        static_data=STATIC_DATA,
+        static_data=static_data,
         collection=COLLECTION,
         embedding_fn=EMB_FN,
         base_profile_or_queries=base_profile_or_queries,
@@ -1044,7 +1047,7 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
 
     # Build final resume and render artifacts from best iteration
     tailored_data = select_and_rebuild(
-        STATIC_DATA,
+        static_data,
         loop.best_selected_ids,
         loop.best_selected_candidates,
     )
