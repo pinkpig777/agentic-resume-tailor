@@ -1,5 +1,5 @@
 import time
-from typing import Any, Tuple
+from typing import Any, Dict, Tuple
 
 import pandas as pd
 import requests
@@ -59,6 +59,13 @@ def api_request(
         except Exception:
             return True, resp.text, ""
     return True, None, ""
+
+
+def _fetch_app_settings(api_url: str) -> Tuple[bool, Dict[str, Any], str]:
+    ok, data, err = api_request("GET", api_url, "/settings", timeout_s=10)
+    if ok and isinstance(data, dict):
+        return True, data, ""
+    return False, {}, err or "Failed to load settings."
 
 
 def _set_editor_message(level: str, text: str) -> None:
@@ -121,98 +128,212 @@ def _render_bullet_controls(
                     st.error(err)
 
 
-def render_resume_editor(api_url: str) -> None:
-    st.header("Resume Editor")
+def _render_run_settings(api_url: str) -> Dict[str, Any]:
+    ok, app_settings, err = _fetch_app_settings(api_url)
+    defaults = app_settings if ok else {}
 
-    _show_editor_message()
+    with st.sidebar:
+        st.subheader("Run Settings")
+        if not ok:
+            st.warning(f"Using defaults; settings not available ({err}).")
 
-    st.subheader("App Settings")
-    ok, app_settings, err = api_request("GET", api_url, "/settings", timeout_s=10)
+        max_bullets = st.number_input(
+            "Max bullets on page",
+            min_value=4,
+            max_value=32,
+            value=int(defaults.get("max_bullets", 16) or 16),
+            step=1,
+        )
+        max_iters = st.number_input(
+            "Max loop iterations",
+            min_value=1,
+            max_value=10,
+            value=int(defaults.get("max_iters", 3) or 3),
+            step=1,
+        )
+
+        with st.expander("Advanced tuning", expanded=False):
+            per_query_k = st.number_input(
+                "per_query_k",
+                min_value=1,
+                max_value=50,
+                value=int(defaults.get("per_query_k", 10) or 10),
+                step=1,
+            )
+            final_k = st.number_input(
+                "final_k",
+                min_value=5,
+                max_value=200,
+                value=int(defaults.get("final_k", 30) or 30),
+                step=1,
+            )
+            threshold = st.number_input(
+                "Stop threshold (final score)",
+                min_value=0,
+                max_value=100,
+                value=int(defaults.get("threshold", 80) or 80),
+                step=1,
+            )
+            alpha = st.number_input(
+                "Alpha (retrieval weight)",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(defaults.get("alpha", 0.7) or 0.7),
+                step=0.05,
+            )
+            must_weight = st.number_input(
+                "Must-have weight",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(defaults.get("must_weight", 0.8) or 0.8),
+                step=0.05,
+            )
+            boost_weight = st.number_input(
+                "Boost query weight",
+                min_value=0.1,
+                max_value=3.0,
+                value=float(defaults.get("boost_weight", 1.6) or 1.6),
+                step=0.1,
+            )
+            boost_top_n_missing = st.number_input(
+                "Boost top-N missing must-have",
+                min_value=1,
+                max_value=20,
+                value=int(defaults.get("boost_top_n_missing", 6) or 6),
+                step=1,
+            )
+
+    return {
+        "max_bullets": max_bullets,
+        "max_iters": max_iters,
+        "per_query_k": per_query_k,
+        "final_k": final_k,
+        "threshold": threshold,
+        "alpha": alpha,
+        "must_weight": must_weight,
+        "boost_weight": boost_weight,
+        "boost_top_n_missing": boost_top_n_missing,
+    }
+
+
+def render_health_sidebar(api_url: str) -> Tuple[bool, Any]:
+    st.sidebar.markdown("## Server Health")
+    col1, col2 = st.sidebar.columns([1, 1])
+
+    if col2.button("Re-check"):
+        st.session_state["_health_force_refresh"] = time.time()
+
+    ok, info = get_health_cached(api_url)
+    st.sidebar.caption(f"Health URL: {api_url}/health")
+    if ok:
+        st.sidebar.success(f"UP: {api_url}")
+        st.sidebar.caption(f"Response: {info}")
+    else:
+        st.sidebar.error(f"DOWN: {api_url}")
+        st.sidebar.caption(f"Error: {info}")
+    return ok, info
+
+
+def render_settings_page(api_url: str) -> None:
+    st.header("Settings")
+
+    ok, app_settings, err = _fetch_app_settings(api_url)
     if not ok:
         st.error(f"Failed to load settings: {err}")
         return
 
     with st.form("app_settings_form"):
-        auto_reingest = st.checkbox(
-            "Auto re-ingest on save",
-            value=bool(app_settings.get("auto_reingest_on_save", False)),
-        )
-        export_file = st.text_input(
-            "Export file path", value=app_settings.get("export_file", "")
-        )
-        use_jd_parser = st.checkbox(
-            "Enable JD parser",
-            value=bool(app_settings.get("use_jd_parser", True)),
-        )
-        jd_model = st.text_input("JD model", value=app_settings.get("jd_model", ""))
-        skip_pdf = st.checkbox(
-            "Skip PDF render (dev/testing)", value=bool(app_settings.get("skip_pdf", False))
-        )
+        st.subheader("Basics")
+        col1, col2 = st.columns(2)
+        with col1:
+            auto_reingest = st.checkbox(
+                "Auto re-ingest on save",
+                value=bool(app_settings.get("auto_reingest_on_save", False)),
+            )
+            export_file = st.text_input(
+                "Export file path", value=app_settings.get("export_file", "")
+            )
+        with col2:
+            use_jd_parser = st.checkbox(
+                "Enable JD parser",
+                value=bool(app_settings.get("use_jd_parser", True)),
+            )
+            jd_model = st.text_input("JD model", value=app_settings.get("jd_model", ""))
+            skip_pdf = st.checkbox(
+                "Skip PDF render (dev/testing)",
+                value=bool(app_settings.get("skip_pdf", False)),
+            )
 
-        st.markdown("**Loop settings**")
-        max_iters = st.number_input(
-            "Max loop iterations",
-            min_value=1,
-            max_value=10,
-            value=int(app_settings.get("max_iters", 3) or 3),
-            step=1,
-        )
-        max_bullets = st.number_input(
-            "Max bullets on page",
-            min_value=4,
-            max_value=32,
-            value=int(app_settings.get("max_bullets", 16) or 16),
-            step=1,
-        )
-        per_query_k = st.number_input(
-            "per_query_k",
-            min_value=1,
-            max_value=50,
-            value=int(app_settings.get("per_query_k", 10) or 10),
-            step=1,
-        )
-        final_k = st.number_input(
-            "final_k",
-            min_value=5,
-            max_value=200,
-            value=int(app_settings.get("final_k", 30) or 30),
-            step=1,
-        )
-        threshold = st.number_input(
-            "Stop threshold (final score)",
-            min_value=0,
-            max_value=100,
-            value=int(app_settings.get("threshold", 80) or 80),
-            step=1,
-        )
-        alpha = st.number_input(
-            "Alpha (retrieval weight)",
-            min_value=0.0,
-            max_value=1.0,
-            value=float(app_settings.get("alpha", 0.7) or 0.7),
-            step=0.05,
-        )
-        must_weight = st.number_input(
-            "Must-have weight",
-            min_value=0.0,
-            max_value=1.0,
-            value=float(app_settings.get("must_weight", 0.8) or 0.8),
-            step=0.05,
-        )
-        boost_weight = st.number_input(
-            "Boost query weight",
-            min_value=0.1,
-            max_value=3.0,
-            value=float(app_settings.get("boost_weight", 1.6) or 1.6),
-            step=0.1,
-        )
-        boost_top_n_missing = st.number_input(
-            "Boost top-N missing must-have",
-            min_value=1,
-            max_value=20,
-            value=int(app_settings.get("boost_top_n_missing", 6) or 6),
-            step=1,
-        )
+        st.subheader("Generation defaults")
+        colA, colB = st.columns(2)
+        with colA:
+            max_iters = st.number_input(
+                "Max loop iterations",
+                min_value=1,
+                max_value=10,
+                value=int(app_settings.get("max_iters", 3) or 3),
+                step=1,
+            )
+            per_query_k = st.number_input(
+                "per_query_k",
+                min_value=1,
+                max_value=50,
+                value=int(app_settings.get("per_query_k", 10) or 10),
+                step=1,
+            )
+        with colB:
+            max_bullets = st.number_input(
+                "Max bullets on page",
+                min_value=4,
+                max_value=32,
+                value=int(app_settings.get("max_bullets", 16) or 16),
+                step=1,
+            )
+            final_k = st.number_input(
+                "final_k",
+                min_value=5,
+                max_value=200,
+                value=int(app_settings.get("final_k", 30) or 30),
+                step=1,
+            )
+
+        with st.expander("Advanced tuning", expanded=False):
+            threshold = st.number_input(
+                "Stop threshold (final score)",
+                min_value=0,
+                max_value=100,
+                value=int(app_settings.get("threshold", 80) or 80),
+                step=1,
+            )
+            alpha = st.number_input(
+                "Alpha (retrieval weight)",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(app_settings.get("alpha", 0.7) or 0.7),
+                step=0.05,
+            )
+            must_weight = st.number_input(
+                "Must-have weight",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(app_settings.get("must_weight", 0.8) or 0.8),
+                step=0.05,
+            )
+            boost_weight = st.number_input(
+                "Boost query weight",
+                min_value=0.1,
+                max_value=3.0,
+                value=float(app_settings.get("boost_weight", 1.6) or 1.6),
+                step=0.1,
+            )
+            boost_top_n_missing = st.number_input(
+                "Boost top-N missing must-have",
+                min_value=1,
+                max_value=20,
+                value=int(app_settings.get("boost_top_n_missing", 6) or 6),
+                step=1,
+            )
+
         submitted = st.form_submit_button("Save settings")
 
     if submitted:
@@ -238,12 +359,18 @@ def render_resume_editor(api_url: str) -> None:
             },
         )
         if ok:
-            _set_editor_message("success", "Saved app settings.")
+            st.success("Saved app settings.")
             st.rerun()
         else:
             st.error(err)
 
     st.caption(f"Settings file: {app_settings.get('config_path', '')}")
+
+
+def render_resume_editor(api_url: str) -> None:
+    st.header("Resume Editor")
+
+    _show_editor_message()
 
     ingest_running = st.session_state.get("ingest_running", False)
     st.warning("Re-ingesting may take ~10–60s the first time.")
@@ -692,75 +819,10 @@ def render_resume_editor(api_url: str) -> None:
                         st.error(err)
 
 
-def main() -> None:
-    settings = get_settings()
-    api_url = settings.api_url.rstrip("/")
+def render_generate_page(api_url: str) -> None:
+    st.header("Generate")
+    run_settings = _render_run_settings(api_url)
 
-    st.set_page_config(page_title="AI Resume Agent", layout="wide")
-    st.title("AI Resume Agent")
-
-    st.sidebar.markdown("## Server Health")
-    col1, col2 = st.sidebar.columns([1, 1])
-
-    if col2.button("Re-check"):
-        st.session_state["_health_force_refresh"] = time.time()
-
-    ok, info = get_health_cached(api_url)
-    if not ok:
-        st.error(
-            f"API server is DOWN: {api_url}\n\n"
-            f"Health check failed: {info}\n\n"
-            "Start FastAPI (server.py) and click Re-check in the sidebar.",
-            icon="🚨",
-        )
-        st.stop()
-    st.sidebar.caption(f"Health URL: {api_url}/health")
-    if ok:
-        st.sidebar.success(f"UP: {api_url}")
-        st.sidebar.caption(f"Response: {info}")
-    else:
-        st.sidebar.error(f"DOWN: {api_url}")
-        st.sidebar.caption(f"Error: {info}")
-
-    st.sidebar.divider()
-
-    st.sidebar.subheader("Navigation")
-    page = st.sidebar.radio("Page", ["Tailor", "Resume Editor"])
-
-    st.sidebar.divider()
-
-    if page == "Resume Editor":
-        render_resume_editor(api_url)
-        return
-
-    # ----------------------------
-    # Settings
-    # ----------------------------
-    with st.sidebar:
-        st.subheader("Settings")
-        max_bullets = st.slider("Max bullets on page", min_value=8, max_value=24, value=16, step=1)
-        max_iters = st.slider("Max loop iterations", min_value=1, max_value=6, value=3, step=1)
-        threshold = st.slider(
-            "Stop threshold (final score)", min_value=0, max_value=100, value=80, step=1
-        )
-        alpha = st.slider(
-            "Alpha (retrieval weight)", min_value=0.0, max_value=1.0, value=0.7, step=0.05
-        )
-        must_weight = st.slider(
-            "Must-have weight (coverage)", min_value=0.0, max_value=1.0, value=0.8, step=0.05
-        )
-        per_query_k = st.slider("per_query_k", min_value=3, max_value=30, value=10, step=1)
-        final_k = st.slider("final_k", min_value=10, max_value=150, value=30, step=5)
-        boost_weight = st.slider(
-            "Boost query weight", min_value=0.5, max_value=3.0, value=1.6, step=0.1
-        )
-        boost_top_n_missing = st.slider(
-            "Boost top-N missing must-have", min_value=1, max_value=20, value=6, step=1
-        )
-
-    # ----------------------------
-    # JD input
-    # ----------------------------
     st.subheader("Job Description")
     jd_text = st.text_area(
         "Paste the JD here", height=260, placeholder="Paste a job description..."
@@ -769,28 +831,13 @@ def main() -> None:
     colA, colB = st.columns([1, 2], gap="large")
 
     with colA:
-        generate_disabled = not ok
-
-        if generate_disabled:
-            st.warning("API server is DOWN. Start FastAPI first, then Re-check.")
-
-        if st.button(
-            "Generate", type="primary", use_container_width=True, disabled=generate_disabled
-        ):
+        if st.button("Generate", type="primary", use_container_width=True):
             if not jd_text.strip():
                 st.error("JD is empty.")
             else:
                 payload = {
                     "jd_text": jd_text.strip(),
-                    "max_bullets": max_bullets,
-                    "per_query_k": per_query_k,
-                    "final_k": final_k,
-                    "max_iters": max_iters,
-                    "threshold": threshold,
-                    "alpha": alpha,
-                    "must_weight": must_weight,
-                    "boost_weight": boost_weight,
-                    "boost_top_n_missing": boost_top_n_missing,
+                    **run_settings,
                 }
                 with st.spinner("Running agent..."):
                     try:
@@ -817,7 +864,6 @@ def main() -> None:
                 }
             )
 
-            # Fetch report
             report = None
             try:
                 r = requests.get(f"{api_url}{run['report_url']}", timeout=60)
@@ -838,7 +884,8 @@ def main() -> None:
                         round(float(best.get("coverage_bullets_only", 0.0)), 3),
                     )
                     c4.metric(
-                        "Coverage (all+skills)", round(float(best.get("coverage_all", 0.0)), 3)
+                        "Coverage (all+skills)",
+                        round(float(best.get("coverage_all", 0.0)), 3),
                     )
 
                 iters = report.get("iterations", [])
@@ -854,8 +901,12 @@ def main() -> None:
                                 "retrieval": scores.get("retrieval"),
                                 "cov_bullets": scores.get("coverage_bullets_only"),
                                 "cov_all": scores.get("coverage_all"),
-                                "missing_must_bullets": len(missing.get("must_bullets_only") or []),
-                                "missing_nice_bullets": len(missing.get("nice_bullets_only") or []),
+                                "missing_must_bullets": len(
+                                    missing.get("must_bullets_only") or []
+                                ),
+                                "missing_nice_bullets": len(
+                                    missing.get("nice_bullets_only") or []
+                                ),
                             }
                         )
 
@@ -889,7 +940,6 @@ def main() -> None:
                 with st.expander("Raw report.json"):
                     st.json(report)
 
-            # PDF download
             st.subheader("Download")
             try:
                 pdf = requests.get(f"{api_url}{run['pdf_url']}", timeout=120).content
@@ -917,9 +967,41 @@ def main() -> None:
 
     st.markdown("---")
     st.caption(
-        "Tip: run API on :8000 and Streamlit on :8501. Update api_url in "
-        "config/user_settings.json if your API runs elsewhere."
+        "Tip: update app defaults in the Settings page or edit config/user_settings.json if needed."
     )
+
+
+def main() -> None:
+    settings = get_settings()
+    api_url = settings.api_url.rstrip("/")
+
+    st.set_page_config(page_title="AI Resume Agent", layout="wide")
+    st.title("AI Resume Agent")
+
+    ok, info = render_health_sidebar(api_url)
+    if not ok:
+        st.error(
+            f"API server is DOWN: {api_url}\n\n"
+            f"Health check failed: {info}\n\n"
+            "Start FastAPI (server.py) and click Re-check in the sidebar.",
+            icon="🚨",
+        )
+        st.stop()
+
+    st.sidebar.divider()
+    st.sidebar.subheader("Navigation")
+    page = st.sidebar.radio("Page", ["Generate", "Resume Editor", "Settings"])
+
+    st.sidebar.divider()
+
+    if page == "Resume Editor":
+        render_resume_editor(api_url)
+        return
+    if page == "Settings":
+        render_settings_page(api_url)
+        return
+
+    render_generate_page(api_url)
 
 
 if __name__ == "__main__":
