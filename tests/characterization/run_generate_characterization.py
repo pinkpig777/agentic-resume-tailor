@@ -60,6 +60,8 @@ def _ensure_env(tmp_dir: str) -> None:
     os.environ["ART_OUTPUT_DIR"] = tmp_dir
     os.environ["ART_DB_PATH"] = str(REPO_ROOT / "data" / "processed" / "chroma_db")
     os.environ["ART_DATA_FILE"] = str(REPO_ROOT / "data" / "my_experience.json")
+    os.environ["ART_SEED_FROM_JSON"] = "1"
+    os.environ["ART_SQL_DB_URL"] = f"sqlite:///{tmp_dir}/resume.db"
     os.environ["ART_TEMPLATE_DIR"] = str(REPO_ROOT / "templates")
 
 
