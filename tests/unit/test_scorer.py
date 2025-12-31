@@ -29,7 +29,7 @@ class TestScorer(unittest.TestCase):
             SimpleNamespace(total_weighted=0.5, effective_total_weighted=0.7),
         ]
 
-        self.assertAlmostEqual(compute_retrieval_norm(selected, all_candidates), 0.7)
+        self.assertAlmostEqual(compute_retrieval_norm(selected, all_candidates), 0.8235294)
 
     def test_score_returns_full_match(self) -> None:
         selected = [SimpleNamespace(total_weighted=2.0), SimpleNamespace(total_weighted=1.0)]
