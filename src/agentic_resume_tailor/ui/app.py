@@ -128,94 +128,6 @@ def _render_bullet_controls(
                     st.error(err)
 
 
-def _render_run_settings(api_url: str) -> Dict[str, Any]:
-    ok, app_settings, err = _fetch_app_settings(api_url)
-    defaults = app_settings if ok else {}
-
-    with st.sidebar:
-        st.subheader("Run Settings")
-        if not ok:
-            st.warning(f"Using defaults; settings not available ({err}).")
-
-        max_bullets = st.number_input(
-            "Max bullets on page",
-            min_value=4,
-            max_value=32,
-            value=int(defaults.get("max_bullets", 16) or 16),
-            step=1,
-        )
-        max_iters = st.number_input(
-            "Max loop iterations",
-            min_value=1,
-            max_value=10,
-            value=int(defaults.get("max_iters", 3) or 3),
-            step=1,
-        )
-
-        with st.expander("Advanced tuning", expanded=False):
-            per_query_k = st.number_input(
-                "per_query_k",
-                min_value=1,
-                max_value=50,
-                value=int(defaults.get("per_query_k", 10) or 10),
-                step=1,
-            )
-            final_k = st.number_input(
-                "final_k",
-                min_value=5,
-                max_value=200,
-                value=int(defaults.get("final_k", 30) or 30),
-                step=1,
-            )
-            threshold = st.number_input(
-                "Stop threshold (final score)",
-                min_value=0,
-                max_value=100,
-                value=int(defaults.get("threshold", 80) or 80),
-                step=1,
-            )
-            alpha = st.number_input(
-                "Alpha (retrieval weight)",
-                min_value=0.0,
-                max_value=1.0,
-                value=float(defaults.get("alpha", 0.7) or 0.7),
-                step=0.05,
-            )
-            must_weight = st.number_input(
-                "Must-have weight",
-                min_value=0.0,
-                max_value=1.0,
-                value=float(defaults.get("must_weight", 0.8) or 0.8),
-                step=0.05,
-            )
-            boost_weight = st.number_input(
-                "Boost query weight",
-                min_value=0.1,
-                max_value=3.0,
-                value=float(defaults.get("boost_weight", 1.6) or 1.6),
-                step=0.1,
-            )
-            boost_top_n_missing = st.number_input(
-                "Boost top-N missing must-have",
-                min_value=1,
-                max_value=20,
-                value=int(defaults.get("boost_top_n_missing", 6) or 6),
-                step=1,
-            )
-
-    return {
-        "max_bullets": max_bullets,
-        "max_iters": max_iters,
-        "per_query_k": per_query_k,
-        "final_k": final_k,
-        "threshold": threshold,
-        "alpha": alpha,
-        "must_weight": must_weight,
-        "boost_weight": boost_weight,
-        "boost_top_n_missing": boost_top_n_missing,
-    }
-
-
 def render_health_sidebar(api_url: str) -> Tuple[bool, Any]:
     st.sidebar.markdown("## Server Health")
     col1, col2 = st.sidebar.columns([1, 1])
@@ -821,7 +733,6 @@ def render_resume_editor(api_url: str) -> None:
 
 def render_generate_page(api_url: str) -> None:
     st.header("Generate")
-    run_settings = _render_run_settings(api_url)
 
     st.subheader("Job Description")
     jd_text = st.text_area(
@@ -837,7 +748,6 @@ def render_generate_page(api_url: str) -> None:
             else:
                 payload = {
                     "jd_text": jd_text.strip(),
-                    **run_settings,
                 }
                 with st.spinner("Running agent..."):
                     try:
