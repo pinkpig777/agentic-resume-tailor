@@ -7,13 +7,12 @@ from typing import Any, Dict, List, Optional
 
 
 def utc_now_iso() -> str:
+    """Return the current UTC timestamp in ISO format."""
     return datetime.now(timezone.utc).isoformat()
 
 
 def _safe_candidate_dict(c: Any) -> Dict[str, Any]:
-    """
-    Candidate is from retrieval.py. Keep JSON-friendly and compact.
-    """
+    """Serialize a candidate into a compact JSON-friendly dict."""
     d = {
         "bullet_id": getattr(c, "bullet_id", ""),
         "source": getattr(c, "source", ""),
@@ -51,10 +50,7 @@ def _safe_candidate_dict(c: Any) -> Dict[str, Any]:
 
 
 def _evidence_list(evidences: List[Any]) -> List[Dict[str, Any]]:
-    """
-    MatchEvidence from keyword_matcher.py:
-      keyword, tier, satisfied_by, bullet_ids, notes
-    """
+    """Serialize evidence items into JSON-friendly dicts."""
     out: List[Dict[str, Any]] = []
     for e in evidences or []:
         out.append(
@@ -88,9 +84,7 @@ def build_report(
     # loop history
     iterations: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    """
-    Returns a JSON-serializable dict.
-    """
+    """Build a JSON-serializable report for a generation run."""
     profile_dump = None
     if profile is not None:
         try:
@@ -149,6 +143,7 @@ def build_report(
 def write_report_json(
     report: Dict[str, Any], output_dir: str, filename: str = "resume_report.json"
 ) -> str:
+    """Write the report to disk and return its path."""
     os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, filename)
     with open(path, "w", encoding="utf-8") as f:

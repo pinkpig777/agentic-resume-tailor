@@ -19,6 +19,7 @@ DB_PATH = settings.db_path
 COLLECTION_NAME = settings.collection_name
 
 def strip_latex(s: str) -> str:
+    """Strip LaTeX markup for embedding-friendly text."""
     if not s:
         return ""
     s = re.sub(r"\\[a-zA-Z]+\{([^}]*)\}", r"\1", s)
@@ -29,6 +30,7 @@ def strip_latex(s: str) -> str:
 
 
 def ingest(data: dict | None = None, json_path: str | None = None) -> int:
+    """Ingest resume bullets into Chroma from JSON or DB."""
     logger.info("Initializing ChromaDB client")
     client = chromadb.PersistentClient(path=DB_PATH)
 
@@ -131,6 +133,7 @@ def ingest(data: dict | None = None, json_path: str | None = None) -> int:
 
 
 def main() -> None:
+    """Export current DB to JSON and ingest into Chroma."""
     with SessionLocal() as db:
         write_resume_json(db, settings.export_file)
     ingest(json_path=settings.export_file)

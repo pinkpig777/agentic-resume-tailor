@@ -43,6 +43,7 @@ class LoopResult:
 
 
 def _dedupe_keep_order(xs: List[str]) -> List[str]:
+    """Deduplicate strings while preserving order."""
     seen = set()
     out = []
     for x in xs:
@@ -57,10 +58,7 @@ def _dedupe_keep_order(xs: List[str]) -> List[str]:
 
 
 def build_skills_pseudo_bullet(static_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """
-    Skills aren't embedded in Chroma, but we want coverage_all to give credit.
-    This is NOT used for selection, only scoring/explainability.
-    """
+    """Build a pseudo-bullet for skills to include in scoring."""
     skills = static_data.get("skills", {}) or {}
     parts = []
     for k in ["languages_frameworks", "ai_ml", "db_tools"]:
@@ -74,9 +72,7 @@ def build_skills_pseudo_bullet(static_data: Dict[str, Any]) -> Optional[Dict[str
 
 
 def _profile_to_query_payload(profile: Any) -> Dict[str, Any]:
-    """
-    Convert TargetProfile pydantic/dict into a dict payload that retrieval._build_query_items accepts.
-    """
+    """Convert a parsed JD profile into a retrieval payload."""
     if hasattr(profile, "model_dump"):
         return profile.model_dump()
     if isinstance(profile, dict):
@@ -90,11 +86,7 @@ def _boost_query_payload(
     boost_terms: List[str],
     boost_weight: float,
 ) -> Tuple[Any, List[str]]:
-    """
-    Returns:
-      - jd_parser_result payload for retrieval.py
-      - queries_used list[str] for reporting
-    """
+    """Apply boost terms and return payload plus queries used."""
     boost_terms = _dedupe_keep_order([t.lower().strip() for t in boost_terms])
 
     # Case A: TargetProfile-like
@@ -173,10 +165,7 @@ def run_loop(
     base_profile_or_queries: Any,  # TargetProfile OR list[str]
     cfg: LoopConfig,
 ) -> LoopResult:
-    """
-    The loop does NOT call OpenAI.
-    It just re-runs retrieval with boosted keywords based on missing must-haves (bullets-only).
-    """
+    """Run the retrieval/selection/scoring loop with optional boosts."""
 
     iterations: List[Dict[str, Any]] = []
 
