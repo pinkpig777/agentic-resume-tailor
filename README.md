@@ -29,8 +29,8 @@ This repo supports two runtimes:
 ## Repo map
 
 - `data/`
-  - `raw_experience_data_example.json` - template for your raw data (editable)
-  - `my_experience.json` - pipeline input (exported from DB if using CRUD)
+  - `raw_experience_data_example.json` - optional template for JSON import
+  - `my_experience.json` - optional import file for seeding the DB
   - `processed/chroma_db/` - local ChromaDB store
   - `processed/resume.db` - SQLite CRUD store (default)
 - `script/`
@@ -57,76 +57,34 @@ This repo supports two runtimes:
   - `fixtures/` - characterization fixtures and expected output
   - `unit/` - fast unit tests for core modules
 - `templates/resume.tex` - Jinja2 LaTeX template with `<< >>` and `((% %))` delimiters
-- `output/` - generated artifacts (`<run_id>.pdf`, `<run_id>.tex`, `<run_id>_report.json`)
+- `output/` - generated artifacts (`<run_id>.pdf`, `<run_id>.tex`, `<run_id>_report.json`,
+  `my_experience.json`)
 
 ---
 
-## Data contract (important)
+## Data workflow (DB-first)
 
-### 1) Raw input format (easy to edit)
+- The SQL database is the source of truth (created on first launch).
+- The Resume Editor writes directly to the DB.
+- `output/my_experience.json` is an exported artifact used for inspection or backups.
+- Re-ingest uses the latest DB state (no stale file reads).
 
-Start from `data/raw_experience_data_example.json`, copy it, and edit:
+### Export format (`my_experience.json`)
 
-```bash
-cp data/raw_experience_data_example.json data/raw_experience_data.json
-```
-
-Minimal shape (see the example file for full fields):
+The export file uses the same schema as before:
 
 ```json
-{
-  "personal_info": {
-    "name": "Firstname Lastname",
-    "phone": "(123)-456-7890",
-    "email": "email@example.com",
-    "linkedin_id": "linkedin-handle",
-    "github_id": "github-handle"
-  },
-  "skills": {
-    "languages_frameworks": "Python, FastAPI, React",
-    "ai_ml": "PyTorch, Transformers",
-    "db_tools": "PostgreSQL, Redis, Docker"
-  },
-  "education": [
-    {
-      "school": "University Name",
-      "dates": "Start Date -- End Date",
-      "degree": "Degree Name",
-      "location": "City, State",
-      "bullets": []
-    }
-  ],
-  "experiences": [
-    {
-      "company": "Company Name",
-      "role": "Job Title $|$ Team or Focus",
-      "dates": "Start Date -- End Date",
-      "location": "City, Country",
-      "bullets": [
-        "LaTeX-ready bullet text with \\textbf{metrics}"
-      ]
-    }
-  ],
-  "projects": [
-    {
-      "name": "Project Name",
-      "technologies": "Tech A, Tech B",
-      "bullets": [
-        "Project bullet in LaTeX-ready format"
-      ]
-    }
-  ]
-}
+{ "id": "b01", "text_latex": "..." }
 ```
 
 Notes:
-- Use `$|$` inside `role` to separate primary title from team/focus. The script uses the primary title to create a stable `job_id`.
+- Use `$|$` inside `role` to separate primary title from team/focus. The primary title is used to create a stable `job_id`.
 - Bullets are LaTeX-ready and are never rewritten by the system.
 - The template expects `personal_info`, `skills`, `education`, `experiences`, and `projects` to exist (use empty lists when needed).
 
-### 2) Normalize to `data/my_experience.json` (pipeline input)
+### Optional JSON import (one-time seed)
 
-Run the converter (adds `job_id`, `project_id`, and bullet IDs):
+You can still import JSON if you want to bootstrap:
 
 ```bash
 python script/convert_experience_json.py \
@@ -134,15 +92,7 @@ python script/convert_experience_json.py \
   --output data/my_experience.json
 ```
 
-The normalized file stores bullets as objects:
-
-```json
-{ "id": "b01", "text_latex": "..." }
-```
-
-The system only ever selects from this file; it never invents new bullets.
-If you want IDs to remain stable after editing bullet text, edit `data/my_experience.json` directly and keep the existing `id` fields.
-If you use the CRUD API, the SQL database is the source of truth and `POST /admin/export` regenerates this file.
+Then start the API with `ART_SEED_FROM_JSON=1` to seed the DB from `ART_DATA_FILE`.
 
 ### `bullet_id` convention
 
@@ -156,12 +106,12 @@ Examples:
 
 ---
 
-## Database-backed CRUD (optional)
+## Database-backed CRUD
 
-- The API seeds the resume DB from `data/my_experience.json` if the SQL DB is empty.
+- The API can optionally seed the resume DB from `ART_DATA_FILE` when `ART_SEED_FROM_JSON=1`.
 - CRUD endpoints are available at `/personal_info`, `/skills`, `/experiences`, `/projects`, and `/education`.
 - Use `POST /admin/ingest` to export the DB, rebuild Chroma, and refresh in-memory data.
-- Use `POST /admin/export` to regenerate `data/my_experience.json` without re-ingesting.
+- Use `POST /admin/export` to regenerate `output/my_experience.json` without re-ingesting.
 
 ## Database schema (SQLite/Postgres)
 
@@ -195,7 +145,7 @@ Notes:
 ## Resume Editor (UI)
 
 - Open the Streamlit app and switch to **Resume Editor** in the sidebar.
-- Create, edit, and delete experiences/projects and their bullets.
+- Create, edit, and delete personal info, skills, education, experiences/projects, and bullets.
 - Click **Re-ingest ChromaDB** after edits so retrieval reflects the latest data.
 
 ---
@@ -221,8 +171,10 @@ Common environment variables and defaults:
 
 - `OPENAI_API_KEY` (required only if JD parser is enabled)
 - `ART_DB_PATH` (default `/app/data/processed/chroma_db`)
-- `ART_SQL_DB_URL` (default `sqlite:////app/data/processed/resume.db`)
-- `ART_DATA_FILE` (default `/app/data/my_experience.json`)
+- `ART_SQL_DB_URL` (default `sqlite:///data/processed/resume.db`)
+- `ART_DATA_FILE` (default `/app/data/my_experience.json`, optional JSON import)
+- `ART_EXPORT_FILE` (default `output/my_experience.json`)
+- `ART_SEED_FROM_JSON` (default `0`, seed DB from `ART_DATA_FILE`)
 - `ART_TEMPLATE_DIR` (default `/app/templates`)
 - `ART_OUTPUT_DIR` (default `/app/output`)
 - `ART_COLLECTION` (default `resume_experience`)
@@ -254,14 +206,7 @@ Common environment variables and defaults:
 
 ## Quickstart (Docker Compose, recommended)
 
-1) Prepare `data/my_experience.json` (see Data contract above).
-2) Ingest once (or any time you change the data):
-
-```bash
-docker compose run --rm api python /app/src/ingest.py
-```
-
-3) Start API + UI:
+1) Start API + UI:
 
 ```bash
 docker compose up --build
@@ -271,6 +216,8 @@ Open:
 
 - API health: `http://localhost:8000/health`
 - Streamlit UI: `http://localhost:8501`
+
+2) In the UI, open **Resume Editor**, create your profile, then click **Re-ingest ChromaDB**.
 
 Stop:
 
@@ -288,18 +235,7 @@ docker compose down
 docker build -t resume-agent .
 ```
 
-### 1) Ingest bullets into ChromaDB
-
-```bash
-docker run --rm \
-  -v "$(pwd)/data:/app/data" \
-  -v "$(pwd)/src:/app/src" \
-  -v "$(pwd)/config:/app/config" \
-  -v "$(pwd)/.cache_docker:/root/.cache" \
-  resume-agent python src/ingest.py
-```
-
-### 2) Run the FastAPI backend (API)
+### 1) Run the FastAPI backend (API)
 
 ```bash
 docker run --rm -p 8000:8000 \
@@ -319,7 +255,7 @@ Health check:
 curl -sS http://localhost:8000/health
 ```
 
-### 3) Run the Streamlit UI (separate container)
+### 2) Run the Streamlit UI (separate container)
 
 ```bash
 docker run --rm -p 8501:8501 \
@@ -330,6 +266,8 @@ docker run --rm -p 8501:8501 \
 ```
 
 Open Streamlit: `http://localhost:8501`
+
+Then open **Resume Editor**, create your profile, and click **Re-ingest ChromaDB**.
 
 ---
 
@@ -343,15 +281,17 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 export ART_DB_PATH=data/processed/chroma_db
-export ART_DATA_FILE=data/my_experience.json
+export ART_SQL_DB_URL=sqlite:///data/processed/resume.db
+export ART_EXPORT_FILE=output/my_experience.json
 export ART_TEMPLATE_DIR=templates
 export ART_OUTPUT_DIR=output
 export ART_USE_JD_PARSER=0  # optional, disable OpenAI parser
 
-python src/ingest.py
 python src/server.py
 streamlit run src/app.py
 ```
+
+Then open **Resume Editor**, create your profile, and click **Re-ingest ChromaDB**.
 
 Note: Tectonic must be installed on your machine to render PDFs locally.
 
@@ -423,7 +363,7 @@ Artifacts are written under `output/` and exposed via:
 
 ### Admin operations
 
-- `POST /admin/export` regenerates `data/my_experience.json` from the DB.
+- `POST /admin/export` regenerates `output/my_experience.json` from the DB.
 - `POST /admin/ingest` exports and re-ingests Chroma (returns counts + elapsed time).
 
 ---
@@ -435,14 +375,13 @@ flowchart TD
   subgraph Resume_Data[Resume Data]
     UI[Resume Editor] --> CRUD[FastAPI CRUD]
     CRUD --> DB[(SQL DB)]
-    DB -->|/admin/export| JSON[data/my_experience.json]
+    DB -->|/admin/export| JSON[output/my_experience.json]
     DB -->|/admin/ingest| INGEST[Re-ingest Chroma]
     INGEST --> CHROMA[(ChromaDB)]
-    JSON --> CHROMA
   end
 
   A[Client submits JD text + settings] --> B[FastAPI /generate]
-  JSON --> B
+  DB --> B
   B --> C[Normalize JD text]
 
   C --> D{JD Parser enabled?}
@@ -478,7 +417,7 @@ flowchart TD
 - JD parser requires `OPENAI_API_KEY`. If it fails or is disabled, the system falls back to local queries and skips keyword coverage scoring.
 - The agent never rewrites bullet text; it only selects and arranges existing bullets.
 - Retrieval quality depends heavily on query quality. The JD parser is designed to produce dense retrieval queries.
-- Re-ingesting deletes and rebuilds the Chroma collection; run it after CRUD changes or when `data/my_experience.json` changes.
+- Re-ingesting deletes and rebuilds the Chroma collection; run it after CRUD changes or after a JSON import.
 
 ---
 
@@ -486,7 +425,7 @@ flowchart TD
 
 ### "Collection does not exist" or 0 records
 
-Run the ingest step first:
+Ensure you have profile data in the DB, then run ingest:
 
 ```bash
 python src/ingest.py
