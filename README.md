@@ -30,9 +30,10 @@ This repo supports two runtimes:
 
 - `data/`
   - `raw_experience_data_example.json` - legacy JSON sample (not used by default)
-- `my_experience.json` - JSON export artifact (written on saves and ingest)
+  - `my_experience.json` - JSON export artifact (written on saves and ingest)
   - `processed/chroma_db/` - local ChromaDB store
   - `processed/resume.db` - SQLite CRUD store (default)
+- `config/user_settings.json` - user-editable app settings (auto re-ingest, export path)
 - `script/`
   - `convert_experience_json.py` - normalize raw data and assign stable IDs
   - `test_query.py` - manual retrieval/loop debug runner
@@ -68,6 +69,7 @@ This repo supports two runtimes:
 - The Resume Editor writes directly to the DB via CRUD endpoints.
 - Re-ingest always exports the DB to `data/my_experience.json`, then ingests Chroma.
 - `data/my_experience.json` is an exported artifact for inspection/backups, not the primary store.
+- App settings are stored in `config/user_settings.json` and editable in the Resume Editor.
 
 ### Export format (`my_experience.json`)
 
@@ -166,6 +168,7 @@ Common environment variables and defaults:
 - `ART_SQL_DB_URL` (default `sqlite:///data/processed/resume.db`)
 - `ART_EXPORT_FILE` (default `data/my_experience.json`)
 - `ART_AUTO_REINGEST` (default `0`, re-ingest after every save)
+- `ART_USER_CONFIG` (default `config/user_settings.json`)
 - `ART_TEMPLATE_DIR` (default `/app/templates`)
 - `ART_OUTPUT_DIR` (default `/app/output`)
 - `ART_COLLECTION` (default `resume_experience`)
