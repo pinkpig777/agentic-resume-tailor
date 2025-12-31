@@ -10,13 +10,34 @@ import chromadb
 import jinja2
 import uvicorn
 from chromadb.utils import embedding_functions
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import func
+from sqlalchemy.orm import Session, selectinload
 
 from agentic_resume_tailor.core.jd_utils import fallback_queries_from_jd, try_parse_jd
 from agentic_resume_tailor.core.loop_controller import LoopConfig, run_loop
+from agentic_resume_tailor.db.models import (
+    Education,
+    EducationBullet,
+    Experience,
+    ExperienceBullet,
+    PersonalInfo,
+    Project,
+    ProjectBullet,
+    Skills,
+)
+from agentic_resume_tailor.db.session import SessionLocal, get_db, init_db
+from agentic_resume_tailor.db.sync import seed_db_if_empty, write_resume_json
+from agentic_resume_tailor.db.utils import (
+    ensure_unique_slug,
+    make_job_id,
+    make_project_id,
+    next_bullet_id,
+    next_sort_order,
+)
 from agentic_resume_tailor.settings import get_settings
 from agentic_resume_tailor.utils.logging import configure_logging
 
@@ -93,6 +114,80 @@ class GenerateResponse(BaseModel):
     report_url: str
 
 
+class PersonalInfoUpdate(BaseModel):
+    name: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    linkedin_id: str | None = None
+    github_id: str | None = None
+    linkedin: str | None = None
+    github: str | None = None
+
+
+class SkillsUpdate(BaseModel):
+    languages_frameworks: str | None = None
+    ai_ml: str | None = None
+    db_tools: str | None = None
+
+
+class ExperienceCreate(BaseModel):
+    company: str = Field(min_length=1)
+    role: str = Field(min_length=1)
+    dates: str = ""
+    location: str = ""
+    sort_order: int | None = None
+    bullets: List[str] = Field(default_factory=list)
+
+
+class ExperienceUpdate(BaseModel):
+    company: str | None = None
+    role: str | None = None
+    dates: str | None = None
+    location: str | None = None
+    sort_order: int | None = None
+
+
+class ProjectCreate(BaseModel):
+    name: str = Field(min_length=1)
+    technologies: str = ""
+    sort_order: int | None = None
+    bullets: List[str] = Field(default_factory=list)
+
+
+class ProjectUpdate(BaseModel):
+    name: str | None = None
+    technologies: str | None = None
+    sort_order: int | None = None
+
+
+class BulletCreate(BaseModel):
+    text_latex: str = Field(min_length=1)
+    sort_order: int | None = None
+
+
+class BulletUpdate(BaseModel):
+    text_latex: str | None = None
+    sort_order: int | None = None
+
+
+class EducationCreate(BaseModel):
+    school: str = Field(min_length=1)
+    dates: str = ""
+    degree: str = ""
+    location: str = ""
+    bullets: List[str] = Field(default_factory=list)
+    sort_order: int | None = None
+
+
+class EducationUpdate(BaseModel):
+    school: str | None = None
+    dates: str | None = None
+    degree: str | None = None
+    location: str | None = None
+    bullets: List[str] | None = None
+    sort_order: int | None = None
+
+
 def _ensure_dirs() -> None:
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -108,6 +203,85 @@ def _load_collection():
     collection = client.get_collection(name=COLLECTION_NAME, embedding_function=ef)
     logger.info("Loaded Chroma collection '%s' (%s records)", COLLECTION_NAME, collection.count())
     return collection, ef
+
+
+def _reload_static_data() -> Dict[str, Any]:
+    global STATIC_DATA
+    STATIC_DATA = _load_static_data()
+    return STATIC_DATA
+
+
+def _reload_collection() -> None:
+    global COLLECTION, EMB_FN
+    COLLECTION, EMB_FN = _load_collection()
+
+
+def _next_sort_order_for(query) -> int:
+    max_order = query.scalar()
+    return next_sort_order([max_order])
+
+
+def _experience_to_dict(exp: Experience) -> Dict[str, Any]:
+    bullets = sorted(exp.bullets, key=lambda b: (b.sort_order, b.id))
+    return {
+        "job_id": exp.job_id,
+        "company": exp.company,
+        "role": exp.role,
+        "dates": exp.dates,
+        "location": exp.location,
+        "sort_order": exp.sort_order,
+        "bullets": [
+            {"id": b.local_id, "text_latex": b.text_latex, "sort_order": b.sort_order}
+            for b in bullets
+        ],
+    }
+
+
+def _project_to_dict(proj: Project) -> Dict[str, Any]:
+    bullets = sorted(proj.bullets, key=lambda b: (b.sort_order, b.id))
+    return {
+        "project_id": proj.project_id,
+        "name": proj.name,
+        "technologies": proj.technologies,
+        "sort_order": proj.sort_order,
+        "bullets": [
+            {"id": b.local_id, "text_latex": b.text_latex, "sort_order": b.sort_order}
+            for b in bullets
+        ],
+    }
+
+
+def _education_to_dict(edu: Education) -> Dict[str, Any]:
+    bullets = sorted(edu.bullets, key=lambda b: (b.sort_order, b.id))
+    return {
+        "id": edu.id,
+        "school": edu.school,
+        "dates": edu.dates,
+        "degree": edu.degree,
+        "location": edu.location,
+        "sort_order": edu.sort_order,
+        "bullets": [b.text_latex for b in bullets],
+    }
+
+
+def _personal_info_to_dict(info: PersonalInfo | None) -> Dict[str, str]:
+    return {
+        "name": info.name if info else "",
+        "phone": info.phone if info else "",
+        "email": info.email if info else "",
+        "linkedin_id": info.linkedin_id if info else "",
+        "github_id": info.github_id if info else "",
+        "linkedin": info.linkedin if info else "",
+        "github": info.github if info else "",
+    }
+
+
+def _skills_to_dict(skills: Skills | None) -> Dict[str, str]:
+    return {
+        "languages_frameworks": skills.languages_frameworks if skills else "",
+        "ai_ml": skills.ai_ml if skills else "",
+        "db_tools": skills.db_tools if skills else "",
+    }
 
 
 def select_and_rebuild(
@@ -230,6 +404,11 @@ def _run_id() -> str:
 # -----------------------------
 # Startup
 # -----------------------------
+logger.info("API Server starting: Initializing resume DB...")
+init_db()
+with SessionLocal() as _db:
+    if seed_db_if_empty(_db, DATA_FILE):
+        logger.info("Seeded resume DB from %s", DATA_FILE)
 logger.info("API Server starting: Loading data + Chroma...")
 STATIC_DATA = _load_static_data()
 COLLECTION, EMB_FN = _load_collection()
@@ -242,6 +421,556 @@ logger.info("API Server ready.")
 @app.get("/health")
 def health():
     return {"status": "ok", "collection": COLLECTION_NAME, "embed_model": EMBED_MODEL}
+
+
+@app.get("/personal_info")
+def get_personal_info(db: Session = Depends(get_db)):
+    info = db.query(PersonalInfo).first()
+    return _personal_info_to_dict(info)
+
+
+@app.put("/personal_info")
+def update_personal_info(payload: PersonalInfoUpdate, db: Session = Depends(get_db)):
+    info = db.query(PersonalInfo).first()
+    if info is None:
+        info = PersonalInfo()
+        db.add(info)
+    for field in ("name", "phone", "email", "linkedin_id", "github_id", "linkedin", "github"):
+        value = getattr(payload, field)
+        if value is not None:
+            setattr(info, field, value)
+    db.commit()
+    db.refresh(info)
+    return _personal_info_to_dict(info)
+
+
+@app.get("/skills")
+def get_skills(db: Session = Depends(get_db)):
+    skills = db.query(Skills).first()
+    return _skills_to_dict(skills)
+
+
+@app.put("/skills")
+def update_skills(payload: SkillsUpdate, db: Session = Depends(get_db)):
+    skills = db.query(Skills).first()
+    if skills is None:
+        skills = Skills()
+        db.add(skills)
+    for field in ("languages_frameworks", "ai_ml", "db_tools"):
+        value = getattr(payload, field)
+        if value is not None:
+            setattr(skills, field, value)
+    db.commit()
+    db.refresh(skills)
+    return _skills_to_dict(skills)
+
+
+@app.get("/education")
+def list_education(db: Session = Depends(get_db)):
+    educations = (
+        db.query(Education)
+        .options(selectinload(Education.bullets))
+        .order_by(Education.sort_order.asc(), Education.id.asc())
+        .all()
+    )
+    return [_education_to_dict(edu) for edu in educations]
+
+
+@app.post("/education")
+def create_education(payload: EducationCreate, db: Session = Depends(get_db)):
+    sort_order = payload.sort_order
+    if sort_order is None:
+        sort_order = _next_sort_order_for(db.query(func.max(Education.sort_order)))
+
+    edu = Education(
+        school=payload.school,
+        dates=payload.dates,
+        degree=payload.degree,
+        location=payload.location,
+        sort_order=sort_order,
+    )
+    db.add(edu)
+    db.flush()
+
+    for idx, bullet in enumerate(payload.bullets, start=1):
+        if not bullet:
+            continue
+        db.add(EducationBullet(education_id=edu.id, text_latex=bullet, sort_order=idx))
+
+    db.commit()
+    edu = (
+        db.query(Education)
+        .options(selectinload(Education.bullets))
+        .filter(Education.id == edu.id)
+        .first()
+    )
+    return _education_to_dict(edu)
+
+
+@app.put("/education/{education_id}")
+def update_education(education_id: int, payload: EducationUpdate, db: Session = Depends(get_db)):
+    edu = (
+        db.query(Education)
+        .options(selectinload(Education.bullets))
+        .filter(Education.id == education_id)
+        .first()
+    )
+    if edu is None:
+        raise HTTPException(status_code=404, detail="Education entry not found")
+
+    for field in ("school", "dates", "degree", "location", "sort_order"):
+        value = getattr(payload, field)
+        if value is not None:
+            setattr(edu, field, value)
+
+    if payload.bullets is not None:
+        db.query(EducationBullet).filter(EducationBullet.education_id == edu.id).delete()
+        for idx, bullet in enumerate(payload.bullets, start=1):
+            if not bullet:
+                continue
+            db.add(EducationBullet(education_id=edu.id, text_latex=bullet, sort_order=idx))
+
+    db.commit()
+    edu = (
+        db.query(Education)
+        .options(selectinload(Education.bullets))
+        .filter(Education.id == edu.id)
+        .first()
+    )
+    return _education_to_dict(edu)
+
+
+@app.delete("/education/{education_id}")
+def delete_education(education_id: int, db: Session = Depends(get_db)):
+    edu = db.query(Education).filter(Education.id == education_id).first()
+    if edu is None:
+        raise HTTPException(status_code=404, detail="Education entry not found")
+    db.delete(edu)
+    db.commit()
+    return {"status": "deleted", "id": education_id}
+
+
+@app.get("/experiences")
+def list_experiences(db: Session = Depends(get_db)):
+    experiences = (
+        db.query(Experience)
+        .options(selectinload(Experience.bullets))
+        .order_by(Experience.sort_order.asc(), Experience.id.asc())
+        .all()
+    )
+    return [_experience_to_dict(exp) for exp in experiences]
+
+
+@app.get("/experiences/{job_id}")
+def get_experience(job_id: str, db: Session = Depends(get_db)):
+    exp = (
+        db.query(Experience)
+        .options(selectinload(Experience.bullets))
+        .filter(Experience.job_id == job_id)
+        .first()
+    )
+    if exp is None:
+        raise HTTPException(status_code=404, detail="Experience not found")
+    return _experience_to_dict(exp)
+
+
+@app.post("/experiences")
+def create_experience(payload: ExperienceCreate, db: Session = Depends(get_db)):
+    job_id = make_job_id(payload.company, payload.role)
+    if db.query(Experience).filter(Experience.job_id == job_id).first():
+        raise HTTPException(status_code=409, detail="Experience with job_id already exists")
+
+    sort_order = payload.sort_order
+    if sort_order is None:
+        sort_order = _next_sort_order_for(db.query(func.max(Experience.sort_order)))
+
+    exp = Experience(
+        job_id=job_id,
+        company=payload.company,
+        role=payload.role,
+        dates=payload.dates,
+        location=payload.location,
+        sort_order=sort_order,
+    )
+    db.add(exp)
+    db.flush()
+
+    existing_ids: List[str] = []
+    for idx, bullet in enumerate(payload.bullets, start=1):
+        if not bullet:
+            continue
+        local_id = next_bullet_id(existing_ids)
+        existing_ids.append(local_id)
+        db.add(
+            ExperienceBullet(
+                experience_id=exp.id,
+                local_id=local_id,
+                text_latex=bullet,
+                sort_order=idx,
+            )
+        )
+
+    db.commit()
+    exp = (
+        db.query(Experience)
+        .options(selectinload(Experience.bullets))
+        .filter(Experience.id == exp.id)
+        .first()
+    )
+    return _experience_to_dict(exp)
+
+
+@app.put("/experiences/{job_id}")
+def update_experience(job_id: str, payload: ExperienceUpdate, db: Session = Depends(get_db)):
+    exp = (
+        db.query(Experience)
+        .options(selectinload(Experience.bullets))
+        .filter(Experience.job_id == job_id)
+        .first()
+    )
+    if exp is None:
+        raise HTTPException(status_code=404, detail="Experience not found")
+
+    exp_id = exp.id
+    for field in ("company", "role", "dates", "location", "sort_order"):
+        value = getattr(payload, field)
+        if value is not None:
+            setattr(exp, field, value)
+
+    new_job_id = make_job_id(exp.company, exp.role)
+    if new_job_id != exp.job_id:
+        conflict = (
+            db.query(Experience)
+            .filter(Experience.job_id == new_job_id, Experience.id != exp.id)
+            .first()
+        )
+        if conflict:
+            raise HTTPException(status_code=409, detail="job_id collision for updated experience")
+        exp.job_id = new_job_id
+
+    db.commit()
+    exp = (
+        db.query(Experience)
+        .options(selectinload(Experience.bullets))
+        .filter(Experience.id == exp_id)
+        .first()
+    )
+    return _experience_to_dict(exp)
+
+
+@app.delete("/experiences/{job_id}")
+def delete_experience(job_id: str, db: Session = Depends(get_db)):
+    exp = db.query(Experience).filter(Experience.job_id == job_id).first()
+    if exp is None:
+        raise HTTPException(status_code=404, detail="Experience not found")
+    db.delete(exp)
+    db.commit()
+    return {"status": "deleted", "job_id": job_id}
+
+
+@app.get("/experiences/{job_id}/bullets")
+def list_experience_bullets(job_id: str, db: Session = Depends(get_db)):
+    exp = db.query(Experience).filter(Experience.job_id == job_id).first()
+    if exp is None:
+        raise HTTPException(status_code=404, detail="Experience not found")
+    bullets = (
+        db.query(ExperienceBullet)
+        .filter(ExperienceBullet.experience_id == exp.id)
+        .order_by(ExperienceBullet.sort_order.asc(), ExperienceBullet.id.asc())
+        .all()
+    )
+    return [
+        {"id": b.local_id, "text_latex": b.text_latex, "sort_order": b.sort_order}
+        for b in bullets
+    ]
+
+
+@app.post("/experiences/{job_id}/bullets")
+def create_experience_bullet(job_id: str, payload: BulletCreate, db: Session = Depends(get_db)):
+    exp = db.query(Experience).filter(Experience.job_id == job_id).first()
+    if exp is None:
+        raise HTTPException(status_code=404, detail="Experience not found")
+
+    existing_ids = [
+        row[0]
+        for row in db.query(ExperienceBullet.local_id)
+        .filter(ExperienceBullet.experience_id == exp.id)
+        .all()
+    ]
+    local_id = next_bullet_id(existing_ids)
+
+    sort_order = payload.sort_order
+    if sort_order is None:
+        sort_order = _next_sort_order_for(
+            db.query(func.max(ExperienceBullet.sort_order)).filter(
+                ExperienceBullet.experience_id == exp.id
+            )
+        )
+
+    bullet = ExperienceBullet(
+        experience_id=exp.id,
+        local_id=local_id,
+        text_latex=payload.text_latex,
+        sort_order=sort_order,
+    )
+    db.add(bullet)
+    db.commit()
+    return {"id": local_id, "text_latex": bullet.text_latex, "sort_order": bullet.sort_order}
+
+
+@app.put("/experiences/{job_id}/bullets/{local_id}")
+def update_experience_bullet(
+    job_id: str, local_id: str, payload: BulletUpdate, db: Session = Depends(get_db)
+):
+    bullet = (
+        db.query(ExperienceBullet)
+        .join(Experience, Experience.id == ExperienceBullet.experience_id)
+        .filter(Experience.job_id == job_id, ExperienceBullet.local_id == local_id)
+        .first()
+    )
+    if bullet is None:
+        raise HTTPException(status_code=404, detail="Experience bullet not found")
+
+    if payload.text_latex is not None:
+        bullet.text_latex = payload.text_latex
+    if payload.sort_order is not None:
+        bullet.sort_order = payload.sort_order
+
+    db.commit()
+    return {"id": bullet.local_id, "text_latex": bullet.text_latex, "sort_order": bullet.sort_order}
+
+
+@app.delete("/experiences/{job_id}/bullets/{local_id}")
+def delete_experience_bullet(job_id: str, local_id: str, db: Session = Depends(get_db)):
+    bullet = (
+        db.query(ExperienceBullet)
+        .join(Experience, Experience.id == ExperienceBullet.experience_id)
+        .filter(Experience.job_id == job_id, ExperienceBullet.local_id == local_id)
+        .first()
+    )
+    if bullet is None:
+        raise HTTPException(status_code=404, detail="Experience bullet not found")
+    db.delete(bullet)
+    db.commit()
+    return {"status": "deleted", "id": local_id}
+
+
+@app.get("/projects")
+def list_projects(db: Session = Depends(get_db)):
+    projects = (
+        db.query(Project)
+        .options(selectinload(Project.bullets))
+        .order_by(Project.sort_order.asc(), Project.id.asc())
+        .all()
+    )
+    return [_project_to_dict(proj) for proj in projects]
+
+
+@app.get("/projects/{project_id}")
+def get_project(project_id: str, db: Session = Depends(get_db)):
+    proj = (
+        db.query(Project)
+        .options(selectinload(Project.bullets))
+        .filter(Project.project_id == project_id)
+        .first()
+    )
+    if proj is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return _project_to_dict(proj)
+
+
+@app.post("/projects")
+def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
+    base_id = make_project_id(payload.name)
+    existing_ids = [row[0] for row in db.query(Project.project_id).all()]
+    project_id = ensure_unique_slug(base_id, existing_ids)
+
+    sort_order = payload.sort_order
+    if sort_order is None:
+        sort_order = _next_sort_order_for(db.query(func.max(Project.sort_order)))
+
+    proj = Project(
+        project_id=project_id,
+        name=payload.name,
+        technologies=payload.technologies,
+        sort_order=sort_order,
+    )
+    db.add(proj)
+    db.flush()
+
+    existing_ids = []
+    for idx, bullet in enumerate(payload.bullets, start=1):
+        if not bullet:
+            continue
+        local_id = next_bullet_id(existing_ids)
+        existing_ids.append(local_id)
+        db.add(
+            ProjectBullet(
+                project_id=proj.id,
+                local_id=local_id,
+                text_latex=bullet,
+                sort_order=idx,
+            )
+        )
+
+    db.commit()
+    proj = (
+        db.query(Project)
+        .options(selectinload(Project.bullets))
+        .filter(Project.id == proj.id)
+        .first()
+    )
+    return _project_to_dict(proj)
+
+
+@app.put("/projects/{project_id}")
+def update_project(project_id: str, payload: ProjectUpdate, db: Session = Depends(get_db)):
+    proj = (
+        db.query(Project)
+        .options(selectinload(Project.bullets))
+        .filter(Project.project_id == project_id)
+        .first()
+    )
+    if proj is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    proj_id = proj.id
+    old_name = proj.name
+    for field in ("name", "technologies", "sort_order"):
+        value = getattr(payload, field)
+        if value is not None:
+            setattr(proj, field, value)
+
+    if payload.name is not None and proj.name != old_name:
+        new_base = make_project_id(proj.name)
+        if new_base != proj.project_id:
+            existing_ids = [
+                row[0]
+                for row in db.query(Project.project_id)
+                .filter(Project.id != proj.id)
+                .all()
+            ]
+            proj.project_id = ensure_unique_slug(new_base, existing_ids)
+
+    db.commit()
+    proj = (
+        db.query(Project)
+        .options(selectinload(Project.bullets))
+        .filter(Project.id == proj_id)
+        .first()
+    )
+    return _project_to_dict(proj)
+
+
+@app.delete("/projects/{project_id}")
+def delete_project(project_id: str, db: Session = Depends(get_db)):
+    proj = db.query(Project).filter(Project.project_id == project_id).first()
+    if proj is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    db.delete(proj)
+    db.commit()
+    return {"status": "deleted", "project_id": project_id}
+
+
+@app.get("/projects/{project_id}/bullets")
+def list_project_bullets(project_id: str, db: Session = Depends(get_db)):
+    proj = db.query(Project).filter(Project.project_id == project_id).first()
+    if proj is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    bullets = (
+        db.query(ProjectBullet)
+        .filter(ProjectBullet.project_id == proj.id)
+        .order_by(ProjectBullet.sort_order.asc(), ProjectBullet.id.asc())
+        .all()
+    )
+    return [
+        {"id": b.local_id, "text_latex": b.text_latex, "sort_order": b.sort_order}
+        for b in bullets
+    ]
+
+
+@app.post("/projects/{project_id}/bullets")
+def create_project_bullet(project_id: str, payload: BulletCreate, db: Session = Depends(get_db)):
+    proj = db.query(Project).filter(Project.project_id == project_id).first()
+    if proj is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    existing_ids = [
+        row[0]
+        for row in db.query(ProjectBullet.local_id)
+        .filter(ProjectBullet.project_id == proj.id)
+        .all()
+    ]
+    local_id = next_bullet_id(existing_ids)
+
+    sort_order = payload.sort_order
+    if sort_order is None:
+        sort_order = _next_sort_order_for(
+            db.query(func.max(ProjectBullet.sort_order)).filter(ProjectBullet.project_id == proj.id)
+        )
+
+    bullet = ProjectBullet(
+        project_id=proj.id,
+        local_id=local_id,
+        text_latex=payload.text_latex,
+        sort_order=sort_order,
+    )
+    db.add(bullet)
+    db.commit()
+    return {"id": local_id, "text_latex": bullet.text_latex, "sort_order": bullet.sort_order}
+
+
+@app.put("/projects/{project_id}/bullets/{local_id}")
+def update_project_bullet(
+    project_id: str, local_id: str, payload: BulletUpdate, db: Session = Depends(get_db)
+):
+    bullet = (
+        db.query(ProjectBullet)
+        .join(Project, Project.id == ProjectBullet.project_id)
+        .filter(Project.project_id == project_id, ProjectBullet.local_id == local_id)
+        .first()
+    )
+    if bullet is None:
+        raise HTTPException(status_code=404, detail="Project bullet not found")
+
+    if payload.text_latex is not None:
+        bullet.text_latex = payload.text_latex
+    if payload.sort_order is not None:
+        bullet.sort_order = payload.sort_order
+
+    db.commit()
+    return {"id": bullet.local_id, "text_latex": bullet.text_latex, "sort_order": bullet.sort_order}
+
+
+@app.delete("/projects/{project_id}/bullets/{local_id}")
+def delete_project_bullet(project_id: str, local_id: str, db: Session = Depends(get_db)):
+    bullet = (
+        db.query(ProjectBullet)
+        .join(Project, Project.id == ProjectBullet.project_id)
+        .filter(Project.project_id == project_id, ProjectBullet.local_id == local_id)
+        .first()
+    )
+    if bullet is None:
+        raise HTTPException(status_code=404, detail="Project bullet not found")
+    db.delete(bullet)
+    db.commit()
+    return {"status": "deleted", "id": local_id}
+
+
+@app.post("/admin/export")
+def export_resume(reingest: bool = False, db: Session = Depends(get_db)):
+    write_resume_json(db, DATA_FILE)
+    _reload_static_data()
+
+    reingested = False
+    if reingest:
+        from agentic_resume_tailor import ingest as ingest_module
+
+        ingest_module.ingest()
+        _reload_collection()
+        reingested = True
+
+    return {"status": "ok", "path": DATA_FILE, "reingested": reingested}
 
 
 @app.post("/generate", response_model=GenerateResponse)
