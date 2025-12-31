@@ -29,8 +29,9 @@ This repo supports two runtimes:
 
 - `data/`
   - `raw_experience_data_example.json` - template for your raw data (editable)
-  - `my_experience.json` - source of truth (LaTeX-ready bullets + stable IDs)
+  - `my_experience.json` - pipeline input (exported from DB if using CRUD)
   - `processed/chroma_db/` - local ChromaDB store
+  - `processed/resume.db` - SQLite CRUD store (default)
 - `script/`
   - `convert_experience_json.py` - normalize raw data and assign stable IDs
   - `test_query.py` - manual retrieval/loop debug runner
@@ -41,6 +42,7 @@ This repo supports two runtimes:
 - `src/`
   - `agentic_resume_tailor/` - src-layout package
     - `api/server.py` - FastAPI backend (API-only, writes artifacts + report)
+    - `db/` - SQLAlchemy models + export/seed helpers for CRUD
     - `ui/app.py` - Streamlit UI (calls backend, visualizes report, downloads PDF)
     - `core/` - retrieval/selection/scoring pipeline
     - `ingest.py` - upserts bullets into Chroma using deterministic `bullet_id`
@@ -121,7 +123,7 @@ Notes:
 - Bullets are LaTeX-ready and are never rewritten by the system.
 - The template expects `personal_info`, `skills`, `education`, `experiences`, and `projects` to exist (use empty lists when needed).
 
-### 2) Normalize to `data/my_experience.json` (source of truth)
+### 2) Normalize to `data/my_experience.json` (pipeline input)
 
 Run the converter (adds `job_id`, `project_id`, and bullet IDs):
 
@@ -139,6 +141,7 @@ The normalized file stores bullets as objects:
 
 The system only ever selects from this file; it never invents new bullets.
 If you want IDs to remain stable after editing bullet text, edit `data/my_experience.json` directly and keep the existing `id` fields.
+If you use the CRUD API, the SQL database is the source of truth and `POST /admin/export` regenerates this file.
 
 ### `bullet_id` convention
 
@@ -149,6 +152,14 @@ Examples:
 
 - `exp:saturnai__ai_software_engineer:b03`
 - `proj:zapmail_ai_driven_email_automation_platform:b02`
+
+---
+
+## Database-backed CRUD (optional)
+
+- The API seeds the resume DB from `data/my_experience.json` if the SQL DB is empty.
+- CRUD endpoints are available at `/personal_info`, `/skills`, `/experiences`, `/projects`, and `/education`.
+- After edits, call `POST /admin/export` to regenerate `data/my_experience.json` (add `?reingest=1` to rebuild Chroma).
 
 ---
 
@@ -173,6 +184,7 @@ Common environment variables and defaults:
 
 - `OPENAI_API_KEY` (required only if JD parser is enabled)
 - `ART_DB_PATH` (default `/app/data/processed/chroma_db`)
+- `ART_SQL_DB_URL` (default `sqlite:////app/data/processed/resume.db`)
 - `ART_DATA_FILE` (default `/app/data/my_experience.json`)
 - `ART_TEMPLATE_DIR` (default `/app/templates`)
 - `ART_OUTPUT_DIR` (default `/app/output`)
