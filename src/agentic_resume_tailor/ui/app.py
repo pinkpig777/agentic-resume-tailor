@@ -397,15 +397,16 @@ def render_resume_editor(api_url: str) -> None:
         st.error(f"Failed to load education: {err}")
         return
 
-    with st.form("add_education_form", clear_on_submit=True):
-        edu_school = st.text_input("School", key="new_edu_school")
-        edu_degree = st.text_input("Degree", key="new_edu_degree")
-        edu_dates = st.text_input("Dates", key="new_edu_dates")
-        edu_location = st.text_input("Location", key="new_edu_location")
-        edu_bullets = st.text_area(
-            "Bullets (one per line)", key="new_edu_bullets", height=120
-        )
-        submitted_edu = st.form_submit_button("Create Education")
+    with st.expander("Add Education", expanded=False):
+        with st.form("add_education_form", clear_on_submit=True):
+            edu_school = st.text_input("School", key="new_edu_school")
+            edu_degree = st.text_input("Degree", key="new_edu_degree")
+            edu_dates = st.text_input("Dates", key="new_edu_dates")
+            edu_location = st.text_input("Location", key="new_edu_location")
+            edu_bullets = st.text_area(
+                "Bullets (one per line)", key="new_edu_bullets", height=120
+            )
+            submitted_edu = st.form_submit_button("Create Education")
 
     if submitted_edu:
         bullets = [line.strip() for line in edu_bullets.splitlines() if line.strip()]
@@ -503,16 +504,16 @@ def render_resume_editor(api_url: str) -> None:
 
     st.divider()
 
-    st.subheader("Add Experience")
-    with st.form("add_experience_form", clear_on_submit=True):
-        exp_company = st.text_input("Company", key="new_exp_company")
-        exp_role = st.text_input("Role", key="new_exp_role")
-        exp_dates = st.text_input("Dates", key="new_exp_dates")
-        exp_location = st.text_input("Location", key="new_exp_location")
-        exp_bullets = st.text_area(
-            "Bullets (one per line)", key="new_exp_bullets", height=120
-        )
-        submitted = st.form_submit_button("Create Experience")
+    with st.expander("Add Experience", expanded=False):
+        with st.form("add_experience_form", clear_on_submit=True):
+            exp_company = st.text_input("Company", key="new_exp_company")
+            exp_role = st.text_input("Role", key="new_exp_role")
+            exp_dates = st.text_input("Dates", key="new_exp_dates")
+            exp_location = st.text_input("Location", key="new_exp_location")
+            exp_bullets = st.text_area(
+                "Bullets (one per line)", key="new_exp_bullets", height=120
+            )
+            submitted = st.form_submit_button("Create Experience")
 
     if submitted:
         bullets = [line.strip() for line in exp_bullets.splitlines() if line.strip()]
@@ -642,14 +643,14 @@ def render_resume_editor(api_url: str) -> None:
                     else:
                         st.error(err)
 
-    st.subheader("Add Project")
-    with st.form("add_project_form", clear_on_submit=True):
-        proj_name = st.text_input("Project name", key="new_proj_name")
-        proj_tech = st.text_input("Technologies", key="new_proj_tech")
-        proj_bullets = st.text_area(
-            "Bullets (one per line)", key="new_proj_bullets", height=120
-        )
-        submitted_proj = st.form_submit_button("Create Project")
+    with st.expander("Add Project", expanded=False):
+        with st.form("add_project_form", clear_on_submit=True):
+            proj_name = st.text_input("Project name", key="new_proj_name")
+            proj_tech = st.text_input("Technologies", key="new_proj_tech")
+            proj_bullets = st.text_area(
+                "Bullets (one per line)", key="new_proj_bullets", height=120
+            )
+            submitted_proj = st.form_submit_button("Create Project")
 
     if submitted_proj:
         bullets = [line.strip() for line in proj_bullets.splitlines() if line.strip()]
