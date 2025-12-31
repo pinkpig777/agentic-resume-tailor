@@ -146,47 +146,49 @@ Notes:
 
 ## Environment
 
-Create a `.env` in the repo root (used by Docker and optional for local runs):
+Create a `.env` in the repo root (optional, for secrets only):
 
 ```env
 OPENAI_API_KEY=YOUR_OPENAI_API_KEY
-
-# Keyword matching configs
-ART_CANON_CONFIG=config/canonicalization.json
-ART_FAMILY_CONFIG=config/families.json
-
-# Streamlit UI: use localhost when running outside Docker
-ART_API_URL=http://localhost:8000
 ```
 
 If you run locally, load `.env` with `python -m dotenv run -- <command>` or export variables in your shell.
+The app reads `OPENAI_API_KEY` from `.env` or the process environment.
 
-Common environment variables and defaults:
+All app settings live in `config/user_settings.json`. Keys map to the Settings fields:
 
-- `OPENAI_API_KEY` (required only if JD parser is enabled)
-- `ART_DB_PATH` (default `/app/data/processed/chroma_db`)
-- `ART_SQL_DB_URL` (default `sqlite:///data/processed/resume.db`)
-- `ART_EXPORT_FILE` (default `data/my_experience.json`)
-- `ART_AUTO_REINGEST` (default `0`, re-ingest after every save)
-- `ART_USER_CONFIG` (default `config/user_settings.json`)
-- `ART_TEMPLATE_DIR` (default `/app/templates`)
-- `ART_OUTPUT_DIR` (default `/app/output`)
-- `ART_COLLECTION` (default `resume_experience`)
-- `ART_EMBED_MODEL` (default `BAAI/bge-small-en-v1.5`)
-- `ART_CANON_CONFIG` (default `config/canonicalization.json`)
-- `ART_FAMILY_CONFIG` (default `config/families.json`)
-- `ART_USE_JD_PARSER` (default `1`)
-- `ART_JD_MODEL` (default `gpt-4.1-nano-2025-04-14`)
-- `ART_API_URL` (default `http://localhost:8000`, Streamlit only)
-- `ART_MAX_BULLETS`, `ART_PER_QUERY_K`, `ART_FINAL_K`
-- `ART_MAX_ITERS`, `ART_SCORE_THRESHOLD`, `ART_SCORE_ALPHA`, `ART_MUST_WEIGHT`
-- `ART_BOOST_WEIGHT`, `ART_BOOST_TOP_N`
-- `ART_CORS_ORIGINS` (default `*`)
-- `ART_LOG_LEVEL` (default `INFO`)
-- `ART_LOG_JSON` (default `0`)
-- `ART_SKIP_PDF` (default `0`, skips Tectonic for tests)
-- `ART_RUN_ID` (optional, forces deterministic run IDs)
-- `PORT` (default `8000`, API server)
+```json
+{
+  "db_path": "data/processed/chroma_db",
+  "sql_db_url": "sqlite:///data/processed/resume.db",
+  "export_file": "data/my_experience.json",
+  "auto_reingest_on_save": false,
+  "template_dir": "templates",
+  "output_dir": "output",
+  "collection_name": "resume_experience",
+  "embed_model": "BAAI/bge-small-en-v1.5",
+  "use_jd_parser": true,
+  "max_bullets": 16,
+  "per_query_k": 10,
+  "final_k": 30,
+  "max_iters": 3,
+  "threshold": 80,
+  "alpha": 0.7,
+  "must_weight": 0.8,
+  "boost_weight": 1.6,
+  "boost_top_n_missing": 6,
+  "cors_origins": "*",
+  "skip_pdf": false,
+  "run_id": null,
+  "jd_model": "gpt-4.1-nano-2025-04-14",
+  "canon_config": "config/canonicalization.json",
+  "family_config": "config/families.json",
+  "api_url": "http://localhost:8000",
+  "log_level": "INFO",
+  "log_json": false,
+  "port": 8000
+}
+```
 
 ---
 
@@ -254,7 +256,6 @@ curl -sS http://localhost:8000/health
 ```bash
 docker run --rm -p 8501:8501 \
   --env-file .env \
-  -e ART_API_URL=http://host.docker.internal:8000 \
   -v "$(pwd)/src:/app/src" \
   resume-agent streamlit run /app/src/app.py --server.address=0.0.0.0 --server.port=8501
 ```
@@ -263,23 +264,20 @@ Open Streamlit: `http://localhost:8501`
 
 Then open **Resume Editor**, create your profile, and click **Re-ingest ChromaDB**.
 
+Note: set `api_url` in `config/user_settings.json` if the UI needs a non-default API URL.
+
 ---
 
 ## Local run (Python)
 
-If you run outside Docker, set local paths via env vars:
+If you run outside Docker, update `config/user_settings.json` with local paths:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-export ART_DB_PATH=data/processed/chroma_db
-export ART_SQL_DB_URL=sqlite:///data/processed/resume.db
-export ART_EXPORT_FILE=data/my_experience.json
-export ART_TEMPLATE_DIR=templates
-export ART_OUTPUT_DIR=output
-export ART_USE_JD_PARSER=0  # optional, disable OpenAI parser
+# Example settings are shown in the Environment section above.
 
 python src/server.py
 streamlit run src/app.py
