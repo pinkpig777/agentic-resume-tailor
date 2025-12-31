@@ -18,6 +18,8 @@ This repo supports two runtimes:
 - Agentic loop: iteratively boosts missing must-have keywords into the next retrieval pass (no OpenAI needed for boosting).
 - Keyword matching: canonicalization + family matching for explainability and coverage scoring.
 - Hybrid scoring: blends retrieval strength + keyword coverage per iteration.
+- Quant bonus: adds a small, bounded boost for bullets with quantitative results.
+- Within-experience ordering: sorts selected bullets inside each job/project by relevance (ties by bullet id).
 - LaTeX rendering: Jinja2 -> `.tex` -> Tectonic -> `.pdf`.
 - Report: writes `output/<run_id>_report.json` with queries used, selected bullet IDs, missing keywords, scores, and iteration history.
 
@@ -43,6 +45,7 @@ This repo supports two runtimes:
     - `core/` - retrieval/selection/scoring pipeline
     - `ingest.py` - upserts bullets into Chroma using deterministic `bullet_id`
     - `jd_parser.py` - optional OpenAI JD parser (Target Profile v1)
+    - `core/jd_utils.py` - shared JD parsing + fallback query helpers
     - `settings.py` - pydantic-settings config loader
     - `utils/logging.py` - log configuration helpers
   - `server.py`, `app.py`, `ingest.py` - thin wrappers for backward-compatible entrypoints
