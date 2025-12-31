@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 
@@ -6,7 +7,7 @@ from chromadb.utils import embedding_functions
 from tqdm import tqdm
 
 from agentic_resume_tailor.db.session import SessionLocal
-from agentic_resume_tailor.db.sync import export_resume_data
+from agentic_resume_tailor.db.sync import export_resume_data, write_resume_json
 from agentic_resume_tailor.settings import get_settings
 from agentic_resume_tailor.utils.logging import configure_logging
 
@@ -27,7 +28,7 @@ def strip_latex(s: str) -> str:
     return s
 
 
-def ingest(data: dict | None = None) -> int:
+def ingest(data: dict | None = None, json_path: str | None = None) -> int:
     logger.info("Initializing ChromaDB client")
     client = chromadb.PersistentClient(path=DB_PATH)
 
@@ -44,8 +45,12 @@ def ingest(data: dict | None = None) -> int:
     )
 
     if data is None:
-        with SessionLocal() as db:
-            data = export_resume_data(db)
+        if json_path:
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        else:
+            with SessionLocal() as db:
+                data = export_resume_data(db)
 
     documents = []
     metadatas = []
@@ -126,7 +131,9 @@ def ingest(data: dict | None = None) -> int:
 
 
 def main() -> None:
-    ingest()
+    with SessionLocal() as db:
+        write_resume_json(db, settings.export_file)
+    ingest(json_path=settings.export_file)
 
 
 if __name__ == "__main__":

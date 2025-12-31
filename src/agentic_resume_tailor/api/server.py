@@ -971,7 +971,7 @@ def export_resume(reingest: bool = False, db: Session = Depends(get_db)):
     if reingest:
         from agentic_resume_tailor import ingest as ingest_module
 
-        ingest_module.ingest()
+        ingest_module.ingest(json_path=EXPORT_FILE)
         _reload_collection()
         reingested = True
 
@@ -991,7 +991,7 @@ def ingest_resume(db: Session = Depends(get_db)):
         write_resume_json(db, EXPORT_FILE)
         from agentic_resume_tailor import ingest as ingest_module
 
-        count = ingest_module.ingest()
+        count = ingest_module.ingest(json_path=EXPORT_FILE)
         _reload_collection()
         _reload_static_data()
         elapsed = time.time() - start
