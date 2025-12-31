@@ -163,6 +163,35 @@ Examples:
 - Use `POST /admin/ingest` to export the DB, rebuild Chroma, and refresh in-memory data.
 - Use `POST /admin/export` to regenerate `data/my_experience.json` without re-ingesting.
 
+## Database schema (SQLite/Postgres)
+
+Tables and relations (SQLAlchemy models in `src/agentic_resume_tailor/db/models.py`):
+
+- `personal_info` (single row)
+  - `id` (PK), `name`, `phone`, `email`, `linkedin_id`, `github_id`, `linkedin`, `github`
+- `skills` (single row)
+  - `id` (PK), `languages_frameworks`, `ai_ml`, `db_tools`
+- `education`
+  - `id` (PK), `school`, `dates`, `degree`, `location`, `sort_order`
+- `education_bullets`
+  - `id` (PK), `education_id` (FK → `education.id`), `text_latex`, `sort_order`
+- `experiences`
+  - `id` (PK), `job_id` (unique), `company`, `role`, `dates`, `location`, `sort_order`
+- `experience_bullets`
+  - `id` (PK), `experience_id` (FK → `experiences.id`), `local_id` (`b01`...), `text_latex`,
+    `sort_order`
+  - unique constraint: (`experience_id`, `local_id`)
+- `projects`
+  - `id` (PK), `project_id` (unique), `name`, `technologies`, `sort_order`
+- `project_bullets`
+  - `id` (PK), `project_id` (FK → `projects.id`), `local_id` (`b01`...), `text_latex`,
+    `sort_order`
+  - unique constraint: (`project_id`, `local_id`)
+
+Notes:
+- `job_id` and `project_id` are deterministic slugs; bullet `local_id` is stable and never derived from text.
+- Ordering is controlled by `sort_order`; deletes never renumber IDs.
+
 ## Resume Editor (UI)
 
 - Open the Streamlit app and switch to **Resume Editor** in the sidebar.
