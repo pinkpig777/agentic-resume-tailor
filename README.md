@@ -29,8 +29,8 @@ This repo supports two runtimes:
 ## Repo map
 
 - `data/`
-  - `raw_experience_data_example.json` - optional template for JSON import
-  - `my_experience.json` - optional import file for seeding the DB
+  - `raw_experience_data_example.json` - legacy JSON sample (not used by default)
+  - `my_experience.json` - legacy JSON export format (now exported to `output/`)
   - `processed/chroma_db/` - local ChromaDB store
   - `processed/resume.db` - SQLite CRUD store (default)
 - `script/`
@@ -82,17 +82,10 @@ Notes:
 - Bullets are LaTeX-ready and are never rewritten by the system.
 - The template expects `personal_info`, `skills`, `education`, `experiences`, and `projects` to exist (use empty lists when needed).
 
-### Optional JSON import (one-time seed)
+### Legacy JSON tools (not on the happy path)
 
-You can still import JSON if you want to bootstrap:
-
-```bash
-python script/convert_experience_json.py \
-  --input data/raw_experience_data.json \
-  --output data/my_experience.json
-```
-
-Then start the API with `ART_SEED_FROM_JSON=1` to seed the DB from `ART_DATA_FILE`.
+`script/convert_experience_json.py` still exists to normalize old JSON, but the app does not
+auto-import JSON on startup. Use the Resume Editor to populate the DB.
 
 ### `bullet_id` convention
 
@@ -108,7 +101,6 @@ Examples:
 
 ## Database-backed CRUD
 
-- The API can optionally seed the resume DB from `ART_DATA_FILE` when `ART_SEED_FROM_JSON=1`.
 - CRUD endpoints are available at `/personal_info`, `/skills`, `/experiences`, `/projects`, and `/education`.
 - Use `POST /admin/ingest` to export the DB, rebuild Chroma, and refresh in-memory data.
 - Use `POST /admin/export` to regenerate `output/my_experience.json` without re-ingesting.
@@ -172,9 +164,7 @@ Common environment variables and defaults:
 - `OPENAI_API_KEY` (required only if JD parser is enabled)
 - `ART_DB_PATH` (default `/app/data/processed/chroma_db`)
 - `ART_SQL_DB_URL` (default `sqlite:///data/processed/resume.db`)
-- `ART_DATA_FILE` (default `/app/data/my_experience.json`, optional JSON import)
 - `ART_EXPORT_FILE` (default `output/my_experience.json`)
-- `ART_SEED_FROM_JSON` (default `0`, seed DB from `ART_DATA_FILE`)
 - `ART_TEMPLATE_DIR` (default `/app/templates`)
 - `ART_OUTPUT_DIR` (default `/app/output`)
 - `ART_COLLECTION` (default `resume_experience`)
