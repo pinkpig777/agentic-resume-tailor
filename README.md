@@ -1,68 +1,51 @@
 # Agentic Resume Tailor (ART)
 
-Local, privacy-first resume tailoring agent. ART stores only your own bullets in a local ChromaDB vector store, retrieves the most relevant bullets for a job description (JD), and renders a single-page LaTeX PDF via Tectonic.
+Local, privacy-first resume tailoring agent. ART keeps your data on disk, stores bullets in a local ChromaDB vector store, retrieves the most relevant bullets for a job description (JD), and renders a single-page LaTeX PDF via Tectonic.
 
-This repo supports two runtimes:
+This repo has two runtimes:
 
 - FastAPI backend (`src/server.py`): API endpoints, agent loop, rendering, artifact/report generation.
-- Streamlit UI (`src/app.py`): frontend that calls the API, includes Generate/Resume Editor/Settings pages, and visualizes reports.
+- Streamlit UI (`src/app.py`): Generate, Resume Editor, and Settings pages.
 
 ---
 
-## What it does
+## Typical workflow
+
+1) Open **Resume Editor**, add your profile (personal info, skills, education, experiences/projects, bullets).
+2) Click **Re-ingest ChromaDB** to rebuild the vector store from the DB.
+3) Open **Generate**, paste a JD, and create a tailored resume.
+
+---
+
+## Highlights
+
+- DB-first profile storage with CRUD UI.
+- Stable, deterministic `bullet_id` for every bullet.
+- Multi-query retrieval with reranking and hybrid scoring.
+- Agentic loop to boost missing must-have keywords.
+- LaTeX rendering to a single-page PDF.
+- Settings page saves app defaults to `config/user_settings.json`.
+
+---
+
+## Pipeline details
 
 - Local vector store (ChromaDB): embeds each bullet with `BAAI/bge-small-en-v1.5`.
-- Stable provenance: every bullet has a deterministic `bullet_id`.
 - Multi-query retrieval: uses JD parser output (`experience_queries`) or fallback queries, merges + dedupes by `bullet_id`, then reranks.
 - Top-K selection: keeps the best `N` bullets (default `16`).
-- Agentic loop: boosts missing must-have keywords across iterations (no OpenAI needed for boosting).
 - Keyword matching: canonicalization + family rules for explainable coverage scoring.
 - Hybrid scoring: blends retrieval strength and keyword coverage each iteration.
 - Quant bonus: small bounded boost for quantified results.
 - Within-experience ordering: sorts selected bullets inside each job/project by relevance (ties by bullet id).
-- LaTeX rendering: Jinja2 -> `.tex` -> Tectonic -> `.pdf`.
 - Report: writes `output/<run_id>_report.json` with queries used, selected IDs, missing keywords, scores, and iteration history.
-- Resume Editor: CRUD experiences, projects, and bullets with one-click re-ingest to Chroma.
-- Settings page: edit app defaults (generation + ingest) saved to `config/user_settings.json`.
-- Workflow: edit your profile first, then ask the agent to generate a tailored resume from your data.
 
 ---
 
-## Repo map
+## UI pages
 
-- `data/`
-  - `raw_experience_data_example.json` - legacy JSON sample (not used by default)
-  - `my_experience.json` - JSON export artifact (written on saves and ingest)
-  - `processed/chroma_db/` - local ChromaDB store
-  - `processed/resume.db` - SQLite CRUD store (default)
-- `config/user_settings.json` - user-editable app settings (local defaults)
-- `config/user_settings.docker.json` - Docker-friendly settings (api_url points to `http://api:8000`)
-- `script/`
-  - `convert_experience_json.py` - normalize raw data and assign stable IDs
-  - `test_query.py` - manual retrieval/loop debug runner
-  - `test_render.py` - render a PDF from template using sample JSON
-- `config/`
-  - `canonicalization.json` - alias/canonical rules
-  - `families.json` - family taxonomy (generic -> satisfied_by)
-- `src/`
-  - `agentic_resume_tailor/` - src-layout package
-    - `api/server.py` - FastAPI backend (API-only, writes artifacts + report)
-    - `db/` - SQLAlchemy models + export/seed helpers for CRUD
-    - `ui/app.py` - Streamlit UI (calls backend, visualizes report, downloads PDF)
-    - `core/` - retrieval/selection/scoring pipeline
-    - `ingest.py` - upserts bullets into Chroma using deterministic `bullet_id`
-    - `jd_parser.py` - optional OpenAI JD parser (Target Profile v1)
-    - `core/jd_utils.py` - shared JD parsing + fallback query helpers
-    - `settings.py` - pydantic-settings config loader
-    - `utils/logging.py` - log configuration helpers
-  - `server.py`, `app.py`, `ingest.py` - thin wrappers for backward-compatible entrypoints
-- `tests/`
-  - `characterization/run_generate_characterization.py` - black-box generate test
-  - `fixtures/` - characterization fixtures and expected output
-  - `unit/` - fast unit tests for core modules
-- `templates/resume.tex` - Jinja2 LaTeX template with `<< >>` and `((% %))` delimiters
-- `output/` - generated artifacts (`<run_id>.pdf`, `<run_id>.tex`, `<run_id>_report.json`,
-  `my_experience.json`)
+- **Generate**: paste a JD and run the agent using saved defaults.
+- **Resume Editor**: CRUD personal info, skills, education, experiences/projects, and bullets; re-ingest Chroma.
+- **Settings**: edit app defaults for generation and ingest; saved to `config/user_settings.json`.
 
 ---
 
@@ -70,13 +53,10 @@ This repo supports two runtimes:
 
 - The SQL database is the source of truth (created on first launch).
 - The Resume Editor writes directly to the DB via CRUD endpoints.
-- Re-ingest always exports the DB to `data/my_experience.json`, then ingests Chroma.
+- Re-ingest exports the DB to `data/my_experience.json`, then ingests Chroma.
 - `data/my_experience.json` is an exported artifact for inspection/backups, not the primary store.
-- App settings are stored in `config/user_settings.json` and editable in the Settings page.
 
 ### Export format (`my_experience.json`)
-
-The export file uses the same schema as before:
 
 ```json
 { "id": "b01", "text_latex": "..." }
@@ -86,11 +66,6 @@ Notes:
 - Use `$|$` inside `role` to separate primary title from team/focus. The primary title is used to create a stable `job_id`.
 - Bullets are LaTeX-ready and are never rewritten by the system.
 - The template expects `personal_info`, `skills`, `education`, `experiences`, and `projects` to exist (use empty lists when needed).
-
-### Legacy JSON tools (not on the happy path)
-
-`script/convert_experience_json.py` still exists to normalize old JSON, but the app does not
-auto-import JSON on startup. Use the Resume Editor to populate the DB.
 
 ### `bullet_id` convention
 
@@ -102,53 +77,13 @@ Examples:
 - `exp:saturnai__ai_software_engineer:b03`
 - `proj:zapmail_ai_driven_email_automation_platform:b02`
 
----
+### Legacy JSON tools (optional)
 
-## Database-backed CRUD
-
-- CRUD endpoints are available at `/personal_info`, `/skills`, `/experiences`, `/projects`, and `/education`.
-- Use `POST /admin/ingest` to export the DB, rebuild Chroma, and refresh in-memory data.
-- Use `POST /admin/export` to regenerate `data/my_experience.json` without re-ingesting.
-
-## Database schema (SQLite/Postgres)
-
-Tables and relations (SQLAlchemy models in `src/agentic_resume_tailor/db/models.py`):
-
-- `personal_info` (single row)
-  - `id` (PK), `name`, `phone`, `email`, `linkedin_id`, `github_id`, `linkedin`, `github`
-- `skills` (single row)
-  - `id` (PK), `languages_frameworks`, `ai_ml`, `db_tools`
-- `education`
-  - `id` (PK), `school`, `dates`, `degree`, `location`, `sort_order`
-- `education_bullets`
-  - `id` (PK), `education_id` (FK → `education.id`), `text_latex`, `sort_order`
-- `experiences`
-  - `id` (PK), `job_id` (unique), `company`, `role`, `dates`, `location`, `sort_order`
-- `experience_bullets`
-  - `id` (PK), `experience_id` (FK → `experiences.id`), `local_id` (`b01`...), `text_latex`,
-    `sort_order`
-  - unique constraint: (`experience_id`, `local_id`)
-- `projects`
-  - `id` (PK), `project_id` (unique), `name`, `technologies`, `sort_order`
-- `project_bullets`
-  - `id` (PK), `project_id` (FK → `projects.id`), `local_id` (`b01`...), `text_latex`,
-    `sort_order`
-  - unique constraint: (`project_id`, `local_id`)
-
-Notes:
-- `job_id` and `project_id` are deterministic slugs; bullet `local_id` is stable and never derived from text.
-- Ordering is controlled by `sort_order`; deletes never renumber IDs.
-
-## Resume Editor (UI)
-
-- Open the Streamlit app and switch to **Resume Editor** in the sidebar.
-- Create, edit, and delete personal info, skills, education, experiences/projects, and bullets.
-- Click **Re-ingest ChromaDB** after edits so retrieval reflects the latest data.
-- Use **Settings** in the sidebar to adjust defaults used by **Generate**.
+`script/convert_experience_json.py` still exists to normalize old JSON, but the app does not auto-import JSON on startup.
 
 ---
 
-## Environment
+## Settings and environment
 
 Create a `.env` in the repo root (optional, for secrets only):
 
@@ -156,10 +91,10 @@ Create a `.env` in the repo root (optional, for secrets only):
 OPENAI_API_KEY=YOUR_OPENAI_API_KEY
 ```
 
-If you run locally, load `.env` with `python -m dotenv run -- <command>` or export variables in your shell.
-The app reads `OPENAI_API_KEY` from `.env` or the process environment.
+The app reads `OPENAI_API_KEY` from `.env` or the process environment. All other app settings live in
+`config/user_settings.json` and are edited via the Settings page.
 
-All app settings live in `config/user_settings.json`. Keys map to the Settings fields:
+Example settings:
 
 ```json
 {
@@ -196,17 +131,15 @@ All app settings live in `config/user_settings.json`. Keys map to the Settings f
 
 ---
 
-## Prerequisites
+## Run the app
+
+### Prerequisites
 
 - Docker, or Python 3.10+ with `pip`
 - Internet access for the initial embedding model download (cached afterwards)
 - Keep `data/*.json` and `.env` private (gitignored)
 
----
-
-## Quickstart (Docker Compose, recommended)
-
-1) Start API + UI:
+### Docker Compose (recommended)
 
 ```bash
 docker compose up --build
@@ -217,7 +150,7 @@ Open:
 - API health: `http://localhost:8000/health`
 - Streamlit UI: `http://localhost:8501`
 
-2) In the UI, open **Resume Editor**, create your profile, then click **Re-ingest ChromaDB**.
+Then open **Resume Editor**, create your profile, and click **Re-ingest ChromaDB**.
 
 Note: Compose uses `config/user_settings.docker.json`. Edit that file to change settings.
 
@@ -227,17 +160,15 @@ Stop:
 docker compose down
 ```
 
----
+### Docker (no Compose)
 
-## Docker (no Compose)
-
-### 0) Build the image
+Build:
 
 ```bash
 docker build -t resume-agent .
 ```
 
-### 1) Run the FastAPI backend (API)
+Run the API:
 
 ```bash
 docker run --rm -p 8000:8000 \
@@ -251,13 +182,7 @@ docker run --rm -p 8000:8000 \
   resume-agent python src/server.py
 ```
 
-Health check:
-
-```bash
-curl -sS http://localhost:8000/health
-```
-
-### 2) Run the Streamlit UI (separate container)
+Run the UI:
 
 ```bash
 docker run --rm -p 8501:8501 \
@@ -268,54 +193,20 @@ docker run --rm -p 8501:8501 \
 
 Open Streamlit: `http://localhost:8501`
 
-Then open **Resume Editor**, create your profile, and click **Re-ingest ChromaDB**.
-
-Note: set `api_url` in `config/user_settings.json` if the UI needs a non-default API URL.
-
----
-
-## Local run (Python)
-
-If you run outside Docker, update `config/user_settings.json` with local paths:
+### Local run (Python)
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Example settings are shown in the Environment section above.
+# Example settings are shown in the Settings section above.
 
 python src/server.py
 streamlit run src/app.py
 ```
 
-Then open **Resume Editor**, create your profile, and click **Re-ingest ChromaDB**.
-
 Note: Tectonic must be installed on your machine to render PDFs locally.
-
----
-
-## Development
-
-Format + lint:
-
-```bash
-ruff format .
-ruff check --fix .
-```
-
-Tests:
-
-```bash
-# characterization (black-box) test
-python tests/characterization/run_generate_characterization.py
-
-# update expected output if intentional behavior changes
-python tests/characterization/run_generate_characterization.py --update
-
-# unit tests
-python -m unittest discover -s tests/unit
-```
 
 ---
 
@@ -366,7 +257,76 @@ Artifacts are written under `output/` and exposed via:
 
 ---
 
-## Work flow
+## Database schema (SQLite/Postgres)
+
+Tables and relations (SQLAlchemy models in `src/agentic_resume_tailor/db/models.py`):
+
+- `personal_info` (single row)
+  - `id` (PK), `name`, `phone`, `email`, `linkedin_id`, `github_id`, `linkedin`, `github`
+- `skills` (single row)
+  - `id` (PK), `languages_frameworks`, `ai_ml`, `db_tools`
+- `education`
+  - `id` (PK), `school`, `dates`, `degree`, `location`, `sort_order`
+- `education_bullets`
+  - `id` (PK), `education_id` (FK -> `education.id`), `text_latex`, `sort_order`
+- `experiences`
+  - `id` (PK), `job_id` (unique), `company`, `role`, `dates`, `location`, `sort_order`
+- `experience_bullets`
+  - `id` (PK), `experience_id` (FK -> `experiences.id`), `local_id` (`b01`...), `text_latex`,
+    `sort_order`
+  - unique constraint: (`experience_id`, `local_id`)
+- `projects`
+  - `id` (PK), `project_id` (unique), `name`, `technologies`, `sort_order`
+- `project_bullets`
+  - `id` (PK), `project_id` (FK -> `projects.id`), `local_id` (`b01`...), `text_latex`,
+    `sort_order`
+  - unique constraint: (`project_id`, `local_id`)
+
+Notes:
+- `job_id` and `project_id` are deterministic slugs; bullet `local_id` is stable and never derived from text.
+- Ordering is controlled by `sort_order`; deletes never renumber IDs.
+
+---
+
+## Repo map
+
+- `data/`
+  - `raw_experience_data_example.json` - legacy JSON sample (not used by default)
+  - `my_experience.json` - JSON export artifact (written on saves and ingest)
+  - `processed/chroma_db/` - local ChromaDB store
+  - `processed/resume.db` - SQLite CRUD store (default)
+- `config/user_settings.json` - user-editable app settings (local defaults)
+- `config/user_settings.docker.json` - Docker-friendly settings (api_url points to `http://api:8000`)
+- `script/`
+  - `convert_experience_json.py` - normalize raw data and assign stable IDs
+  - `test_query.py` - manual retrieval/loop debug runner
+  - `test_render.py` - render a PDF from template using sample JSON
+- `config/`
+  - `canonicalization.json` - alias/canonical rules
+  - `families.json` - family taxonomy (generic -> satisfied_by)
+- `src/`
+  - `agentic_resume_tailor/` - src-layout package
+    - `api/server.py` - FastAPI backend (API-only, writes artifacts + report)
+    - `db/` - SQLAlchemy models + export/seed helpers for CRUD
+    - `ui/app.py` - Streamlit UI (calls backend, visualizes report, downloads PDF)
+    - `core/` - retrieval/selection/scoring pipeline
+    - `ingest.py` - upserts bullets into Chroma using deterministic `bullet_id`
+    - `jd_parser.py` - optional OpenAI JD parser (Target Profile v1)
+    - `core/jd_utils.py` - shared JD parsing + fallback query helpers
+    - `settings.py` - pydantic-settings config loader
+    - `utils/logging.py` - log configuration helpers
+  - `server.py`, `app.py`, `ingest.py` - thin wrappers for backward-compatible entrypoints
+- `tests/`
+  - `characterization/run_generate_characterization.py` - black-box generate test
+  - `fixtures/` - characterization fixtures and expected output
+  - `unit/` - fast unit tests for core modules
+- `templates/resume.tex` - Jinja2 LaTeX template with `<< >>` and `((% %))` delimiters
+- `output/` - generated artifacts (`<run_id>.pdf`, `<run_id>.tex`, `<run_id>_report.json`,
+  `my_experience.json`)
+
+---
+
+## Workflow diagram
 
 ```mermaid
 flowchart TD
@@ -410,12 +370,27 @@ flowchart TD
 
 ---
 
-## Notes and limitations
+## Development
 
-- JD parser requires `OPENAI_API_KEY`. If it fails or is disabled, the system falls back to local queries and skips keyword coverage scoring.
-- The agent never rewrites bullet text; it only selects and arranges existing bullets.
-- Retrieval quality depends heavily on query quality. The JD parser is designed to produce dense retrieval queries.
-- Re-ingesting deletes and rebuilds the Chroma collection; run it after CRUD changes or after a JSON import.
+Format + lint:
+
+```bash
+ruff format .
+ruff check --fix .
+```
+
+Tests:
+
+```bash
+# characterization (black-box) test
+python tests/characterization/run_generate_characterization.py
+
+# update expected output if intentional behavior changes
+python tests/characterization/run_generate_characterization.py --update
+
+# unit tests
+python -m unittest discover -s tests/unit
+```
 
 ---
 
