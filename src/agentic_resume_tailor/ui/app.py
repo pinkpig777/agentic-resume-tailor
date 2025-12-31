@@ -200,6 +200,13 @@ def render_resume_editor(api_url: str) -> None:
         with st.expander(title, expanded=True):
             st.caption(meta)
             st.caption(f"job_id: {job_id}")
+            if st.button("Delete experience", key=f"delete_exp_{job_id}"):
+                ok, _, err = api_request("DELETE", api_url, f"/experiences/{job_id}")
+                if ok:
+                    _set_editor_message("success", f"Deleted experience {job_id}.")
+                    st.rerun()
+                else:
+                    st.error(err)
 
             bullets = exp.get("bullets", []) or []
             if not bullets:
@@ -255,6 +262,13 @@ def render_resume_editor(api_url: str) -> None:
         title = f"{proj.get('name', '')} — {proj.get('technologies', '')}"
         with st.expander(title, expanded=True):
             st.caption(f"project_id: {project_id}")
+            if st.button("Delete project", key=f"delete_proj_{project_id}"):
+                ok, _, err = api_request("DELETE", api_url, f"/projects/{project_id}")
+                if ok:
+                    _set_editor_message("success", f"Deleted project {project_id}.")
+                    st.rerun()
+                else:
+                    st.error(err)
 
             bullets = proj.get("bullets", []) or []
             if not bullets:
