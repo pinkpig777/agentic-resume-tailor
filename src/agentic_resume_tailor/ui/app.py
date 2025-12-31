@@ -41,6 +41,191 @@ def get_health_cached(api_base: str, ttl_s: float = 2.0) -> Tuple[bool, Any]:
     )
 
 
+def api_request(
+    method: str, api_base: str, path: str, timeout_s: float = 10.0, **kwargs: Any
+) -> Tuple[bool, Any, str]:
+    url = api_base.rstrip("/") + path
+    try:
+        resp = requests.request(method, url, timeout=timeout_s, **kwargs)
+    except Exception as exc:
+        return False, None, str(exc)
+
+    if resp.status_code >= 400:
+        return False, None, f"HTTP {resp.status_code}: {resp.text.strip()}"
+
+    if resp.text:
+        try:
+            return True, resp.json(), ""
+        except Exception:
+            return True, resp.text, ""
+    return True, None, ""
+
+
+def _set_editor_message(level: str, text: str) -> None:
+    st.session_state["editor_message"] = {"level": level, "text": text}
+
+
+def _show_editor_message() -> None:
+    msg = st.session_state.pop("editor_message", None)
+    if not msg:
+        return
+    level = msg.get("level", "info")
+    text = msg.get("text", "")
+    if level == "success":
+        st.success(text)
+    elif level == "error":
+        st.error(text)
+    else:
+        st.info(text)
+
+
+def _render_bullet_controls(
+    api_url: str, section: str, parent_id: str, bullet: dict
+) -> None:
+    bullet_id = bullet.get("id", "")
+    text = bullet.get("text_latex", "")
+    edit_key = f"edit_{section}_{parent_id}_{bullet_id}"
+    text_key = f"text_{section}_{parent_id}_{bullet_id}"
+
+    col_text, col_edit, col_del = st.columns([8, 1, 1])
+    col_text.write(f"`{bullet_id}` {text}")
+    if col_edit.button("Edit", key=f"edit_btn_{edit_key}"):
+        st.session_state[edit_key] = not st.session_state.get(edit_key, False)
+    if col_del.button("Delete", key=f"del_btn_{edit_key}"):
+        ok, _, err = api_request(
+            "DELETE", api_url, f"/{section}/{parent_id}/bullets/{bullet_id}"
+        )
+        if ok:
+            _set_editor_message("success", f"Deleted {section} bullet {bullet_id}.")
+            st.rerun()
+        else:
+            st.error(err)
+
+    if st.session_state.get(edit_key, False):
+        new_text = st.text_area("Bullet text", value=text, key=text_key, height=90)
+        if st.button("Save", key=f"save_{edit_key}"):
+            if not new_text.strip():
+                st.error("Bullet text cannot be empty.")
+            else:
+                ok, _, err = api_request(
+                    "PUT",
+                    api_url,
+                    f"/{section}/{parent_id}/bullets/{bullet_id}",
+                    json={"text_latex": new_text},
+                )
+                if ok:
+                    st.session_state[edit_key] = False
+                    _set_editor_message("success", f"Updated {section} bullet {bullet_id}.")
+                    st.rerun()
+                else:
+                    st.error(err)
+
+
+def render_resume_editor(api_url: str) -> None:
+    st.header("Resume Editor")
+
+    _show_editor_message()
+
+    ingest_running = st.session_state.get("ingest_running", False)
+    st.warning("Re-ingesting may take ~10–60s the first time.")
+    if st.button(
+        "Re-ingest ChromaDB",
+        type="primary",
+        use_container_width=True,
+        disabled=ingest_running,
+    ):
+        st.session_state["ingest_running"] = True
+        status = st.empty()
+        with st.spinner("Re-ingesting ChromaDB..."):
+            ok, data, err = api_request("POST", api_url, "/admin/ingest", timeout_s=1200)
+        st.session_state["ingest_running"] = False
+
+        if ok and isinstance(data, dict):
+            status.success(
+                f"Ingested {data.get('count', 0)} bullets in {data.get('elapsed_s', 0)}s."
+            )
+        else:
+            status.error(err or "Ingest failed.")
+
+    st.divider()
+
+    ok, experiences, err = api_request("GET", api_url, "/experiences", timeout_s=20)
+    if not ok:
+        st.error(f"Failed to load experiences: {err}")
+        return
+
+    ok, projects, err = api_request("GET", api_url, "/projects", timeout_s=20)
+    if not ok:
+        st.error(f"Failed to load projects: {err}")
+        return
+
+    st.subheader("Work Experience")
+    for exp in experiences or []:
+        job_id = exp.get("job_id", "")
+        title = f"{exp.get('company', '')} — {exp.get('role', '')}"
+        meta = f"{exp.get('dates', '')} · {exp.get('location', '')}"
+        with st.expander(title, expanded=True):
+            st.caption(meta)
+            st.caption(f"job_id: {job_id}")
+
+            bullets = exp.get("bullets", []) or []
+            if not bullets:
+                st.info("No bullets yet.")
+            for bullet in bullets:
+                _render_bullet_controls(api_url, "experiences", job_id, bullet)
+
+            new_key = f"new_exp_{job_id}"
+            new_text = st.text_area("New bullet", key=new_key, height=90)
+            if st.button("Add bullet", key=f"add_exp_{job_id}"):
+                if not new_text.strip():
+                    st.error("Bullet text cannot be empty.")
+                else:
+                    ok, _, err = api_request(
+                        "POST",
+                        api_url,
+                        f"/experiences/{job_id}/bullets",
+                        json={"text_latex": new_text},
+                    )
+                    if ok:
+                        st.session_state[new_key] = ""
+                        _set_editor_message("success", f"Added bullet to {job_id}.")
+                        st.rerun()
+                    else:
+                        st.error(err)
+
+    st.subheader("Projects")
+    for proj in projects or []:
+        project_id = proj.get("project_id", "")
+        title = f"{proj.get('name', '')} — {proj.get('technologies', '')}"
+        with st.expander(title, expanded=True):
+            st.caption(f"project_id: {project_id}")
+
+            bullets = proj.get("bullets", []) or []
+            if not bullets:
+                st.info("No bullets yet.")
+            for bullet in bullets:
+                _render_bullet_controls(api_url, "projects", project_id, bullet)
+
+            new_key = f"new_proj_{project_id}"
+            new_text = st.text_area("New bullet", key=new_key, height=90)
+            if st.button("Add bullet", key=f"add_proj_{project_id}"):
+                if not new_text.strip():
+                    st.error("Bullet text cannot be empty.")
+                else:
+                    ok, _, err = api_request(
+                        "POST",
+                        api_url,
+                        f"/projects/{project_id}/bullets",
+                        json={"text_latex": new_text},
+                    )
+                    if ok:
+                        st.session_state[new_key] = ""
+                        _set_editor_message("success", f"Added bullet to {project_id}.")
+                        st.rerun()
+                    else:
+                        st.error(err)
+
+
 def main() -> None:
     settings = get_settings()
     api_url = settings.api_url.rstrip("/")
@@ -72,6 +257,15 @@ def main() -> None:
         st.sidebar.caption(f"Error: {info}")
 
     st.sidebar.divider()
+
+    st.sidebar.subheader("Navigation")
+    page = st.sidebar.radio("Page", ["Tailor", "Resume Editor"])
+
+    st.sidebar.divider()
+
+    if page == "Resume Editor":
+        render_resume_editor(api_url)
+        return
 
     # ----------------------------
     # Settings
