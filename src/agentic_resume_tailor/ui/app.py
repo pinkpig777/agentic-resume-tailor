@@ -138,12 +138,19 @@ def render_resume_editor(api_url: str) -> None:
         status = st.empty()
         with st.spinner("Re-ingesting ChromaDB..."):
             ok, data, err = api_request("POST", api_url, "/admin/ingest", timeout_s=1200)
+            if not ok and "HTTP 404" in err:
+                ok, data, err = api_request(
+                    "POST", api_url, "/admin/export?reingest=1", timeout_s=1200
+                )
         st.session_state["ingest_running"] = False
 
         if ok and isinstance(data, dict):
-            status.success(
-                f"Ingested {data.get('count', 0)} bullets in {data.get('elapsed_s', 0)}s."
-            )
+            if "count" in data:
+                status.success(
+                    f"Ingested {data.get('count', 0)} bullets in {data.get('elapsed_s', 0)}s."
+                )
+            else:
+                status.success("Re-ingest completed.")
         else:
             status.error(err or "Ingest failed.")
 
