@@ -219,6 +219,10 @@ def _reload_collection() -> None:
     COLLECTION, EMB_FN = _load_collection()
 
 
+def _export_latest(db: Session) -> None:
+    write_resume_json(db, EXPORT_FILE)
+
+
 def _next_sort_order_for(query) -> int:
     max_order = query.scalar()
     return next_sort_order([max_order])
@@ -440,6 +444,7 @@ def update_personal_info(payload: PersonalInfoUpdate, db: Session = Depends(get_
         if value is not None:
             setattr(info, field, value)
     db.commit()
+    _export_latest(db)
     db.refresh(info)
     return _personal_info_to_dict(info)
 
@@ -461,6 +466,7 @@ def update_skills(payload: SkillsUpdate, db: Session = Depends(get_db)):
         if value is not None:
             setattr(skills, field, value)
     db.commit()
+    _export_latest(db)
     db.refresh(skills)
     return _skills_to_dict(skills)
 
@@ -498,6 +504,7 @@ def create_education(payload: EducationCreate, db: Session = Depends(get_db)):
         db.add(EducationBullet(education_id=edu.id, text_latex=bullet, sort_order=idx))
 
     db.commit()
+    _export_latest(db)
     edu = (
         db.query(Education)
         .options(selectinload(Education.bullets))
@@ -531,6 +538,7 @@ def update_education(education_id: int, payload: EducationUpdate, db: Session = 
             db.add(EducationBullet(education_id=edu.id, text_latex=bullet, sort_order=idx))
 
     db.commit()
+    _export_latest(db)
     edu = (
         db.query(Education)
         .options(selectinload(Education.bullets))
@@ -547,6 +555,7 @@ def delete_education(education_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Education entry not found")
     db.delete(edu)
     db.commit()
+    _export_latest(db)
     return {"status": "deleted", "id": education_id}
 
 
@@ -611,6 +620,7 @@ def create_experience(payload: ExperienceCreate, db: Session = Depends(get_db)):
         )
 
     db.commit()
+    _export_latest(db)
     exp = (
         db.query(Experience)
         .options(selectinload(Experience.bullets))
@@ -649,6 +659,7 @@ def update_experience(job_id: str, payload: ExperienceUpdate, db: Session = Depe
         exp.job_id = new_job_id
 
     db.commit()
+    _export_latest(db)
     exp = (
         db.query(Experience)
         .options(selectinload(Experience.bullets))
@@ -665,6 +676,7 @@ def delete_experience(job_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Experience not found")
     db.delete(exp)
     db.commit()
+    _export_latest(db)
     return {"status": "deleted", "job_id": job_id}
 
 
@@ -715,6 +727,7 @@ def create_experience_bullet(job_id: str, payload: BulletCreate, db: Session = D
     )
     db.add(bullet)
     db.commit()
+    _export_latest(db)
     return {"id": local_id, "text_latex": bullet.text_latex, "sort_order": bullet.sort_order}
 
 
@@ -737,6 +750,7 @@ def update_experience_bullet(
         bullet.sort_order = payload.sort_order
 
     db.commit()
+    _export_latest(db)
     return {"id": bullet.local_id, "text_latex": bullet.text_latex, "sort_order": bullet.sort_order}
 
 
@@ -752,6 +766,7 @@ def delete_experience_bullet(job_id: str, local_id: str, db: Session = Depends(g
         raise HTTPException(status_code=404, detail="Experience bullet not found")
     db.delete(bullet)
     db.commit()
+    _export_latest(db)
     return {"status": "deleted", "id": local_id}
 
 
@@ -814,6 +829,7 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
         )
 
     db.commit()
+    _export_latest(db)
     proj = (
         db.query(Project)
         .options(selectinload(Project.bullets))
@@ -853,6 +869,7 @@ def update_project(project_id: str, payload: ProjectUpdate, db: Session = Depend
             proj.project_id = ensure_unique_slug(new_base, existing_ids)
 
     db.commit()
+    _export_latest(db)
     proj = (
         db.query(Project)
         .options(selectinload(Project.bullets))
@@ -869,6 +886,7 @@ def delete_project(project_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Project not found")
     db.delete(proj)
     db.commit()
+    _export_latest(db)
     return {"status": "deleted", "project_id": project_id}
 
 
@@ -917,6 +935,7 @@ def create_project_bullet(project_id: str, payload: BulletCreate, db: Session = 
     )
     db.add(bullet)
     db.commit()
+    _export_latest(db)
     return {"id": local_id, "text_latex": bullet.text_latex, "sort_order": bullet.sort_order}
 
 
@@ -939,6 +958,7 @@ def update_project_bullet(
         bullet.sort_order = payload.sort_order
 
     db.commit()
+    _export_latest(db)
     return {"id": bullet.local_id, "text_latex": bullet.text_latex, "sort_order": bullet.sort_order}
 
 
@@ -954,6 +974,7 @@ def delete_project_bullet(project_id: str, local_id: str, db: Session = Depends(
         raise HTTPException(status_code=404, detail="Project bullet not found")
     db.delete(bullet)
     db.commit()
+    _export_latest(db)
     return {"status": "deleted", "id": local_id}
 
 
