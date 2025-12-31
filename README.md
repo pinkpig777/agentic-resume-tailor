@@ -24,6 +24,7 @@ This repo supports two runtimes:
 - Report: writes `output/<run_id>_report.json` with queries used, selected IDs, missing keywords, scores, and iteration history.
 - Resume Editor: CRUD experiences, projects, and bullets with one-click re-ingest to Chroma.
 - Settings page: edit app defaults (generation + ingest) saved to `config/user_settings.json`.
+- Workflow: edit your profile first, then ask the agent to generate a tailored resume from your data.
 
 ---
 
