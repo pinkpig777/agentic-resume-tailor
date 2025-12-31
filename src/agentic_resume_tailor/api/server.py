@@ -39,7 +39,7 @@ from agentic_resume_tailor.db.utils import (
     next_bullet_id,
     next_sort_order,
 )
-from agentic_resume_tailor.user_config import load_user_config, save_user_config
+from agentic_resume_tailor.user_config import get_user_config_path, load_user_config, save_user_config
 from agentic_resume_tailor.settings import get_settings
 from agentic_resume_tailor.utils.logging import configure_logging
 
@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 INGEST_LOCK = threading.Lock()
-USER_CONFIG = load_user_config(settings.user_config_path)
+USER_CONFIG = load_user_config()
 
 # -----------------------------
 # Configuration (env-driven)
@@ -460,7 +460,7 @@ def get_user_settings():
             "auto_reingest_on_save", settings.auto_reingest_on_save
         ),
         "export_file": _get_user_setting("export_file", settings.export_file),
-        "config_path": settings.user_config_path,
+        "config_path": get_user_config_path(),
     }
 
 
@@ -476,7 +476,7 @@ def update_user_settings(payload: UserSettingsUpdate):
         return get_user_settings()
 
     global USER_CONFIG, EXPORT_FILE
-    USER_CONFIG = save_user_config(settings.user_config_path, {**USER_CONFIG, **updates})
+    USER_CONFIG = save_user_config(None, {**USER_CONFIG, **updates})
     if "export_file" in USER_CONFIG:
         EXPORT_FILE = USER_CONFIG["export_file"]
     return get_user_settings()
