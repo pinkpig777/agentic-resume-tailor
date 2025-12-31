@@ -200,13 +200,55 @@ def render_resume_editor(api_url: str) -> None:
         with st.expander(title, expanded=True):
             st.caption(meta)
             st.caption(f"job_id: {job_id}")
-            if st.button("Delete experience", key=f"delete_exp_{job_id}"):
+            col_edit, col_delete = st.columns([1, 1])
+            edit_key = f"edit_exp_{job_id}"
+            if col_edit.button("Edit experience", key=f"toggle_{edit_key}"):
+                st.session_state[edit_key] = not st.session_state.get(edit_key, False)
+            if col_delete.button("Delete experience", key=f"delete_exp_{job_id}"):
                 ok, _, err = api_request("DELETE", api_url, f"/experiences/{job_id}")
                 if ok:
                     _set_editor_message("success", f"Deleted experience {job_id}.")
                     st.rerun()
                 else:
                     st.error(err)
+
+            if st.session_state.get(edit_key, False):
+                with st.form(f"edit_exp_form_{job_id}"):
+                    company = st.text_input(
+                        "Company", value=exp.get("company", ""), key=f"{edit_key}_company"
+                    )
+                    role = st.text_input(
+                        "Role", value=exp.get("role", ""), key=f"{edit_key}_role"
+                    )
+                    dates = st.text_input(
+                        "Dates", value=exp.get("dates", ""), key=f"{edit_key}_dates"
+                    )
+                    location = st.text_input(
+                        "Location", value=exp.get("location", ""), key=f"{edit_key}_location"
+                    )
+                    submitted = st.form_submit_button("Save experience")
+
+                if submitted:
+                    if not company.strip() or not role.strip():
+                        st.error("Company and role are required.")
+                    else:
+                        ok, _, err = api_request(
+                            "PUT",
+                            api_url,
+                            f"/experiences/{job_id}",
+                            json={
+                                "company": company,
+                                "role": role,
+                                "dates": dates,
+                                "location": location,
+                            },
+                        )
+                        if ok:
+                            st.session_state[edit_key] = False
+                            _set_editor_message("success", f"Updated experience {job_id}.")
+                            st.rerun()
+                        else:
+                            st.error(err)
 
             bullets = exp.get("bullets", []) or []
             if not bullets:
@@ -262,13 +304,46 @@ def render_resume_editor(api_url: str) -> None:
         title = f"{proj.get('name', '')} — {proj.get('technologies', '')}"
         with st.expander(title, expanded=True):
             st.caption(f"project_id: {project_id}")
-            if st.button("Delete project", key=f"delete_proj_{project_id}"):
+            col_edit, col_delete = st.columns([1, 1])
+            edit_key = f"edit_proj_{project_id}"
+            if col_edit.button("Edit project", key=f"toggle_{edit_key}"):
+                st.session_state[edit_key] = not st.session_state.get(edit_key, False)
+            if col_delete.button("Delete project", key=f"delete_proj_{project_id}"):
                 ok, _, err = api_request("DELETE", api_url, f"/projects/{project_id}")
                 if ok:
                     _set_editor_message("success", f"Deleted project {project_id}.")
                     st.rerun()
                 else:
                     st.error(err)
+
+            if st.session_state.get(edit_key, False):
+                with st.form(f"edit_proj_form_{project_id}"):
+                    name = st.text_input(
+                        "Project name", value=proj.get("name", ""), key=f"{edit_key}_name"
+                    )
+                    technologies = st.text_input(
+                        "Technologies",
+                        value=proj.get("technologies", ""),
+                        key=f"{edit_key}_tech",
+                    )
+                    submitted = st.form_submit_button("Save project")
+
+                if submitted:
+                    if not name.strip():
+                        st.error("Project name is required.")
+                    else:
+                        ok, _, err = api_request(
+                            "PUT",
+                            api_url,
+                            f"/projects/{project_id}",
+                            json={"name": name, "technologies": technologies},
+                        )
+                        if ok:
+                            st.session_state[edit_key] = False
+                            _set_editor_message("success", f"Updated project {project_id}.")
+                            st.rerun()
+                        else:
+                            st.error(err)
 
             bullets = proj.get("bullets", []) or []
             if not bullets:
