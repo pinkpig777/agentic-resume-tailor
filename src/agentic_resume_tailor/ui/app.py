@@ -1,3 +1,4 @@
+import json
 import time
 from typing import Any, Tuple
 
@@ -159,6 +160,23 @@ def render_resume_editor(api_url: str) -> None:
             st.error(err)
 
     st.caption(f"Settings file: {app_settings.get('config_path', '')}")
+
+    with st.expander("Advanced settings (JSON)"):
+        raw_json = json.dumps(app_settings, indent=2)
+        edited = st.text_area("Edit JSON settings", value=raw_json, height=260)
+        if st.button("Save JSON settings"):
+            try:
+                payload = json.loads(edited)
+            except json.JSONDecodeError as exc:
+                st.error(f"Invalid JSON: {exc}")
+            else:
+                payload.pop("config_path", None)
+                ok, _, err = api_request("PUT", api_url, "/settings", json=payload)
+                if ok:
+                    _set_editor_message("success", "Saved JSON settings.")
+                    st.rerun()
+                else:
+                    st.error(err)
 
     ingest_running = st.session_state.get("ingest_running", False)
     st.warning("Re-ingesting may take ~10–60s the first time.")
@@ -832,7 +850,8 @@ def main() -> None:
 
     st.markdown("---")
     st.caption(
-        "Tip: run API on :8000 and Streamlit on :8501. Set ART_API_URL if your API runs elsewhere."
+        "Tip: run API on :8000 and Streamlit on :8501. Update api_url in "
+        "config/user_settings.json if your API runs elsewhere."
     )
 
 
