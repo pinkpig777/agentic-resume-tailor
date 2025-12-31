@@ -24,24 +24,22 @@ class ScoreResult:
 
 
 def clamp01(x: float) -> float:
+    """Clamp a float value to the [0, 1] range."""
     return max(0.0, min(1.0, x))
 
 
 def _mean(xs: List[float]) -> float:
+    """Compute the mean of a list of floats."""
     return sum(xs) / len(xs) if xs else 0.0
 
 
 def _candidate_weight(c: Any) -> float:
+    """Return the selection weight for a candidate."""
     return float(getattr(c, "effective_total_weighted", getattr(c, "total_weighted", 0.0)) or 0.0)
 
 
 def compute_retrieval_norm(selected_candidates: List[Any], all_candidates: List[Any]) -> float:
-    """
-    Normalize retrieval strength:
-    - numerator: mean(selected_candidates.total_weighted)
-    - denominator: mean(top-N all_candidates.total_weighted) where N=len(selected_candidates)
-    This is the right "ceiling" normalization for post-selection scoring.
-    """
+    """Compute a normalized retrieval score."""
     if not selected_candidates or not all_candidates:
         return 0.0
 
@@ -63,6 +61,7 @@ def compute_retrieval_norm(selected_candidates: List[Any], all_candidates: List[
 
 
 def _canonical_list(profile_keywords: Dict[str, List[Dict[str, str]]], key: str) -> List[str]:
+    """Extract canonical keywords for a category."""
     items = profile_keywords.get(key, []) or []
     out: List[str] = []
     for k in items:
@@ -81,10 +80,7 @@ def _canonical_list(profile_keywords: Dict[str, List[Dict[str, str]]], key: str)
 
 
 def _best_tier_per_keyword(keywords: List[str], evidences) -> Tuple[float, List[str]]:
-    """
-    For each keyword, take best tier score across evidences.
-    Returns (avg_score, missing_keywords)
-    """
+    """Compute coverage tier and missing keywords."""
     if not keywords:
         return 1.0, []
 
@@ -110,10 +106,7 @@ def compute_coverage_norm(
     nice_evs,
     must_weight: float = 0.8,
 ) -> Tuple[float, List[str], List[str]]:
-    """
-    Coverage is tier-weighted (exact > family > substring).
-    must_weight controls must vs nice balance.
-    """
+    """Compute a normalized coverage score."""
     must_weight = clamp01(float(must_weight))
     nice_weight = 1.0 - must_weight
 
@@ -139,15 +132,7 @@ def score(
     alpha: float = 0.7,
     must_weight: float = 0.8,
 ) -> ScoreResult:
-    """
-    Hybrid score = alpha * retrieval_norm + (1-alpha) * coverage
-
-    We compute two coverages:
-      - bullets_only: evidence only from selected bullets (proof)
-      - all: evidence from retrieved bullets + skills pseudo-bullet (user reassurance)
-
-    Final score uses bullets_only coverage by default (forces evidence in bullets).
-    """
+    """Compute the hybrid score for a selection."""
     alpha = clamp01(float(alpha))
     must_weight = clamp01(float(must_weight))
 

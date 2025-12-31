@@ -41,14 +41,17 @@ class Candidate:
 
 
 def _l2norm(x: np.ndarray) -> float:
+    """Return the L2 norm with a small epsilon for stability."""
     return float(np.linalg.norm(x) + 1e-12)
 
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    """Compute cosine similarity between two vectors."""
     return float(np.dot(a, b) / (_l2norm(a) * _l2norm(b)))
 
 
 def normalize_query_text(q: str) -> str:
+    """Normalize query text for embeddings."""
     # Keep it simple and embedding-friendly (no boolean logic).
     q = (q or "").strip()
     q = " ".join(q.split())
@@ -68,6 +71,7 @@ _QUANT_PATTERNS = [
 
 
 def _compute_quant_bonus(text_latex: str) -> float:
+    """Compute a small bonus for quantified bullets."""
     plain = latex_to_plain_for_matching(text_latex or "")
     if not plain:
         return 0.0
@@ -79,12 +83,7 @@ def _compute_quant_bonus(text_latex: str) -> float:
 
 
 def _build_query_items(jd_parser_result: Any) -> List[QueryItem]:
-    """
-    Accepts multiple shapes:
-    1) TargetProfileV1: profile.retrieval_plan.experience_queries = [{query, purpose, boost_keywords, weight}, ...]
-    2) JobRequirements-like: result.experience_queries = [str, ...]
-    3) plain list[str]
-    """
+    """Build QueryItem objects from a JD parser result."""
     # Case 3: list[str]
     if isinstance(jd_parser_result, list) and all(isinstance(x, str) for x in jd_parser_result):
         return [QueryItem(query=normalize_query_text(q)) for q in jd_parser_result if q.strip()]
@@ -130,18 +129,7 @@ def multi_query_retrieve(
     per_query_k: int = 10,
     final_k: int = 30,
 ) -> List[Candidate]:
-    """
-    Node 2 retrieval:
-    - runs multi-query over Chroma
-    - merges by bullet_id (Chroma record id)
-    - reranks using cosine similarity computed explicitly from embeddings
-    - returns ranked candidates + provenance (best query, hits)
-
-    Assumptions:
-    - Chroma record id is your deterministic bullet_id
-    - metadata contains company OR project name
-    - text is either meta['text_latex'] or doc
-    """
+    """Retrieve and rank candidates with multi-query search."""
     query_items = _build_query_items(jd_parser_result)
 
     merged: Dict[str, Dict[str, Any]] = {}

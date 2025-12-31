@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 def _load_json(path: str, fallback: Dict[str, Any]) -> Dict[str, Any]:
+    """Load a JSON file with fallback defaults."""
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -60,6 +61,7 @@ _FAMILY_CONFIG = _load_json(FAMILY_PATH, DEFAULT_FAMILY_CONFIG)
 
 
 def _base_normalize(text: str, keep_chars: str, collapse_ws: bool = True) -> str:
+    """Normalize text for canonicalization."""
     s = (text or "").lower().strip()
     if collapse_ws:
         s = re.sub(r"\s+", " ", s)
@@ -72,6 +74,7 @@ def _base_normalize(text: str, keep_chars: str, collapse_ws: bool = True) -> str
 
 
 def _build_variant_to_canon_map(canon_cfg: Dict[str, Any]) -> Dict[str, str]:
+    """Build a variant-to-canonical mapping."""
     opts = canon_cfg.get("options", {})
     keep_chars = str(opts.get("keep_chars", "+#./-"))
     collapse_ws = bool(opts.get("collapse_whitespace", True))
@@ -100,6 +103,7 @@ _VARIANT_TO_CANON = _build_variant_to_canon_map(_CANON_CONFIG)
 
 
 def canonicalize_term(term: str) -> str:
+    """Canonicalize a single term for matching."""
     opts = _CANON_CONFIG.get("options", {})
     keep_chars = str(opts.get("keep_chars", "+#./-"))
     collapse_ws = bool(opts.get("collapse_whitespace", True))
@@ -121,10 +125,7 @@ def canonicalize_term(term: str) -> str:
 
 
 def canonicalize_text(text: str) -> str:
-    """
-    Normalize text and also replace known variants -> canonical.
-    This is what makes matching work without hardcoding.
-    """
+    """Canonicalize free text for matching."""
     opts = _CANON_CONFIG.get("options", {})
     keep_chars = str(opts.get("keep_chars", "+#./-"))
     collapse_ws = bool(opts.get("collapse_whitespace", True))
@@ -156,10 +157,7 @@ _BRACES = re.compile(r"[{}]")
 
 
 def latex_to_plain_for_matching(latex: str) -> str:
-    """
-    Remove common LaTeX markup while keeping human-readable content.
-    ONLY used for matching / coverage checks.
-    """
+    """Strip LaTeX markup for matching."""
     s = latex or ""
 
     s = (
@@ -193,6 +191,7 @@ def latex_to_plain_for_matching(latex: str) -> str:
 
 
 def load_families() -> Dict[str, List[str]]:
+    """Load family mappings for keyword matching."""
     fam_cfg = _FAMILY_CONFIG
     if fam_cfg.get("schema_version") != "families_v1":
         return {}
@@ -231,12 +230,14 @@ class MatchEvidence:
 
 
 def _safe_word_boundary_regex(phrase: str) -> re.Pattern:
+    """Build a word-boundary regex for a phrase."""
     parts = [re.escape(p) for p in phrase.split()]
     pat = r"(?<![a-z0-9])" + r"\s+".join(parts) + r"(?![a-z0-9])"
     return re.compile(pat)
 
 
 def _is_safe_substring_token(t: str) -> bool:
+    """Check if a token is safe for substring matching."""
     if len(t) < 6:
         return False
     return bool(re.fullmatch(r"[a-z0-9]+", t))
@@ -246,10 +247,7 @@ def match_keywords_against_bullets(
     keywords: List[Dict[str, Any]],
     bullets: List[Dict[str, Any]],
 ) -> List[MatchEvidence]:
-    """
-    keywords: list of {raw, canonical, ...} (from TargetProfileV1 lists)
-    bullets: list of {bullet_id, text_latex, meta}
-    """
+    """Match profile keywords against bullet text."""
     bullet_text: Dict[str, str] = {}
     for b in bullets:
         bid = b["bullet_id"]
@@ -323,6 +321,7 @@ def match_keywords_against_bullets(
 
 
 def extract_profile_keywords(profile: Any) -> Dict[str, List[Dict[str, Any]]]:
+    """Extract must-have and nice-to-have lists."""
     if hasattr(profile, "model_dump"):
         profile = profile.model_dump()
 
@@ -343,13 +342,7 @@ def build_match_corpus(
     resume_data: Dict[str, Any],
     selected_bullets: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """
-    Build a unified matching corpus so keywords can be satisfied by:
-    - Skills section text (pseudo-bullets)
-    - Selected experience/project bullets
-
-    This avoids false "missing" when the keyword exists in Skills.
-    """
+    """Build a matching corpus from skills and bullets."""
     corpus: List[Dict[str, Any]] = []
 
     skills = (resume_data or {}).get("skills", {}) or {}

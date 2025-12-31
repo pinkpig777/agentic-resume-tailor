@@ -12,6 +12,7 @@ class SelectionDecision:
 def select_topk(
     candidates: List[Any], max_bullets: int = 16
 ) -> Tuple[List[str], List[SelectionDecision]]:
+    """Select top bullet ids from ranked candidates."""
     selected: List[str] = []
     seen = set()
     decisions: List[SelectionDecision] = []
