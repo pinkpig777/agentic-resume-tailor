@@ -18,6 +18,10 @@ class Settings(BaseSettings):
         default="data/my_experience.json",
         validation_alias=AliasChoices("ART_EXPORT_FILE", "ART_RESUME_EXPORT_FILE"),
     )
+    user_config_path: str = Field(
+        default="config/user_settings.json",
+        validation_alias=AliasChoices("ART_USER_CONFIG", "ART_SETTINGS_FILE"),
+    )
     auto_reingest_on_save: bool = Field(
         default=False, validation_alias=AliasChoices("ART_AUTO_REINGEST", "ART_AUTO_INGEST_ON_SAVE")
     )

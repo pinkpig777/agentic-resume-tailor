@@ -39,6 +39,7 @@ from agentic_resume_tailor.db.utils import (
     next_bullet_id,
     next_sort_order,
 )
+from agentic_resume_tailor.user_config import load_user_config, save_user_config
 from agentic_resume_tailor.settings import get_settings
 from agentic_resume_tailor.utils.logging import configure_logging
 
@@ -47,12 +48,13 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 INGEST_LOCK = threading.Lock()
+USER_CONFIG = load_user_config(settings.user_config_path)
 
 # -----------------------------
 # Configuration (env-driven)
 # -----------------------------
 DB_PATH = settings.db_path
-EXPORT_FILE = settings.export_file
+EXPORT_FILE = USER_CONFIG.get("export_file", settings.export_file)
 TEMPLATE_DIR = settings.template_dir
 OUTPUT_DIR = settings.output_dir
 SKIP_PDF_RENDER = settings.skip_pdf
@@ -191,6 +193,11 @@ class EducationUpdate(BaseModel):
     sort_order: int | None = None
 
 
+class UserSettingsUpdate(BaseModel):
+    auto_reingest_on_save: bool | None = None
+    export_file: str | None = None
+
+
 def _ensure_dirs() -> None:
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -223,8 +230,12 @@ def _export_latest(db: Session) -> None:
     write_resume_json(db, EXPORT_FILE)
 
 
+def _get_user_setting(key: str, default: Any) -> Any:
+    return USER_CONFIG.get(key, default)
+
+
 def _maybe_auto_reingest() -> None:
-    if not settings.auto_reingest_on_save:
+    if not _get_user_setting("auto_reingest_on_save", settings.auto_reingest_on_save):
         return
     if not INGEST_LOCK.acquire(blocking=False):
         logger.info("Auto re-ingest skipped; ingest already running.")
@@ -440,6 +451,35 @@ logger.info("API Server ready.")
 @app.get("/health")
 def health():
     return {"status": "ok", "collection": COLLECTION_NAME, "embed_model": EMBED_MODEL}
+
+
+@app.get("/settings")
+def get_user_settings():
+    return {
+        "auto_reingest_on_save": _get_user_setting(
+            "auto_reingest_on_save", settings.auto_reingest_on_save
+        ),
+        "export_file": _get_user_setting("export_file", settings.export_file),
+        "config_path": settings.user_config_path,
+    }
+
+
+@app.put("/settings")
+def update_user_settings(payload: UserSettingsUpdate):
+    updates: Dict[str, Any] = {}
+    if payload.auto_reingest_on_save is not None:
+        updates["auto_reingest_on_save"] = payload.auto_reingest_on_save
+    if payload.export_file is not None:
+        updates["export_file"] = payload.export_file
+
+    if not updates:
+        return get_user_settings()
+
+    global USER_CONFIG, EXPORT_FILE
+    USER_CONFIG = save_user_config(settings.user_config_path, {**USER_CONFIG, **updates})
+    if "export_file" in USER_CONFIG:
+        EXPORT_FILE = USER_CONFIG["export_file"]
+    return get_user_settings()
 
 
 @app.get("/personal_info")
