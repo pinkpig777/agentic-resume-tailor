@@ -193,11 +193,6 @@ class EducationUpdate(BaseModel):
     sort_order: int | None = None
 
 
-class UserSettingsUpdate(BaseModel):
-    auto_reingest_on_save: bool | None = None
-    export_file: str | None = None
-
-
 def _ensure_dirs() -> None:
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -455,23 +450,17 @@ def health():
 
 @app.get("/settings")
 def get_user_settings():
-    return {
-        "auto_reingest_on_save": _get_user_setting(
-            "auto_reingest_on_save", settings.auto_reingest_on_save
-        ),
-        "export_file": _get_user_setting("export_file", settings.export_file),
-        "config_path": get_user_config_path(),
-    }
+    base = settings.model_dump()
+    base.pop("openai_api_key", None)
+    merged = {**base, **USER_CONFIG}
+    merged["config_path"] = get_user_config_path()
+    return merged
 
 
 @app.put("/settings")
-def update_user_settings(payload: UserSettingsUpdate):
-    updates: Dict[str, Any] = {}
-    if payload.auto_reingest_on_save is not None:
-        updates["auto_reingest_on_save"] = payload.auto_reingest_on_save
-    if payload.export_file is not None:
-        updates["export_file"] = payload.export_file
-
+def update_user_settings(payload: Dict[str, Any]):
+    allowed = set(settings.model_fields.keys()) - {"openai_api_key"}
+    updates = {k: v for k, v in (payload or {}).items() if k in allowed}
     if not updates:
         return get_user_settings()
 
