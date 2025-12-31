@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
+
+from agentic_resume_tailor.core.keyword_matcher import latex_to_plain_for_matching
 
 
 @dataclass(frozen=True)
@@ -31,6 +34,9 @@ class Candidate:
     meta: Dict[str, Any]
     best_hit: Hit
     total_weighted: float
+    effective_total_weighted: float
+    selection_score: float
+    quant_bonus: float
     hits: List[Hit]
 
 
@@ -47,6 +53,29 @@ def normalize_query_text(q: str) -> str:
     q = (q or "").strip()
     q = " ".join(q.split())
     return q.lower()
+
+
+_QUANT_PATTERNS = [
+    re.compile(r"\b\d+(?:\.\d+)?%?\b"),
+    re.compile(r"\b\d+(?:\.\d+)?\s?(ms|s|sec|secs|seconds|min|mins|minutes|hrs|hours)\b"),
+    re.compile(r"\b\d+(?:\.\d+)?\s?(kb|mb|gb|tb)\b"),
+    re.compile(r"\bx\d+\b"),
+    re.compile(r"\b\d+\s?(users|customers|clients|requests|rps|qps)\b"),
+    re.compile(r"\bauc\s?\d+(?:\.\d+)?\b"),
+    re.compile(r"\b(reduced|improved|increased|cut|decreased|grew)\s+by\s+\d+(?:\.\d+)?%?\b"),
+    re.compile(r"\bfrom\s+\d+(?:\.\d+)?\s+\w*\s+to\s+\d+(?:\.\d+)?\b"),
+]
+
+
+def _compute_quant_bonus(text_latex: str) -> float:
+    plain = latex_to_plain_for_matching(text_latex or "")
+    if not plain:
+        return 0.0
+    text = plain.lower()
+    hits = sum(1 for pat in _QUANT_PATTERNS if pat.search(text))
+    if hits <= 0:
+        return 0.0
+    return min(0.05 * hits, 0.20)
 
 
 def _build_query_items(jd_parser_result: Any) -> List[QueryItem]:
@@ -183,12 +212,16 @@ def multi_query_retrieve(
                     merged[bullet_id]["best_hit"] = hit
 
     # Rerank:
-    # - primary: best weighted cosine (strongest single signal)
-    # - secondary: total weighted (reward multi-hit)
+    # - primary: best weighted cosine + quant bonus
+    # - secondary: total weighted + quant bonus (reward multi-hit)
     candidates: List[Candidate] = []
     for _, v in merged.items():
         # sort hits desc for debugging/provenance
         v["hits"].sort(key=lambda h: h.weighted, reverse=True)
+        total_weighted = float(v["total_weighted"])
+        quant_bonus = _compute_quant_bonus(v["text_latex"])
+        selection_score = float(v["best_hit"].weighted) + quant_bonus
+        effective_total_weighted = total_weighted + quant_bonus
         candidates.append(
             Candidate(
                 bullet_id=v["bullet_id"],
@@ -196,11 +229,21 @@ def multi_query_retrieve(
                 text_latex=v["text_latex"],
                 meta=v["meta"],
                 best_hit=v["best_hit"],
-                total_weighted=float(v["total_weighted"]),
+                total_weighted=total_weighted,
+                effective_total_weighted=effective_total_weighted,
+                selection_score=selection_score,
+                quant_bonus=quant_bonus,
                 hits=v["hits"],
             )
         )
 
-    candidates.sort(key=lambda c: (c.best_hit.weighted, c.total_weighted), reverse=True)
+    candidates.sort(
+        key=lambda c: (
+            -c.selection_score,
+            -c.effective_total_weighted,
+            -c.total_weighted,
+            c.bullet_id,
+        )
+    )
 
     return candidates[:final_k]
