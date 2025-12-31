@@ -126,6 +126,40 @@ def render_resume_editor(api_url: str) -> None:
 
     _show_editor_message()
 
+    st.subheader("App Settings")
+    ok, app_settings, err = api_request("GET", api_url, "/settings", timeout_s=10)
+    if not ok:
+        st.error(f"Failed to load settings: {err}")
+        return
+
+    with st.form("app_settings_form"):
+        auto_reingest = st.checkbox(
+            "Auto re-ingest on save",
+            value=bool(app_settings.get("auto_reingest_on_save", False)),
+        )
+        export_file = st.text_input(
+            "Export file path", value=app_settings.get("export_file", "")
+        )
+        submitted = st.form_submit_button("Save settings")
+
+    if submitted:
+        ok, _, err = api_request(
+            "PUT",
+            api_url,
+            "/settings",
+            json={
+                "auto_reingest_on_save": auto_reingest,
+                "export_file": export_file,
+            },
+        )
+        if ok:
+            _set_editor_message("success", "Saved app settings.")
+            st.rerun()
+        else:
+            st.error(err)
+
+    st.caption(f"Settings file: {app_settings.get('config_path', '')}")
+
     ingest_running = st.session_state.get("ingest_running", False)
     st.warning("Re-ingesting may take ~10–60s the first time.")
     if st.button(
