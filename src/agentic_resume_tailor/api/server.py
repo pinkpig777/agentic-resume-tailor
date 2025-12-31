@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import subprocess
+import threading
 import time
 from typing import Any, Dict, List, Tuple
 
@@ -44,6 +45,8 @@ from agentic_resume_tailor.utils.logging import configure_logging
 configure_logging()
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+INGEST_LOCK = threading.Lock()
 
 # -----------------------------
 # Configuration (env-driven)
@@ -971,6 +974,40 @@ def export_resume(reingest: bool = False, db: Session = Depends(get_db)):
         reingested = True
 
     return {"status": "ok", "path": DATA_FILE, "reingested": reingested}
+
+
+@app.post("/admin/ingest")
+def ingest_resume(db: Session = Depends(get_db)):
+    if not INGEST_LOCK.acquire(blocking=False):
+        return JSONResponse(
+            {"status": "error", "count": 0, "elapsed_s": 0.0, "error": "ingest already running"},
+            status_code=409,
+        )
+
+    start = time.time()
+    try:
+        write_resume_json(db, DATA_FILE)
+        from agentic_resume_tailor import ingest as ingest_module
+
+        count = ingest_module.ingest()
+        _reload_collection()
+        _reload_static_data()
+        elapsed = time.time() - start
+        return {"status": "ok", "count": count, "elapsed_s": round(elapsed, 2)}
+    except Exception as exc:
+        logger.exception("Chroma ingest failed")
+        elapsed = time.time() - start
+        return JSONResponse(
+            {
+                "status": "error",
+                "count": 0,
+                "elapsed_s": round(elapsed, 2),
+                "error": str(exc),
+            },
+            status_code=500,
+        )
+    finally:
+        INGEST_LOCK.release()
 
 
 @app.post("/generate", response_model=GenerateResponse)

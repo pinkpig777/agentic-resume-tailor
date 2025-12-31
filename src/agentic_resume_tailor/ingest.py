@@ -28,7 +28,7 @@ def strip_latex(s: str) -> str:
     return s
 
 
-def ingest() -> None:
+def ingest() -> int:
     logger.info("Initializing ChromaDB client")
     client = chromadb.PersistentClient(path=DB_PATH)
 
@@ -119,8 +119,10 @@ def ingest() -> None:
         logger.info("Generating embeddings and storing %s bullets", len(documents))
         collection.add(documents=documents, metadatas=metadatas, ids=ids)
         logger.info("Successfully stored in ChromaDB.")
-    else:
-        logger.warning("No bullets found to ingest.")
+        return len(documents)
+
+    logger.warning("No bullets found to ingest.")
+    return 0
 
 
 def main() -> None:
