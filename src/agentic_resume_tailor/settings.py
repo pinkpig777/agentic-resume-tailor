@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="ART_", extra="ignore")
 
     db_path: str = "/app/data/processed/chroma_db"
+    sql_db_url: str = Field(
+        default="sqlite:////app/data/processed/resume.db",
+        validation_alias=AliasChoices("ART_SQL_DB_URL", "ART_RESUME_DB_URL"),
+    )
     data_file: str = "/app/data/my_experience.json"
     template_dir: str = "/app/templates"
     output_dir: str = "/app/output"
