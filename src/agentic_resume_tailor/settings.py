@@ -1,32 +1,42 @@
 from __future__ import annotations
 
+import os
 from functools import lru_cache
+from typing import Any, Dict
 
-from pydantic import AliasChoices, Field
+from dotenv import dotenv_values
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from agentic_resume_tailor.user_config import get_user_config_path, load_user_config
+
+
+def _json_settings_source() -> Dict[str, Any]:
+    return load_user_config(get_user_config_path())
+
+
+def _limited_env_settings_source() -> Dict[str, Any]:
+    data: Dict[str, Any] = {}
+    env: Dict[str, Any] = {}
+    env.update(dotenv_values(".env"))
+    env.update(os.environ)
+
+    if "OPENAI_API_KEY" in env:
+        data["openai_api_key"] = env["OPENAI_API_KEY"]
+    if "PORT" in env:
+        data["port"] = env["PORT"]
+    return data
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="ART_", extra="ignore")
+    model_config = SettingsConfigDict(extra="ignore")
 
-    db_path: str = "/app/data/processed/chroma_db"
-    sql_db_url: str = Field(
-        default="sqlite:///data/processed/resume.db",
-        validation_alias=AliasChoices("ART_SQL_DB_URL", "ART_RESUME_DB_URL"),
-    )
-    export_file: str = Field(
-        default="data/my_experience.json",
-        validation_alias=AliasChoices("ART_EXPORT_FILE", "ART_RESUME_EXPORT_FILE"),
-    )
-    user_config_path: str = Field(
-        default="config/user_settings.json",
-        validation_alias=AliasChoices("ART_USER_CONFIG", "ART_SETTINGS_FILE"),
-    )
-    auto_reingest_on_save: bool = Field(
-        default=False, validation_alias=AliasChoices("ART_AUTO_REINGEST", "ART_AUTO_INGEST_ON_SAVE")
-    )
-    template_dir: str = "/app/templates"
-    output_dir: str = "/app/output"
+    db_path: str = "data/processed/chroma_db"
+    sql_db_url: str = "sqlite:///data/processed/resume.db"
+    export_file: str = "data/my_experience.json"
+    auto_reingest_on_save: bool = False
+    template_dir: str = "templates"
+    output_dir: str = "output"
 
     collection_name: str = "resume_experience"
     embed_model: str = "BAAI/bge-small-en-v1.5"
@@ -38,16 +48,12 @@ class Settings(BaseSettings):
     final_k: int = 30
 
     max_iters: int = 3
-    threshold: int = Field(
-        default=80, validation_alias=AliasChoices("ART_SCORE_THRESHOLD", "ART_THRESHOLD")
-    )
-    alpha: float = Field(default=0.7, validation_alias=AliasChoices("ART_SCORE_ALPHA", "ART_ALPHA"))
+    threshold: int = 80
+    alpha: float = 0.7
     must_weight: float = 0.8
 
     boost_weight: float = 1.6
-    boost_top_n_missing: int = Field(
-        default=6, validation_alias=AliasChoices("ART_BOOST_TOP_N", "ART_BOOST_TOP_N_MISSING")
-    )
+    boost_top_n_missing: int = 6
 
     cors_origins: str = "*"
 
@@ -63,8 +69,19 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_json: bool = False
 
-    port: int = Field(default=8000, validation_alias="PORT")
-    openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
+    port: int = 8000
+    openai_api_key: str | None = None
+
+    @classmethod
+    def settings_customise_sources(
+        cls, settings_cls, init_settings, env_settings, dotenv_settings, file_secret_settings
+    ):
+        return (
+            init_settings,
+            _json_settings_source,
+            _limited_env_settings_source,
+            file_secret_settings,
+        )
 
 
 @lru_cache

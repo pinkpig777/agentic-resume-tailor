@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict
 
-ALLOWED_KEYS = {
-    "auto_reingest_on_save",
-    "export_file",
-}
+DEFAULT_USER_CONFIG_PATH = "config/user_settings.json"
 
 
-def load_user_config(path: str) -> Dict[str, Any]:
-    config_path = Path(path)
+def get_user_config_path() -> str:
+    return os.environ.get("USER_SETTINGS_FILE", DEFAULT_USER_CONFIG_PATH)
+
+
+def load_user_config(path: str | None = None) -> Dict[str, Any]:
+    config_path = Path(path or get_user_config_path())
     if not config_path.exists():
         return {}
     try:
@@ -20,14 +22,13 @@ def load_user_config(path: str) -> Dict[str, Any]:
         return {}
     if not isinstance(data, dict):
         return {}
-    return {key: data[key] for key in ALLOWED_KEYS if key in data}
+    return data
 
 
-def save_user_config(path: str, config: Dict[str, Any]) -> Dict[str, Any]:
-    config_path = Path(path)
+def save_user_config(path: str | None, config: Dict[str, Any]) -> Dict[str, Any]:
+    config_path = Path(path or get_user_config_path())
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    filtered = {key: config[key] for key in ALLOWED_KEYS if key in config}
     config_path.write_text(
-        json.dumps(filtered, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
-    return filtered
+    return config
