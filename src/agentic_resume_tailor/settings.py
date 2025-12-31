@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,12 +24,16 @@ class Settings(BaseSettings):
     final_k: int = 30
 
     max_iters: int = 3
-    threshold: int = 80
-    alpha: float = 0.7
+    threshold: int = Field(
+        default=80, validation_alias=AliasChoices("ART_SCORE_THRESHOLD", "ART_THRESHOLD")
+    )
+    alpha: float = Field(default=0.7, validation_alias=AliasChoices("ART_SCORE_ALPHA", "ART_ALPHA"))
     must_weight: float = 0.8
 
     boost_weight: float = 1.6
-    boost_top_n_missing: int = 6
+    boost_top_n_missing: int = Field(
+        default=6, validation_alias=AliasChoices("ART_BOOST_TOP_N", "ART_BOOST_TOP_N_MISSING")
+    )
 
     cors_origins: str = "*"
 

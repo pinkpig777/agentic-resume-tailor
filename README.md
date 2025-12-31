@@ -31,17 +31,25 @@ This repo supports two runtimes:
   - `processed/chroma_db/` - local ChromaDB store
 - `script/`
   - `convert_experience_json.py` - normalize raw data and assign stable IDs
+  - `test_query.py` - manual retrieval/loop debug runner
+  - `test_render.py` - render a PDF from template using sample JSON
 - `config/`
   - `canonicalization.json` - alias/canonical rules
   - `families.json` - family taxonomy (generic -> satisfied_by)
 - `src/`
-  - `ingest.py` - upserts bullets into Chroma using deterministic `bullet_id`
-  - `jd_parser.py` - optional OpenAI JD parser (Target Profile v1)
-  - `loop_controller.py` - iterative loop (boost missing must-have keywords, retry retrieval)
-  - `retrieval.py`, `selection.py`, `keyword_matcher.py`, `scorer.py` - pipeline modules
-  - `server.py` - FastAPI backend (API-only, writes artifacts + report)
-  - `app.py` - Streamlit UI (calls backend, visualizes report, downloads PDF)
-  - `test_render.py` - renders a PDF from template using current JSON (debugging)
+  - `agentic_resume_tailor/` - src-layout package
+    - `api/server.py` - FastAPI backend (API-only, writes artifacts + report)
+    - `ui/app.py` - Streamlit UI (calls backend, visualizes report, downloads PDF)
+    - `core/` - retrieval/selection/scoring pipeline
+    - `ingest.py` - upserts bullets into Chroma using deterministic `bullet_id`
+    - `jd_parser.py` - optional OpenAI JD parser (Target Profile v1)
+    - `settings.py` - pydantic-settings config loader
+    - `utils/logging.py` - log configuration helpers
+  - `server.py`, `app.py`, `ingest.py` - thin wrappers for backward-compatible entrypoints
+- `tests/`
+  - `characterization/run_generate_characterization.py` - black-box generate test
+  - `fixtures/` - characterization fixtures and expected output
+  - `unit/` - fast unit tests for core modules
 - `templates/resume.tex` - Jinja2 LaTeX template with `<< >>` and `((% %))` delimiters
 - `output/` - generated artifacts (`<run_id>.pdf`, `<run_id>.tex`, `<run_id>_report.json`)
 
@@ -176,6 +184,11 @@ Common environment variables and defaults:
 - `ART_MAX_ITERS`, `ART_SCORE_THRESHOLD`, `ART_SCORE_ALPHA`, `ART_MUST_WEIGHT`
 - `ART_BOOST_WEIGHT`, `ART_BOOST_TOP_N`
 - `ART_CORS_ORIGINS` (default `*`)
+- `ART_LOG_LEVEL` (default `INFO`)
+- `ART_LOG_JSON` (default `0`)
+- `ART_SKIP_PDF` (default `0`, skips Tectonic for tests)
+- `ART_RUN_ID` (optional, forces deterministic run IDs)
+- `PORT` (default `8000`, API server)
 
 ---
 
@@ -289,6 +302,30 @@ streamlit run src/app.py
 ```
 
 Note: Tectonic must be installed on your machine to render PDFs locally.
+
+---
+
+## Development
+
+Format + lint:
+
+```bash
+ruff format .
+ruff check --fix .
+```
+
+Tests:
+
+```bash
+# characterization (black-box) test
+python tests/characterization/run_generate_characterization.py
+
+# update expected output if intentional behavior changes
+python tests/characterization/run_generate_characterization.py --update
+
+# unit tests
+python -m unittest discover -s tests/unit
+```
 
 ---
 
