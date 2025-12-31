@@ -12,17 +12,17 @@ This repo supports two runtimes:
 ## What it does
 
 - Local vector store (ChromaDB): embeds each bullet with `BAAI/bge-small-en-v1.5`.
-- Deterministic provenance: each bullet is stored with a stable `bullet_id`.
+- Stable provenance: every bullet has a deterministic `bullet_id`.
 - Multi-query retrieval: uses JD parser output (`experience_queries`) or fallback queries, merges + dedupes by `bullet_id`, then reranks.
-- Selection (Top-K): selects the top `N` bullets (default `16`).
-- Agentic loop: iteratively boosts missing must-have keywords into the next retrieval pass (no OpenAI needed for boosting).
-- Keyword matching: canonicalization + family matching for explainability and coverage scoring.
-- Hybrid scoring: blends retrieval strength + keyword coverage per iteration.
-- Quant bonus: adds a small, bounded boost for bullets with quantitative results.
+- Top-K selection: keeps the best `N` bullets (default `16`).
+- Agentic loop: boosts missing must-have keywords across iterations (no OpenAI needed for boosting).
+- Keyword matching: canonicalization + family rules for explainable coverage scoring.
+- Hybrid scoring: blends retrieval strength and keyword coverage each iteration.
+- Quant bonus: small bounded boost for quantified results.
 - Within-experience ordering: sorts selected bullets inside each job/project by relevance (ties by bullet id).
 - LaTeX rendering: Jinja2 -> `.tex` -> Tectonic -> `.pdf`.
-- Report: writes `output/<run_id>_report.json` with queries used, selected bullet IDs, missing keywords, scores, and iteration history.
-- Resume Editor: CRUD experiences, projects, and bullets with a one-click re-ingest to Chroma.
+- Report: writes `output/<run_id>_report.json` with queries used, selected IDs, missing keywords, scores, and iteration history.
+- Resume Editor: CRUD experiences, projects, and bullets with one-click re-ingest to Chroma.
 - Settings page: edit app defaults (generation + ingest) saved to `config/user_settings.json`.
 
 ---
