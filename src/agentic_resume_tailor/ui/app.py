@@ -502,8 +502,30 @@ def render_resume_editor(api_url: str) -> None:
                         else:
                             st.error(err)
 
-    st.divider()
+    ok, experiences, err = api_request("GET", api_url, "/experiences", timeout_s=20)
+    if not ok:
+        st.error(f"Failed to load experiences: {err}")
+        return
 
+    ok, projects, err = api_request("GET", api_url, "/projects", timeout_s=20)
+    if not ok:
+        st.error(f"Failed to load projects: {err}")
+        return
+
+    profile_empty = (
+        not any(value.strip() for value in personal_info.values() if isinstance(value, str))
+        and not any(value.strip() for value in skills.values() if isinstance(value, str))
+        and not (education or [])
+        and not (experiences or [])
+        and not (projects or [])
+    )
+    if profile_empty:
+        st.info(
+            "Create your profile below. Start with personal info and skills, then add education, "
+            "experiences, projects, and bullets."
+        )
+
+    st.subheader("Work Experience")
     with st.expander("Add Experience", expanded=False):
         with st.form("add_experience_form", clear_on_submit=True):
             exp_company = st.text_input("Company", key="new_exp_company")
@@ -535,32 +557,6 @@ def render_resume_editor(api_url: str) -> None:
         else:
             st.error(err)
 
-    st.divider()
-
-    ok, experiences, err = api_request("GET", api_url, "/experiences", timeout_s=20)
-    if not ok:
-        st.error(f"Failed to load experiences: {err}")
-        return
-
-    ok, projects, err = api_request("GET", api_url, "/projects", timeout_s=20)
-    if not ok:
-        st.error(f"Failed to load projects: {err}")
-        return
-
-    profile_empty = (
-        not any(value.strip() for value in personal_info.values() if isinstance(value, str))
-        and not any(value.strip() for value in skills.values() if isinstance(value, str))
-        and not (education or [])
-        and not (experiences or [])
-        and not (projects or [])
-    )
-    if profile_empty:
-        st.info(
-            "Create your profile below. Start with personal info and skills, then add education, "
-            "experiences, projects, and bullets."
-        )
-
-    st.subheader("Work Experience")
     for exp in experiences or []:
         job_id = exp.get("job_id", "")
         title = f"{exp.get('company', '')} — {exp.get('role', '')}"
@@ -643,6 +639,7 @@ def render_resume_editor(api_url: str) -> None:
                     else:
                         st.error(err)
 
+    st.subheader("Projects")
     with st.expander("Add Project", expanded=False):
         with st.form("add_project_form", clear_on_submit=True):
             proj_name = st.text_input("Project name", key="new_proj_name")
@@ -666,7 +663,6 @@ def render_resume_editor(api_url: str) -> None:
         else:
             st.error(err)
 
-    st.subheader("Projects")
     for proj in projects or []:
         project_id = proj.get("project_id", "")
         title = f"{proj.get('name', '')} — {proj.get('technologies', '')}"
