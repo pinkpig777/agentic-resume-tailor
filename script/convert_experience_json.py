@@ -22,8 +22,11 @@ Notes
 
 from __future__ import annotations
 
+import argparse
 import json
+import logging
 import re
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -31,6 +34,7 @@ ROLE_SPLIT_TOKEN = "$|$"
 
 _slug_non_alnum = re.compile(r"[^a-z0-9]+")
 _slug_multi_us = re.compile(r"_+")
+logger = logging.getLogger(__name__)
 
 
 def slugify(s: str) -> str:
@@ -129,7 +133,10 @@ def normalize_bullets(bullets: Any) -> Tuple[List[Dict[str, Any]], List[str]]:
 
 
 def convert(input_path: Path) -> Tuple[Dict[str, Any], List[str]]:
-    data = json.loads(input_path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(input_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in {input_path}") from exc
     warnings: List[str] = []
 
     data.setdefault("schema_version", "my_experience_v2")
@@ -169,14 +176,14 @@ def convert(input_path: Path) -> Tuple[Dict[str, Any], List[str]]:
 
 
 def main() -> None:
-    import argparse
-
     p = argparse.ArgumentParser()
     p.add_argument("--input", type=str, help="Path to input JSON file")
     p.add_argument("--output", type=str, help="Path to write converted JSON file")
     p.add_argument("--in-place", type=str, help="Convert and overwrite this JSON file")
     p.add_argument("--print-warnings", action="store_true", help="Print warnings to stderr")
     args = p.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
     if bool(args.in_place) == bool(args.input):
         raise SystemExit("Provide exactly one of --in-place or --input/--output")
@@ -194,15 +201,16 @@ def main() -> None:
         raise SystemExit(f"Input file not found: {in_path}")
 
     converted, warnings = convert(in_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
         json.dumps(converted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
 
     if args.print_warnings and warnings:
-        import sys
-
         for w in warnings:
             print(w, file=sys.stderr)
+    elif warnings:
+        logger.info("Conversion completed with %s warnings.", len(warnings))
 
 
 if __name__ == "__main__":
