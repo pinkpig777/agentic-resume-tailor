@@ -59,15 +59,128 @@ def _ensure_env(tmp_dir: str) -> None:
     os.environ["ART_SKIP_PDF"] = "1"
     os.environ["ART_OUTPUT_DIR"] = tmp_dir
     os.environ["ART_DB_PATH"] = str(REPO_ROOT / "data" / "processed" / "chroma_db")
-    os.environ["ART_DATA_FILE"] = str(REPO_ROOT / "data" / "my_experience.json")
-    os.environ["ART_SEED_FROM_JSON"] = "1"
     os.environ["ART_SQL_DB_URL"] = f"sqlite:///{tmp_dir}/resume.db"
     os.environ["ART_TEMPLATE_DIR"] = str(REPO_ROOT / "templates")
+
+
+def _seed_db_from_json() -> None:
+    from agentic_resume_tailor.db.models import (
+        Education,
+        EducationBullet,
+        Experience,
+        ExperienceBullet,
+        PersonalInfo,
+        Project,
+        ProjectBullet,
+        Skills,
+    )
+    from agentic_resume_tailor.db.session import SessionLocal, init_db
+
+    data = _load_json(REPO_ROOT / "data" / "my_experience.json")
+    init_db()
+
+    with SessionLocal() as db:
+        personal = data.get("personal_info", {}) or {}
+        db.add(
+            PersonalInfo(
+                name=str(personal.get("name", "") or ""),
+                phone=str(personal.get("phone", "") or ""),
+                email=str(personal.get("email", "") or ""),
+                linkedin_id=str(personal.get("linkedin_id", "") or ""),
+                github_id=str(personal.get("github_id", "") or ""),
+                linkedin=str(personal.get("linkedin", "") or ""),
+                github=str(personal.get("github", "") or ""),
+            )
+        )
+
+        skills = data.get("skills", {}) or {}
+        db.add(
+            Skills(
+                languages_frameworks=str(skills.get("languages_frameworks", "") or ""),
+                ai_ml=str(skills.get("ai_ml", "") or ""),
+                db_tools=str(skills.get("db_tools", "") or ""),
+            )
+        )
+
+        for idx, edu in enumerate(data.get("education", []) or [], start=1):
+            if not isinstance(edu, dict):
+                continue
+            edu_row = Education(
+                school=str(edu.get("school", "") or ""),
+                dates=str(edu.get("dates", "") or ""),
+                degree=str(edu.get("degree", "") or ""),
+                location=str(edu.get("location", "") or ""),
+                sort_order=idx,
+            )
+            db.add(edu_row)
+            db.flush()
+            for b_idx, bullet in enumerate(edu.get("bullets", []) or [], start=1):
+                if not isinstance(bullet, str):
+                    continue
+                db.add(
+                    EducationBullet(
+                        education_id=edu_row.id,
+                        text_latex=bullet,
+                        sort_order=b_idx,
+                    )
+                )
+
+        for idx, exp in enumerate(data.get("experiences", []) or [], start=1):
+            if not isinstance(exp, dict):
+                continue
+            exp_row = Experience(
+                job_id=str(exp.get("job_id") or ""),
+                company=str(exp.get("company", "") or ""),
+                role=str(exp.get("role", "") or ""),
+                dates=str(exp.get("dates", "") or ""),
+                location=str(exp.get("location", "") or ""),
+                sort_order=idx,
+            )
+            db.add(exp_row)
+            db.flush()
+            for b_idx, bullet in enumerate(exp.get("bullets", []) or [], start=1):
+                if not isinstance(bullet, dict):
+                    continue
+                db.add(
+                    ExperienceBullet(
+                        experience_id=exp_row.id,
+                        local_id=str(bullet.get("id") or ""),
+                        text_latex=str(bullet.get("text_latex") or ""),
+                        sort_order=b_idx,
+                    )
+                )
+
+        for idx, proj in enumerate(data.get("projects", []) or [], start=1):
+            if not isinstance(proj, dict):
+                continue
+            proj_row = Project(
+                project_id=str(proj.get("project_id") or ""),
+                name=str(proj.get("name", "") or ""),
+                technologies=str(proj.get("technologies", "") or ""),
+                sort_order=idx,
+            )
+            db.add(proj_row)
+            db.flush()
+            for b_idx, bullet in enumerate(proj.get("bullets", []) or [], start=1):
+                if not isinstance(bullet, dict):
+                    continue
+                db.add(
+                    ProjectBullet(
+                        project_id=proj_row.id,
+                        local_id=str(bullet.get("id") or ""),
+                        text_latex=str(bullet.get("text_latex") or ""),
+                        sort_order=b_idx,
+                    )
+                )
+
+        db.commit()
 
 
 def _run_generate(payload: dict, tmp_dir: str) -> dict:
     _ensure_env(tmp_dir)
     sys.path.insert(0, str(SRC_PATH))
+
+    _seed_db_from_json()
 
     from agentic_resume_tailor.api import server  # noqa: E402
 
