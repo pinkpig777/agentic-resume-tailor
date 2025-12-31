@@ -1,1 +1,3 @@
-import agentic_resume_tailor.ui.app  # noqa: F401
+from agentic_resume_tailor.ui.app import main
+
+main()
