@@ -83,7 +83,14 @@ def _compute_quant_bonus(text_latex: str) -> float:
 
 
 def _build_query_items(jd_parser_result: Any) -> List[QueryItem]:
-    """Build QueryItem objects from a JD parser result."""
+    """
+    Build QueryItem objects from a JD parser result.
+
+    Accepts:
+    - TargetProfileV1 with retrieval_plan.experience_queries
+    - object with experience_queries list[str]
+    - list[str] fallback queries
+    """
     # Case 3: list[str]
     if isinstance(jd_parser_result, list) and all(isinstance(x, str) for x in jd_parser_result):
         return [QueryItem(query=normalize_query_text(q)) for q in jd_parser_result if q.strip()]
@@ -129,7 +136,14 @@ def multi_query_retrieve(
     per_query_k: int = 10,
     final_k: int = 30,
 ) -> List[Candidate]:
-    """Retrieve and rank candidates with multi-query search."""
+    """
+    Retrieve and rank candidates with multi-query search.
+
+    Steps:
+    - run per-query search in Chroma
+    - merge hits by bullet_id
+    - rerank using explicit cosine + quant bonus
+    """
     query_items = _build_query_items(jd_parser_result)
 
     merged: Dict[str, Dict[str, Any]] = {}

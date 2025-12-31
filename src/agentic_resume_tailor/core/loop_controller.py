@@ -165,7 +165,12 @@ def run_loop(
     base_profile_or_queries: Any,  # TargetProfile OR list[str]
     cfg: LoopConfig,
 ) -> LoopResult:
-    """Run the retrieval/selection/scoring loop with optional boosts."""
+    """
+    Run the retrieval/selection/scoring loop with optional boosts.
+
+    The loop does not call OpenAI; it only re-runs retrieval with boosted terms
+    based on missing must-have keywords (bullets-only).
+    """
 
     iterations: List[Dict[str, Any]] = []
 

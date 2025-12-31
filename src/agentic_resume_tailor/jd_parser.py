@@ -424,7 +424,11 @@ def parse_job_description(
     model: str = "gpt-4.1-nano-2025-04-14",
     max_attempts: int = 2,
 ) -> TargetProfileV1:
-    """Parse a JD into TargetProfile v1 using OpenAI."""
+    """
+    Parse a JD into TargetProfile v1 using OpenAI.
+
+    Includes evidence repair/salvage and retries if contract checks fail.
+    """
     if not jd_text or not jd_text.strip():
         raise ValueError("jd_text is empty")
 

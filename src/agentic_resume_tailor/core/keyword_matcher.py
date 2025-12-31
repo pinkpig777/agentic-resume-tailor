@@ -247,7 +247,11 @@ def match_keywords_against_bullets(
     keywords: List[Dict[str, Any]],
     bullets: List[Dict[str, Any]],
 ) -> List[MatchEvidence]:
-    """Match profile keywords against bullet text."""
+    """
+    Match profile keywords against bullet text.
+
+    Tiers: exact phrase, family mapping, safe substring, or none.
+    """
     bullet_text: Dict[str, str] = {}
     for b in bullets:
         bid = b["bullet_id"]
