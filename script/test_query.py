@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 import chromadb
 from chromadb.utils import embedding_functions
 
-from agentic_resume_tailor import jd_parser
+from agentic_resume_tailor.core.jd_utils import fallback_queries_from_jd, try_parse_jd
 from agentic_resume_tailor.core.loop_controller import LoopConfig, run_loop
 from agentic_resume_tailor.settings import get_settings
 from agentic_resume_tailor.utils.logging import configure_logging
@@ -25,59 +25,8 @@ def load_collection() -> tuple[Any, Any]:
     client = chromadb.PersistentClient(path=DB_PATH)
     ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=EMBED_MODEL)
     collection = client.get_collection(name=COLLECTION_NAME, embedding_function=ef)
-    print(f"Loaded collection '{COLLECTION_NAME}' with {collection.count()} records")
+    logger.info("Loaded collection '%s' with %s records", COLLECTION_NAME, collection.count())
     return collection, ef
-
-
-def try_parse_jd(jd_text: str):
-    if not settings.use_jd_parser:
-        return None
-    try:
-        if not hasattr(jd_parser, "parse_job_description"):
-            raise RuntimeError("jd_parser.parse_job_description not found")
-
-        try:
-            return jd_parser.parse_job_description(jd_text, model=settings.jd_model)
-        except TypeError:
-            return jd_parser.parse_job_description(jd_text)
-
-    except Exception:
-        logger.exception("JD parser failed; falling back to manual queries.")
-        return None
-
-
-def fallback_queries_from_jd(jd_text: str, max_q: int = 6) -> List[str]:
-    """
-    Minimal heuristic fallback.
-    Produces embedding-friendly queries from bullet lines + a condensed full query.
-    """
-    lines = [ln.strip() for ln in jd_text.splitlines() if ln.strip()]
-    bulletish = [
-        ln.lstrip("-•* ").strip() for ln in lines if ln.strip().startswith(("-", "•", "*"))
-    ]
-
-    out: List[str] = []
-    for b in bulletish:
-        if len(b) >= 12:
-            out.append(b)
-
-    condensed = " ".join(lines[:20])
-    condensed = " ".join(condensed.split())
-    if condensed and condensed not in out:
-        out.insert(0, condensed)
-
-    # de-dupe keep order
-    seen = set()
-    deduped: List[str] = []
-    for q in out:
-        qn = q.lower()
-        if qn not in seen:
-            seen.add(qn)
-            deduped.append(q)
-        if len(deduped) >= max_q:
-            break
-
-    return deduped[:max_q] if deduped else [jd_text.strip()]
 
 
 def _load_static_data() -> Dict[str, Any]:
