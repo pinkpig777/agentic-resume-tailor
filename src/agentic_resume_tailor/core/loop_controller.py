@@ -236,9 +236,10 @@ def run_loop(
             # still track "best" by retrieval-only heuristic (mean total_weighted)
             retrieval_only = 0.0
             if selected_candidates:
-                retrieval_only = sum(float(c.total_weighted) for c in selected_candidates) / len(
-                    selected_candidates
-                )
+                retrieval_only = sum(
+                    float(getattr(c, "effective_total_weighted", c.total_weighted))
+                    for c in selected_candidates
+                ) / len(selected_candidates)
             if retrieval_only > best_score:
                 best_score = retrieval_only
                 best_idx = it
