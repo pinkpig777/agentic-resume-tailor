@@ -33,7 +33,8 @@ This repo supports two runtimes:
   - `my_experience.json` - JSON export artifact (written on saves and ingest)
   - `processed/chroma_db/` - local ChromaDB store
   - `processed/resume.db` - SQLite CRUD store (default)
-- `config/user_settings.json` - user-editable app settings (auto re-ingest, export path)
+- `config/user_settings.json` - user-editable app settings (local defaults)
+- `config/user_settings.docker.json` - Docker-friendly settings (api_url points to `http://api:8000`)
 - `script/`
   - `convert_experience_json.py` - normalize raw data and assign stable IDs
   - `test_query.py` - manual retrieval/loop debug runner
@@ -214,6 +215,8 @@ Open:
 - Streamlit UI: `http://localhost:8501`
 
 2) In the UI, open **Resume Editor**, create your profile, then click **Re-ingest ChromaDB**.
+
+Note: Compose uses `config/user_settings.docker.json`. Edit that file to change settings.
 
 Stop:
 
