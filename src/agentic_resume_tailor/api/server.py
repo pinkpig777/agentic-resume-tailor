@@ -31,7 +31,7 @@ from agentic_resume_tailor.db.models import (
     Skills,
 )
 from agentic_resume_tailor.db.session import SessionLocal, get_db, init_db
-from agentic_resume_tailor.db.sync import export_resume_data, seed_db_if_empty, write_resume_json
+from agentic_resume_tailor.db.sync import export_resume_data, write_resume_json
 from agentic_resume_tailor.db.utils import (
     ensure_unique_slug,
     make_job_id,
@@ -52,7 +52,6 @@ INGEST_LOCK = threading.Lock()
 # Configuration (env-driven)
 # -----------------------------
 DB_PATH = settings.db_path
-DATA_FILE = settings.data_file
 EXPORT_FILE = settings.export_file
 TEMPLATE_DIR = settings.template_dir
 OUTPUT_DIR = settings.output_dir
@@ -410,10 +409,6 @@ def _run_id() -> str:
 # -----------------------------
 logger.info("API Server starting: Initializing resume DB...")
 init_db()
-if settings.seed_from_json:
-    with SessionLocal() as _db:
-        if seed_db_if_empty(_db, DATA_FILE):
-            logger.info("Seeded resume DB from %s", DATA_FILE)
 logger.info("API Server starting: Loading data + Chroma...")
 STATIC_DATA = _load_static_data()
 COLLECTION, EMB_FN = _load_collection()

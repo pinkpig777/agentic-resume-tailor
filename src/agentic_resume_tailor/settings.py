@@ -14,13 +14,9 @@ class Settings(BaseSettings):
         default="sqlite:///data/processed/resume.db",
         validation_alias=AliasChoices("ART_SQL_DB_URL", "ART_RESUME_DB_URL"),
     )
-    data_file: str = "/app/data/my_experience.json"
     export_file: str = Field(
         default="output/my_experience.json",
         validation_alias=AliasChoices("ART_EXPORT_FILE", "ART_RESUME_EXPORT_FILE"),
-    )
-    seed_from_json: bool = Field(
-        default=False, validation_alias=AliasChoices("ART_SEED_FROM_JSON", "ART_SEED_DB_FROM_JSON")
     )
     template_dir: str = "/app/templates"
     output_dir: str = "/app/output"
