@@ -5,7 +5,7 @@ Local, privacy-first resume tailoring agent. ART stores only your own bullets in
 This repo supports two runtimes:
 
 - FastAPI backend (`src/server.py`): API endpoints, agent loop, rendering, artifact/report generation.
-- Streamlit UI (`src/app.py`): frontend that calls the API, includes the Resume Editor, and visualizes reports.
+- Streamlit UI (`src/app.py`): frontend that calls the API, includes Generate/Resume Editor/Settings pages, and visualizes reports.
 
 ---
 
@@ -23,6 +23,7 @@ This repo supports two runtimes:
 - LaTeX rendering: Jinja2 -> `.tex` -> Tectonic -> `.pdf`.
 - Report: writes `output/<run_id>_report.json` with queries used, selected bullet IDs, missing keywords, scores, and iteration history.
 - Resume Editor: CRUD experiences, projects, and bullets with a one-click re-ingest to Chroma.
+- Settings page: edit app defaults (generation + ingest) saved to `config/user_settings.json`.
 
 ---
 
@@ -70,7 +71,7 @@ This repo supports two runtimes:
 - The Resume Editor writes directly to the DB via CRUD endpoints.
 - Re-ingest always exports the DB to `data/my_experience.json`, then ingests Chroma.
 - `data/my_experience.json` is an exported artifact for inspection/backups, not the primary store.
-- App settings are stored in `config/user_settings.json` and editable in the Resume Editor.
+- App settings are stored in `config/user_settings.json` and editable in the Settings page.
 
 ### Export format (`my_experience.json`)
 
@@ -142,6 +143,7 @@ Notes:
 - Open the Streamlit app and switch to **Resume Editor** in the sidebar.
 - Create, edit, and delete personal info, skills, education, experiences/projects, and bullets.
 - Click **Re-ingest ChromaDB** after edits so retrieval reflects the latest data.
+- Use **Settings** in the sidebar to adjust defaults used by **Generate**.
 
 ---
 
