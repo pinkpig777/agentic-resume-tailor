@@ -223,6 +223,21 @@ def _export_latest(db: Session) -> None:
     write_resume_json(db, EXPORT_FILE)
 
 
+def _maybe_auto_reingest() -> None:
+    if not settings.auto_reingest_on_save:
+        return
+    if not INGEST_LOCK.acquire(blocking=False):
+        logger.info("Auto re-ingest skipped; ingest already running.")
+        return
+    try:
+        from agentic_resume_tailor import ingest as ingest_module
+
+        ingest_module.ingest(json_path=EXPORT_FILE)
+        _reload_collection()
+    finally:
+        INGEST_LOCK.release()
+
+
 def _next_sort_order_for(query) -> int:
     max_order = query.scalar()
     return next_sort_order([max_order])
@@ -445,6 +460,7 @@ def update_personal_info(payload: PersonalInfoUpdate, db: Session = Depends(get_
             setattr(info, field, value)
     db.commit()
     _export_latest(db)
+    _maybe_auto_reingest()
     db.refresh(info)
     return _personal_info_to_dict(info)
 
@@ -467,6 +483,7 @@ def update_skills(payload: SkillsUpdate, db: Session = Depends(get_db)):
             setattr(skills, field, value)
     db.commit()
     _export_latest(db)
+    _maybe_auto_reingest()
     db.refresh(skills)
     return _skills_to_dict(skills)
 
@@ -505,6 +522,7 @@ def create_education(payload: EducationCreate, db: Session = Depends(get_db)):
 
     db.commit()
     _export_latest(db)
+    _maybe_auto_reingest()
     edu = (
         db.query(Education)
         .options(selectinload(Education.bullets))
@@ -539,6 +557,7 @@ def update_education(education_id: int, payload: EducationUpdate, db: Session = 
 
     db.commit()
     _export_latest(db)
+    _maybe_auto_reingest()
     edu = (
         db.query(Education)
         .options(selectinload(Education.bullets))
@@ -556,6 +575,7 @@ def delete_education(education_id: int, db: Session = Depends(get_db)):
     db.delete(edu)
     db.commit()
     _export_latest(db)
+    _maybe_auto_reingest()
     return {"status": "deleted", "id": education_id}
 
 
@@ -621,6 +641,7 @@ def create_experience(payload: ExperienceCreate, db: Session = Depends(get_db)):
 
     db.commit()
     _export_latest(db)
+    _maybe_auto_reingest()
     exp = (
         db.query(Experience)
         .options(selectinload(Experience.bullets))
@@ -660,6 +681,7 @@ def update_experience(job_id: str, payload: ExperienceUpdate, db: Session = Depe
 
     db.commit()
     _export_latest(db)
+    _maybe_auto_reingest()
     exp = (
         db.query(Experience)
         .options(selectinload(Experience.bullets))
@@ -677,6 +699,7 @@ def delete_experience(job_id: str, db: Session = Depends(get_db)):
     db.delete(exp)
     db.commit()
     _export_latest(db)
+    _maybe_auto_reingest()
     return {"status": "deleted", "job_id": job_id}
 
 
@@ -728,6 +751,7 @@ def create_experience_bullet(job_id: str, payload: BulletCreate, db: Session = D
     db.add(bullet)
     db.commit()
     _export_latest(db)
+    _maybe_auto_reingest()
     return {"id": local_id, "text_latex": bullet.text_latex, "sort_order": bullet.sort_order}
 
 
@@ -751,6 +775,7 @@ def update_experience_bullet(
 
     db.commit()
     _export_latest(db)
+    _maybe_auto_reingest()
     return {"id": bullet.local_id, "text_latex": bullet.text_latex, "sort_order": bullet.sort_order}
 
 
@@ -767,6 +792,7 @@ def delete_experience_bullet(job_id: str, local_id: str, db: Session = Depends(g
     db.delete(bullet)
     db.commit()
     _export_latest(db)
+    _maybe_auto_reingest()
     return {"status": "deleted", "id": local_id}
 
 
@@ -830,6 +856,7 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
 
     db.commit()
     _export_latest(db)
+    _maybe_auto_reingest()
     proj = (
         db.query(Project)
         .options(selectinload(Project.bullets))
@@ -870,6 +897,7 @@ def update_project(project_id: str, payload: ProjectUpdate, db: Session = Depend
 
     db.commit()
     _export_latest(db)
+    _maybe_auto_reingest()
     proj = (
         db.query(Project)
         .options(selectinload(Project.bullets))
@@ -887,6 +915,7 @@ def delete_project(project_id: str, db: Session = Depends(get_db)):
     db.delete(proj)
     db.commit()
     _export_latest(db)
+    _maybe_auto_reingest()
     return {"status": "deleted", "project_id": project_id}
 
 
@@ -936,6 +965,7 @@ def create_project_bullet(project_id: str, payload: BulletCreate, db: Session = 
     db.add(bullet)
     db.commit()
     _export_latest(db)
+    _maybe_auto_reingest()
     return {"id": local_id, "text_latex": bullet.text_latex, "sort_order": bullet.sort_order}
 
 
@@ -959,6 +989,7 @@ def update_project_bullet(
 
     db.commit()
     _export_latest(db)
+    _maybe_auto_reingest()
     return {"id": bullet.local_id, "text_latex": bullet.text_latex, "sort_order": bullet.sort_order}
 
 
@@ -975,6 +1006,7 @@ def delete_project_bullet(project_id: str, local_id: str, db: Session = Depends(
     db.delete(bullet)
     db.commit()
     _export_latest(db)
+    _maybe_auto_reingest()
     return {"status": "deleted", "id": local_id}
 
 

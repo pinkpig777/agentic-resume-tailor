@@ -15,8 +15,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("ART_SQL_DB_URL", "ART_RESUME_DB_URL"),
     )
     export_file: str = Field(
-        default="output/my_experience.json",
+        default="data/my_experience.json",
         validation_alias=AliasChoices("ART_EXPORT_FILE", "ART_RESUME_EXPORT_FILE"),
+    )
+    auto_reingest_on_save: bool = Field(
+        default=False, validation_alias=AliasChoices("ART_AUTO_REINGEST", "ART_AUTO_INGEST_ON_SAVE")
     )
     template_dir: str = "/app/templates"
     output_dir: str = "/app/output"
