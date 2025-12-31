@@ -149,6 +149,188 @@ def render_resume_editor(api_url: str) -> None:
 
     st.divider()
 
+    st.subheader("Profile")
+    ok, personal_info, err = api_request("GET", api_url, "/personal_info", timeout_s=10)
+    if not ok:
+        st.error(f"Failed to load personal info: {err}")
+        return
+
+    with st.form("personal_info_form"):
+        name = st.text_input("Name", value=personal_info.get("name", ""))
+        phone = st.text_input("Phone", value=personal_info.get("phone", ""))
+        email = st.text_input("Email", value=personal_info.get("email", ""))
+        linkedin_id = st.text_input("LinkedIn ID", value=personal_info.get("linkedin_id", ""))
+        github_id = st.text_input("GitHub ID", value=personal_info.get("github_id", ""))
+        linkedin = st.text_input("LinkedIn URL", value=personal_info.get("linkedin", ""))
+        github = st.text_input("GitHub URL", value=personal_info.get("github", ""))
+        submitted = st.form_submit_button("Save personal info")
+
+    if submitted:
+        ok, _, err = api_request(
+            "PUT",
+            api_url,
+            "/personal_info",
+            json={
+                "name": name,
+                "phone": phone,
+                "email": email,
+                "linkedin_id": linkedin_id,
+                "github_id": github_id,
+                "linkedin": linkedin,
+                "github": github,
+            },
+        )
+        if ok:
+            _set_editor_message("success", "Saved personal info.")
+            st.rerun()
+        else:
+            st.error(err)
+
+    st.subheader("Skills")
+    ok, skills, err = api_request("GET", api_url, "/skills", timeout_s=10)
+    if not ok:
+        st.error(f"Failed to load skills: {err}")
+        return
+
+    with st.form("skills_form"):
+        languages_frameworks = st.text_area(
+            "Languages & Frameworks", value=skills.get("languages_frameworks", ""), height=80
+        )
+        ai_ml = st.text_area("AI/ML", value=skills.get("ai_ml", ""), height=80)
+        db_tools = st.text_area("Database & Tools", value=skills.get("db_tools", ""), height=80)
+        submitted = st.form_submit_button("Save skills")
+
+    if submitted:
+        ok, _, err = api_request(
+            "PUT",
+            api_url,
+            "/skills",
+            json={
+                "languages_frameworks": languages_frameworks,
+                "ai_ml": ai_ml,
+                "db_tools": db_tools,
+            },
+        )
+        if ok:
+            _set_editor_message("success", "Saved skills.")
+            st.rerun()
+        else:
+            st.error(err)
+
+    st.divider()
+
+    st.subheader("Education")
+    ok, education, err = api_request("GET", api_url, "/education", timeout_s=20)
+    if not ok:
+        st.error(f"Failed to load education: {err}")
+        return
+
+    with st.form("add_education_form", clear_on_submit=True):
+        edu_school = st.text_input("School", key="new_edu_school")
+        edu_degree = st.text_input("Degree", key="new_edu_degree")
+        edu_dates = st.text_input("Dates", key="new_edu_dates")
+        edu_location = st.text_input("Location", key="new_edu_location")
+        edu_bullets = st.text_area(
+            "Bullets (one per line)", key="new_edu_bullets", height=120
+        )
+        submitted_edu = st.form_submit_button("Create Education")
+
+    if submitted_edu:
+        bullets = [line.strip() for line in edu_bullets.splitlines() if line.strip()]
+        ok, _, err = api_request(
+            "POST",
+            api_url,
+            "/education",
+            json={
+                "school": edu_school,
+                "degree": edu_degree,
+                "dates": edu_dates,
+                "location": edu_location,
+                "bullets": bullets,
+            },
+        )
+        if ok:
+            _set_editor_message("success", f"Created education entry for {edu_school}.")
+            st.rerun()
+        else:
+            st.error(err)
+
+    for edu in education or []:
+        edu_id = edu.get("id")
+        title = f"{edu.get('school', '')} — {edu.get('degree', '')}"
+        meta = f"{edu.get('dates', '')} · {edu.get('location', '')}"
+        with st.expander(title, expanded=False):
+            st.caption(meta)
+            col_edit, col_delete = st.columns([1, 1])
+            edit_key = f"edit_edu_{edu_id}"
+            if col_edit.button("Edit education", key=f"toggle_{edit_key}"):
+                st.session_state[edit_key] = not st.session_state.get(edit_key, False)
+            if col_delete.button("Delete education", key=f"delete_edu_{edu_id}"):
+                ok, _, err = api_request("DELETE", api_url, f"/education/{edu_id}")
+                if ok:
+                    _set_editor_message("success", f"Deleted education entry {edu_id}.")
+                    st.rerun()
+                else:
+                    st.error(err)
+
+            bullets = edu.get("bullets", []) or []
+            if bullets:
+                st.caption("Bullets")
+                for bullet in bullets:
+                    st.write(f"- {bullet}")
+            else:
+                st.caption("No bullets yet.")
+
+            if st.session_state.get(edit_key, False):
+                with st.form(f"edit_edu_form_{edu_id}"):
+                    school = st.text_input(
+                        "School", value=edu.get("school", ""), key=f"{edit_key}_school"
+                    )
+                    degree = st.text_input(
+                        "Degree", value=edu.get("degree", ""), key=f"{edit_key}_degree"
+                    )
+                    dates = st.text_input(
+                        "Dates", value=edu.get("dates", ""), key=f"{edit_key}_dates"
+                    )
+                    location = st.text_input(
+                        "Location", value=edu.get("location", ""), key=f"{edit_key}_location"
+                    )
+                    bullets_text = st.text_area(
+                        "Bullets (one per line)",
+                        value="\n".join(bullets),
+                        key=f"{edit_key}_bullets",
+                        height=120,
+                    )
+                    submitted = st.form_submit_button("Save education")
+
+                if submitted:
+                    if not school.strip():
+                        st.error("School is required.")
+                    else:
+                        new_bullets = [
+                            line.strip() for line in bullets_text.splitlines() if line.strip()
+                        ]
+                        ok, _, err = api_request(
+                            "PUT",
+                            api_url,
+                            f"/education/{edu_id}",
+                            json={
+                                "school": school,
+                                "degree": degree,
+                                "dates": dates,
+                                "location": location,
+                                "bullets": new_bullets,
+                            },
+                        )
+                        if ok:
+                            st.session_state[edit_key] = False
+                            _set_editor_message("success", f"Updated education {edu_id}.")
+                            st.rerun()
+                        else:
+                            st.error(err)
+
+    st.divider()
+
     st.subheader("Add Experience")
     with st.form("add_experience_form", clear_on_submit=True):
         exp_company = st.text_input("Company", key="new_exp_company")
