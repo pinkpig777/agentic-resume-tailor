@@ -145,7 +145,7 @@ def _render_bullet_controls(
     text_key = f"text_{section}_{parent_id}_{bullet_id}"
 
     col_text, col_edit, col_del = st.columns([8, 1, 1])
-    col_text.write(f"`{bullet_id}` {text}")
+    col_text.markdown(f"<div class='bullet-card'>{text}</div>", unsafe_allow_html=True)
     if col_edit.button("Edit", key=f"edit_btn_{edit_key}"):
         st.session_state[edit_key] = not st.session_state.get(edit_key, False)
     if col_del.button("Delete", key=f"del_btn_{edit_key}"):
@@ -153,7 +153,7 @@ def _render_bullet_controls(
             "DELETE", api_url, f"/{section}/{parent_id}/bullets/{bullet_id}"
         )
         if ok:
-            _set_editor_message("success", f"Deleted {section} bullet {bullet_id}.")
+            _set_editor_message("success", f"Deleted {section} bullet.")
             st.rerun()
         else:
             st.error(err)
@@ -172,7 +172,7 @@ def _render_bullet_controls(
                 )
                 if ok:
                     st.session_state[edit_key] = False
-                    _set_editor_message("success", f"Updated {section} bullet {bullet_id}.")
+                    _set_editor_message("success", f"Updated {section} bullet.")
                     st.rerun()
                 else:
                     st.error(err)
@@ -292,6 +292,17 @@ def _inject_app_styles() -> None:
           color: #6b7280;
           font-size: 0.8rem;
           margin-bottom: 6px;
+        }
+        section[data-testid="stForm"] {
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 16px;
+          padding: 16px;
+        }
+        div[data-testid="stExpander"] {
+          border-radius: 14px;
+          border: 1px solid #e5e7eb;
+          background: #ffffff;
         }
         </style>
         """,
@@ -519,6 +530,10 @@ def render_settings_page(api_url: str) -> None:
         api_url: Base URL for the API.
     """
     st.header("Settings")
+    ok, _ = get_health_cached(api_url)
+    if not ok:
+        st.error("API server is down. Start the backend to edit settings.", icon="🚨")
+        return
 
     ok, app_settings, err = _fetch_app_settings(api_url)
     if not ok:
@@ -714,6 +729,10 @@ def render_resume_editor(api_url: str) -> None:
         api_url: Base URL for the API.
     """
     st.header("Resume Editor")
+    ok, _ = get_health_cached(api_url)
+    if not ok:
+        st.error("API server is down. Start the backend to edit your profile.", icon="🚨")
+        return
 
     _show_editor_message()
 
@@ -989,7 +1008,6 @@ def render_resume_editor(api_url: str) -> None:
         meta = f"{exp.get('dates', '')} · {exp.get('location', '')}"
         with st.expander(title, expanded=True):
             st.caption(meta)
-            st.caption(f"job_id: {job_id}")
             col_edit, col_delete = st.columns([1, 1])
             edit_key = f"edit_exp_{job_id}"
             if col_edit.button("Edit experience", key=f"toggle_{edit_key}"):
@@ -1093,7 +1111,6 @@ def render_resume_editor(api_url: str) -> None:
         project_id = proj.get("project_id", "")
         title = f"{proj.get('name', '')} — {proj.get('technologies', '')}"
         with st.expander(title, expanded=True):
-            st.caption(f"project_id: {project_id}")
             col_edit, col_delete = st.columns([1, 1])
             edit_key = f"edit_proj_{project_id}"
             if col_edit.button("Edit project", key=f"toggle_{edit_key}"):
