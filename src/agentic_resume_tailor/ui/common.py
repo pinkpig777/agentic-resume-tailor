@@ -490,22 +490,21 @@ def _render_sidebar(api_url: str, active_page: str) -> Tuple[bool, Any]:
 
     st.sidebar.markdown("<div class='sidebar-title'>Navigation</div>", unsafe_allow_html=True)
     nav_items = [
-        ("Generate", "✨", "app.py"),
-        ("Resume Editor", "🧩", "pages/Resume_Editor.py"),
-        ("Settings", "⚙️", "pages/Settings.py"),
+        ("Generate", "app.py"),
+        ("Resume Editor", "pages/Resume_Editor.py"),
+        ("Settings", "pages/Settings.py"),
     ]
     if hasattr(st.sidebar, "page_link"):
-        for label, nav_icon, path in nav_items:
+        for label, path in nav_items:
             st.sidebar.page_link(
                 path,
                 label=label,
-                icon=nav_icon,
                 disabled=(label == active_page),
             )
     else:
-        for label, nav_icon, path in nav_items:
+        for label, path in nav_items:
             if st.sidebar.button(
-                f"{nav_icon} {label}",
+                label,
                 key=f"nav_{label}",
                 use_container_width=True,
                 disabled=(label == active_page),
