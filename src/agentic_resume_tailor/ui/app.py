@@ -1389,51 +1389,52 @@ def render_generate_page(api_url: str) -> None:
         if not exp_meta and not proj_meta:
             st.info("Add experiences or projects in Resume Editor to attach temporary bullets.")
         else:
-            with st.form("temp_add_form", clear_on_submit=True):
-                target_type = st.radio(
-                    "Attach to",
-                    options=["Experience", "Project"],
-                    horizontal=True,
-                )
-                parent_id = ""
-                if target_type == "Experience":
-                    exp_ids = list(exp_meta.keys())
-                    if exp_ids:
-                        exp_labels = {
-                            exp_id: f"{exp_meta[exp_id].get('company', '')} · "
-                            f"{exp_meta[exp_id].get('role', '')}"
-                            for exp_id in exp_ids
-                        }
-                        parent_id = st.selectbox(
-                            "Choose experience",
-                            options=exp_ids,
-                            format_func=lambda x: exp_labels.get(x, x),
-                        )
-                    else:
-                        st.info("No experiences available.")
+            target_type = st.radio(
+                "Attach to",
+                options=["Experience", "Project"],
+                horizontal=True,
+                key="temp_target_type",
+            )
+            parent_id = ""
+            if target_type == "Experience":
+                exp_ids = list(exp_meta.keys())
+                if exp_ids:
+                    exp_labels = {
+                        exp_id: f"{exp_meta[exp_id].get('company', '')} · "
+                        f"{exp_meta[exp_id].get('role', '')}"
+                        for exp_id in exp_ids
+                    }
+                    parent_id = st.selectbox(
+                        "Choose experience",
+                        options=exp_ids,
+                        format_func=lambda x: exp_labels.get(x, x),
+                        key="temp_parent_exp",
+                    )
                 else:
-                    proj_ids = list(proj_meta.keys())
-                    if proj_ids:
-                        proj_labels = {
-                            proj_id: f"{proj_meta[proj_id].get('name', '')} · "
-                            f"{proj_meta[proj_id].get('technologies', '')}"
-                            for proj_id in proj_ids
-                        }
-                        parent_id = st.selectbox(
-                            "Choose project",
-                            options=proj_ids,
-                            format_func=lambda x: proj_labels.get(x, x),
-                        )
-                    else:
-                        st.info("No projects available.")
-                text_latex = st.text_area(
-                    "Bullet text (LaTeX-ready)",
-                    height=100,
-                    placeholder="Write a LaTeX-ready bullet...",
-                )
-                submitted = st.form_submit_button("Add temporary bullet")
-
-            if submitted:
+                    st.info("No experiences available.")
+            else:
+                proj_ids = list(proj_meta.keys())
+                if proj_ids:
+                    proj_labels = {
+                        proj_id: f"{proj_meta[proj_id].get('name', '')} · "
+                        f"{proj_meta[proj_id].get('technologies', '')}"
+                        for proj_id in proj_ids
+                    }
+                    parent_id = st.selectbox(
+                        "Choose project",
+                        options=proj_ids,
+                        format_func=lambda x: proj_labels.get(x, x),
+                        key="temp_parent_proj",
+                    )
+                else:
+                    st.info("No projects available.")
+            text_latex = st.text_area(
+                "Bullet text (LaTeX-ready)",
+                height=100,
+                placeholder="Write a LaTeX-ready bullet...",
+                key="temp_text_latex",
+            )
+            if st.button("Add temporary bullet", key="temp_add_submit"):
                 if not parent_id:
                     st.error("Select a target experience or project.")
                 elif not text_latex.strip():
@@ -1450,6 +1451,7 @@ def render_generate_page(api_url: str) -> None:
                         }
                     )
                     st.session_state["temp_additions"] = temp_additions
+                    st.session_state["temp_text_latex"] = ""
                     st.rerun()
 
     if exp_groups:
@@ -1682,8 +1684,22 @@ def render_generate_page(api_url: str) -> None:
             st.error(err_apply)
 
     st.subheader("Downloads")
+    pdf_url = f"{api_url}{run['pdf_url']}"
     tex_url = f"{api_url}{run['tex_url']}"
     report_url = f"{api_url}{run['report_url']}"
+
+    try:
+        pdf_resp = requests.get(pdf_url, timeout=60)
+        pdf_resp.raise_for_status()
+        st.download_button(
+            "Download tailored_resume.pdf",
+            data=pdf_resp.content,
+            file_name="tailored_resume.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
+    except Exception:
+        st.warning("pdf not ready yet or download failed.")
 
     try:
         tex_bytes = requests.get(tex_url, timeout=60).content
