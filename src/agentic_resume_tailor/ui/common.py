@@ -5,7 +5,7 @@ import requests
 import streamlit as st
 
 
-def check_server_health(api_base: str, timeout_s: float = 1.5) -> Tuple[bool, Any]:
+def check_server_health(api_base: str, timeout_s: float = 3.0) -> Tuple[bool, Any]:
     """Check the API health endpoint and return status.
 
     Args:
@@ -25,7 +25,7 @@ def check_server_health(api_base: str, timeout_s: float = 1.5) -> Tuple[bool, An
         return False, str(e)
 
 
-def get_health_cached(api_base: str, ttl_s: float = 2.0) -> Tuple[bool, Any]:
+def get_health_cached(api_base: str, ttl_s: float = 6.0) -> Tuple[bool, Any]:
     """Return cached health status with a TTL.
 
     Args:
