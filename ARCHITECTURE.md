@@ -87,8 +87,14 @@ flowchart TD
   A[Resume Editor CRUD] --> B[FastAPI writes SQL DB]
   B --> C[Export DB to data/my_experience.json]
   C --> D[Ingest JSON into ChromaDB]
-  D --> E[Generate queries ChromaDB]
-  E --> F[Render PDF + report]
+  D --> E[Build retrieval plan - multi queries]
+  E --> F[Multi-query retrieve from ChromaDB]
+  F --> G[Select top-K bullets]
+  G --> H[Score coverage + retrieval]
+  H --> I{Meets threshold?}
+  I -- No --> J[Boost missing must-have terms]
+  J -->|feedback loop| E
+  I -- Yes --> K[Render PDF + report]
 ```
 
 ---
