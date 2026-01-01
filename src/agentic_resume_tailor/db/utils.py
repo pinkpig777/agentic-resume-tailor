@@ -10,7 +10,14 @@ _slug_multi_us = re.compile(r"_+")
 
 
 def slugify(value: str | None) -> str:
-    """Slugify text for deterministic ids."""
+    """Slugify text for deterministic ids.
+
+    Args:
+        value: Input value.
+
+    Returns:
+        String result.
+    """
     if value is None:
         return "unknown"
     value = value.replace(ROLE_SPLIT_TOKEN, " ")
@@ -21,7 +28,14 @@ def slugify(value: str | None) -> str:
 
 
 def primary_role(role: str | None) -> str:
-    """Extract the primary role segment before the split token."""
+    """Extract the primary role segment before the split token.
+
+    Args:
+        role: Role title.
+
+    Returns:
+        String result.
+    """
     if not role:
         return "unknown"
     parts = role.split(ROLE_SPLIT_TOKEN, 1)
@@ -30,17 +44,40 @@ def primary_role(role: str | None) -> str:
 
 
 def make_job_id(company: str | None, role: str | None) -> str:
-    """Create a deterministic job_id from company and primary role."""
+    """Create a deterministic job_id from company and primary role.
+
+    Args:
+        company: Company name.
+        role: Role title.
+
+    Returns:
+        String result.
+    """
     return f"{slugify(company)}__{slugify(primary_role(role))}"
 
 
 def make_project_id(name: str | None) -> str:
-    """Create a deterministic project_id from project name."""
+    """Create a deterministic project_id from project name.
+
+    Args:
+        name: Name value.
+
+    Returns:
+        String result.
+    """
     return slugify(name)
 
 
 def ensure_unique_slug(base: str, existing: Iterable[str]) -> str:
-    """Ensure a slug is unique by appending a numeric suffix."""
+    """Ensure a slug is unique by appending a numeric suffix.
+
+    Args:
+        base: Base value.
+        existing: Existing values.
+
+    Returns:
+        String result.
+    """
     existing_set = {s for s in existing if s}
     if base not in existing_set:
         return base
@@ -53,7 +90,14 @@ def ensure_unique_slug(base: str, existing: Iterable[str]) -> str:
 
 
 def _parse_bullet_num(bid: str | None) -> Optional[int]:
-    """Parse a bullet id like b01 into its numeric component."""
+    """Parse a bullet id like b01 into its numeric component.
+
+    Args:
+        bid: Bullet identifier.
+
+    Returns:
+        Integer result.
+    """
     if not bid:
         return None
     match = re.fullmatch(r"b(\d+)", bid.strip().lower())
@@ -63,7 +107,14 @@ def _parse_bullet_num(bid: str | None) -> Optional[int]:
 
 
 def next_bullet_id(existing_ids: Iterable[str]) -> str:
-    """Return the next bullet id without renumbering existing ones."""
+    """Return the next bullet id without renumbering existing ones.
+
+    Args:
+        existing_ids: Existing bullet identifiers.
+
+    Returns:
+        String result.
+    """
     nums = [_parse_bullet_num(bid) for bid in existing_ids]
     nums = [n for n in nums if n is not None]
     nxt = (max(nums) + 1) if nums else 1
@@ -72,6 +123,13 @@ def next_bullet_id(existing_ids: Iterable[str]) -> str:
 
 
 def next_sort_order(existing_orders: Iterable[int | None]) -> int:
-    """Return the next sort order value for ordering rows."""
+    """Return the next sort order value for ordering rows.
+
+    Args:
+        existing_orders: Existing sort order values.
+
+    Returns:
+        Integer result.
+    """
     nums = [n for n in existing_orders if isinstance(n, int)]
     return (max(nums) + 1) if nums else 1

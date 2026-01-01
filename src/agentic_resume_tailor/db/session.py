@@ -10,7 +10,8 @@ from agentic_resume_tailor.settings import get_settings
 
 
 def _make_engine():
-    """Create the SQLAlchemy engine with SQLite-safe settings."""
+    """Create the SQLAlchemy engine with SQLite-safe settings.
+    """
     settings = get_settings()
     url = settings.sql_db_url
     connect_args = {}
@@ -24,14 +25,19 @@ SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, expi
 
 
 def init_db() -> None:
-    """Create DB tables if they do not exist."""
+    """Create DB tables if they do not exist.
+    """
     from agentic_resume_tailor.db import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
 
 
 def get_db() -> Generator[Session, None, None]:
-    """Yield a DB session for FastAPI dependency injection."""
+    """Yield a DB session for FastAPI dependency injection.
+
+    Returns:
+        Generator of results.
+    """
     db = SessionLocal()
     try:
         yield db

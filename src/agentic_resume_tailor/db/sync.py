@@ -21,11 +21,16 @@ SCHEMA_VERSION = "my_experience_v2"
 
 
 def export_resume_data(session: Session) -> Dict[str, Any]:
-    """
-    Export the resume profile from the DB in the normalized JSON schema.
+    """Export the resume profile from the DB in the normalized JSON schema.
 
     Includes personal_info, skills, education, experiences, projects, and stable bullet ids.
     Orders entries by sort_order then id for consistent display.
+
+    Args:
+        session: Database session.
+
+    Returns:
+        Dictionary result.
     """
     personal = session.query(PersonalInfo).first()
     skills = session.query(Skills).first()
@@ -123,10 +128,16 @@ def export_resume_data(session: Session) -> Dict[str, Any]:
 
 
 def write_resume_json(session: Session, path: str) -> Dict[str, Any]:
-    """
-    Export resume data and write it to a JSON file.
+    """Export resume data and write it to a JSON file.
 
     Ensures the parent directory exists and returns the exported dict.
+
+    Args:
+        session: Database session.
+        path: Filesystem path.
+
+    Returns:
+        Dictionary result.
     """
     data = export_resume_data(session)
     out_path = Path(path)
