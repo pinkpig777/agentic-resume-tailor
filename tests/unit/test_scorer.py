@@ -10,6 +10,8 @@ from agentic_resume_tailor.core.scorer import compute_retrieval_norm, score
 
 class TestScorer(unittest.TestCase):
     def test_compute_retrieval_norm_caps_at_one(self) -> None:
+        """Test compute retrieval norm caps at one.
+        """
         selected = [SimpleNamespace(total_weighted=2.0), SimpleNamespace(total_weighted=1.0)]
         all_candidates = [
             SimpleNamespace(total_weighted=2.0),
@@ -20,6 +22,8 @@ class TestScorer(unittest.TestCase):
         self.assertAlmostEqual(compute_retrieval_norm(selected, all_candidates), 1.0)
 
     def test_compute_retrieval_norm_uses_effective_weight(self) -> None:
+        """Test compute retrieval norm uses effective weight.
+        """
         selected = [
             SimpleNamespace(total_weighted=0.5, effective_total_weighted=0.7),
             SimpleNamespace(total_weighted=0.5, effective_total_weighted=0.7),
@@ -32,6 +36,8 @@ class TestScorer(unittest.TestCase):
         self.assertAlmostEqual(compute_retrieval_norm(selected, all_candidates), 0.8235294)
 
     def test_score_returns_full_match(self) -> None:
+        """Test score returns full match.
+        """
         selected = [SimpleNamespace(total_weighted=2.0), SimpleNamespace(total_weighted=1.0)]
         all_candidates = [
             SimpleNamespace(total_weighted=2.0),

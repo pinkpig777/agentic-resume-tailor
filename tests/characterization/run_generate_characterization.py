@@ -16,10 +16,26 @@ SRC_PATH = REPO_ROOT / "src"
 
 
 def _load_json(path: Path) -> dict:
+    """Load JSON.
+
+    Args:
+        path: Filesystem path.
+
+    Returns:
+        Dictionary result.
+    """
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _normalize_report(report: dict) -> dict:
+    """Normalize report.
+
+    Args:
+        report: The report value.
+
+    Returns:
+        Dictionary result.
+    """
     normalized = json.loads(json.dumps(report))
     normalized["run_id"] = "RUN_ID"
     normalized["created_at"] = "CREATED_AT"
@@ -32,6 +48,11 @@ def _normalize_report(report: dict) -> dict:
 
 
 def _mask_variable_fields(value: object) -> None:
+    """Mask variable fields.
+
+    Args:
+        value: Input value.
+    """
     if isinstance(value, dict):
         for key, item in list(value.items()):
             if key in {"queries_used"}:
@@ -54,6 +75,11 @@ def _mask_variable_fields(value: object) -> None:
 
 
 def _ensure_env(tmp_dir: str) -> None:
+    """Ensure env.
+
+    Args:
+        tmp_dir: Directory path for tmp.
+    """
     settings_path = Path(tmp_dir) / "user_settings.json"
     settings_payload = {
         "db_path": str(REPO_ROOT / "data" / "processed" / "chroma_db"),
@@ -73,6 +99,8 @@ def _ensure_env(tmp_dir: str) -> None:
 
 
 def _seed_db_from_json() -> None:
+    """Seed database from JSON.
+    """
     from agentic_resume_tailor.db.models import (
         Education,
         EducationBullet,
@@ -186,6 +214,15 @@ def _seed_db_from_json() -> None:
 
 
 def _run_generate(payload: dict, tmp_dir: str) -> dict:
+    """Run generate.
+
+    Args:
+        payload: Request payload.
+        tmp_dir: Directory path for tmp.
+
+    Returns:
+        Dictionary result.
+    """
     _ensure_env(tmp_dir)
     sys.path.insert(0, str(SRC_PATH))
 
@@ -206,6 +243,8 @@ def _run_generate(payload: dict, tmp_dir: str) -> dict:
 
 
 def main() -> None:
+    """Main.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--update",

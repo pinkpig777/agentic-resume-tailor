@@ -10,6 +10,8 @@ from agentic_resume_tailor.core.selection import select_topk
 
 class TestSelection(unittest.TestCase):
     def test_select_topk_dedupes_and_limits(self) -> None:
+        """Test select topk dedupes and limits.
+        """
         candidates = [
             SimpleNamespace(bullet_id="a"),
             SimpleNamespace(bullet_id="a"),

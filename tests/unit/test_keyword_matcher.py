@@ -12,12 +12,16 @@ from agentic_resume_tailor.core.keyword_matcher import (
 
 class TestKeywordMatcher(unittest.TestCase):
     def test_latex_to_plain_for_matching(self) -> None:
+        """Test latex to plain for matching.
+        """
         latex = r"Built \\textbf{API} with C\_plus\_plus in \LaTeX{}"
         plain = latex_to_plain_for_matching(latex)
         self.assertIn("api", plain.lower())
         self.assertIn("plus", plain.lower())
 
     def test_match_keywords_exact(self) -> None:
+        """Test match keywords exact.
+        """
         keywords = [{"raw": "Python", "canonical": "python"}]
         bullets = [{"bullet_id": "b1", "text_latex": "Built with Python", "meta": {}}]
 
