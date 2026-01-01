@@ -1,5 +1,5 @@
 import time
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 import requests
@@ -179,19 +179,152 @@ def _render_bullet_controls(
                     st.error(err)
 
 
-def render_health_sidebar(api_url: str) -> Tuple[bool, Any]:
-    """Show the server status icon in the sidebar.
+def _inject_app_styles() -> None:
+    """Inject shared CSS for a unified UI theme.
+    """
+    st.markdown(
+        """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap');
+        html, body, [class*="css"] {
+          font-family: "Space Grotesk", sans-serif;
+        }
+        .stApp {
+          background: #f4f5f7;
+        }
+        .main .block-container {
+          padding-top: 1.75rem;
+        }
+        .art-card {
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 16px;
+          padding: 16px 18px;
+          box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+        }
+        .art-card + .art-card {
+          margin-top: 12px;
+        }
+        .art-title {
+          font-size: 1.1rem;
+          font-weight: 600;
+          color: #111827;
+          margin: 0 0 8px 0;
+        }
+        .art-subtle {
+          color: #6b7280;
+          font-size: 0.9rem;
+        }
+        .art-badge {
+          display: inline-block;
+          padding: 4px 10px;
+          border-radius: 999px;
+          font-size: 0.78rem;
+          font-weight: 500;
+          margin: 2px 6px 2px 0;
+        }
+        .art-badge--must {
+          background: #fee2e2;
+          color: #991b1b;
+          border: 1px solid #fecaca;
+        }
+        .art-badge--nice {
+          background: #e0f2fe;
+          color: #075985;
+          border: 1px solid #bae6fd;
+        }
+        .art-badge--tag {
+          background: #ecfdf3;
+          color: #027a48;
+          border: 1px solid #abefc6;
+        }
+        .nav-link {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 10px;
+          border-radius: 10px;
+          text-decoration: none;
+          color: #111827;
+          font-weight: 500;
+        }
+        .nav-link:hover {
+          background: #e5e7eb;
+        }
+        .nav-link.active {
+          background: #111827;
+          color: #ffffff;
+        }
+        .sidebar-card {
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 14px;
+          padding: 12px;
+          margin-bottom: 12px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _page_from_query() -> str:
+    """Return the active page from query params.
+
+    Returns:
+        Page name.
+    """
+    params = st.experimental_get_query_params()
+    page = (params.get("page") or ["Generate"])[0]
+    if page not in {"Generate", "Resume Editor", "Settings"}:
+        return "Generate"
+    return page
+
+
+def _render_sidebar(api_url: str) -> Tuple[bool, Any, str]:
+    """Render sidebar health + navigation.
 
     Args:
         api_url: Base URL for the API.
 
     Returns:
-        Tuple of results.
+        Tuple of results including health and active page.
     """
     ok, info = get_health_cached(api_url)
     icon = "🟢" if ok else "🔴"
-    st.sidebar.markdown(f"**Server** {icon}")
-    return ok, info
+    status = "Healthy" if ok else "Down"
+    st.sidebar.markdown(
+        f"""
+        <div class="sidebar-card">
+          <div style="font-weight:600; margin-bottom:6px;">Server Health</div>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span>{icon}</span>
+            <span>{status}</span>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.sidebar.button("Re-check", use_container_width=True):
+        st.session_state["_health_force_refresh"] = time.time()
+        ok, info = get_health_cached(api_url)
+
+    st.sidebar.markdown("<div class='sidebar-card'>", unsafe_allow_html=True)
+    st.sidebar.markdown("**Navigation**")
+    page = _page_from_query()
+    nav_items = [
+        ("Generate", "✨"),
+        ("Resume Editor", "🧩"),
+        ("Settings", "⚙️"),
+    ]
+    for name, icon_text in nav_items:
+        active = "active" if name == page else ""
+        st.sidebar.markdown(
+            f"<a class='nav-link {active}' href='?page={name}'>{icon_text} {name}</a>",
+            unsafe_allow_html=True,
+        )
+    st.sidebar.markdown("</div>", unsafe_allow_html=True)
+    return ok, info, page
 
 
 def render_settings_page(api_url: str) -> None:
@@ -1017,23 +1150,10 @@ def main() -> None:
     api_url = settings.api_url.rstrip("/")
 
     st.set_page_config(page_title="AI Resume Agent", layout="wide")
-    st.title("AI Resume Agent")
+    _inject_app_styles()
+    st.title("Agentic Resume Tailor")
 
-    ok, info = render_health_sidebar(api_url)
-    if not ok:
-        st.error(
-            f"API server is DOWN: {api_url}\n\n"
-            f"Health check failed: {info}\n\n"
-            "Start FastAPI (server.py) and click Re-check in the sidebar.",
-            icon="🚨",
-        )
-        st.stop()
-
-    st.sidebar.divider()
-    st.sidebar.subheader("Navigation")
-    page = st.sidebar.radio("Page", ["Generate", "Resume Editor", "Settings"])
-
-    st.sidebar.divider()
+    ok, info, page = _render_sidebar(api_url)
 
     if page == "Resume Editor":
         render_resume_editor(api_url)
