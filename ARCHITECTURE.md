@@ -235,8 +235,9 @@ Create a `.env` in the repo root (optional, for secrets only):
 OPENAI_API_KEY=YOUR_OPENAI_API_KEY
 ```
 
-All other app settings live in `config/user_settings.json`, and personal overrides are saved to
-`config/user_settings.local.json` when you edit settings in the UI.
+All other app settings live in `config/user_settings.json`, with overrides stored in
+`config/user_settings.local.json` for local runs and `config/user_settings.docker.json` for
+Docker/Compose runs.
 Quantitative bullet bonus tuning lives in `quant_bonus_per_hit` and `quant_bonus_cap`.
 
 ---

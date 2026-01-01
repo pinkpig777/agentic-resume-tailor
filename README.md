@@ -44,8 +44,9 @@ Notes:
 ### 3) Adjust defaults (Settings)
 
 - Open **Settings** to change default generation and ingest behavior.
-- Settings are saved to `config/user_settings.local.json` after your first save and loaded on
-  startup, with defaults in `config/user_settings.json`.
+- Settings are loaded from `config/user_settings.json` and overridden by:
+  - `config/user_settings.local.json` for local runs
+  - `config/user_settings.docker.json` for Docker/Compose runs
 - If you enable **Auto re-ingest on save**, the vector store refreshes after each edit.
 - Use **Advanced tuning** to adjust the quantitative bullet bonus (per-hit and cap).
 - The JD parser model is selected from a dropdown of current OpenAI models (or override in
