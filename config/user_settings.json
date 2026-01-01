@@ -15,6 +15,8 @@
   "threshold": 80,
   "alpha": 0.7,
   "must_weight": 0.8,
+  "quant_bonus_per_hit": 0.05,
+  "quant_bonus_cap": 0.2,
   "boost_weight": 1.6,
   "boost_top_n_missing": 6,
   "cors_origins": "*",
