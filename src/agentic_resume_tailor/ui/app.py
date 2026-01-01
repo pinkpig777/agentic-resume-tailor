@@ -1379,6 +1379,8 @@ def render_generate_page(api_url: str) -> None:
     st.caption("Uncheck bullets to exclude them from re-render.")
     kept_ids: List[str] = []
     selected_set = set(selected_ids)
+    pending_edits: Dict[str, str] = {}
+    pending_temp_edits: Dict[str, str] = {}
     temp_additions_by_id = {
         _temp_bullet_id(addition): addition
         for addition in temp_additions
@@ -1502,6 +1504,7 @@ def render_generate_page(api_url: str) -> None:
                             key=f"temp_edit_text_{safe_id}",
                             height=90,
                         )
+                        pending_temp_edits[bullet_id] = new_text
                         btn_cols = col_body.columns([1, 1])
                         if btn_cols[0].button("Save temp edit", key=f"save_temp_{safe_id}"):
                             if not new_text.strip():
@@ -1531,6 +1534,7 @@ def render_generate_page(api_url: str) -> None:
                             key=f"edit_text_{safe_id}",
                             height=90,
                         )
+                        pending_edits[bullet_id] = new_text
                         btn_cols = col_body.columns([1, 1])
                         if btn_cols[0].button("Save edit", key=f"save_edit_{safe_id}"):
                             if not new_text.strip():
@@ -1590,6 +1594,7 @@ def render_generate_page(api_url: str) -> None:
                             key=f"temp_edit_text_{safe_id}",
                             height=90,
                         )
+                        pending_temp_edits[bullet_id] = new_text
                         btn_cols = col_body.columns([1, 1])
                         if btn_cols[0].button("Save temp edit", key=f"save_temp_{safe_id}"):
                             if not new_text.strip():
@@ -1619,6 +1624,7 @@ def render_generate_page(api_url: str) -> None:
                             key=f"edit_text_{safe_id}",
                             height=90,
                         )
+                        pending_edits[bullet_id] = new_text
                         btn_cols = col_body.columns([1, 1])
                         if btn_cols[0].button("Save edit", key=f"save_edit_{safe_id}"):
                             if not new_text.strip():
@@ -1645,10 +1651,27 @@ def render_generate_page(api_url: str) -> None:
         use_container_width=True,
         disabled=apply_disabled,
     ):
+        for bullet_id, text in pending_edits.items():
+            if isinstance(text, str) and text.strip():
+                temp_edits[bullet_id] = text
+        if pending_edits:
+            st.session_state["temp_edits"] = temp_edits
+
+        for addition in temp_additions:
+            bullet_id = _temp_bullet_id(addition)
+            if not bullet_id:
+                continue
+            text = pending_temp_edits.get(bullet_id)
+            if isinstance(text, str) and text.strip():
+                addition["text_latex"] = text
+        if pending_temp_edits:
+            st.session_state["temp_additions"] = temp_additions
+
         removals = [bid for bid in selected_ids if bid not in kept_ids]
+        merged_edits = {**temp_edits, **pending_edits}
         edits_payload = {
             bid: text
-            for bid, text in temp_edits.items()
+            for bid, text in merged_edits.items()
             if bid in kept_ids and isinstance(text, str) and text.strip()
         }
         additions_payload = [
