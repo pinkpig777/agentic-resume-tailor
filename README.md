@@ -36,6 +36,8 @@ Notes:
 - Settings are saved to `config/user_settings.json` and loaded on startup.
 - If you enable **Auto re-ingest on save**, the vector store refreshes after each edit.
 - Use **Advanced tuning** to adjust the quantitative bullet bonus (per-hit and cap).
+- The JD parser model is selected from a dropdown of current OpenAI models (or override in
+  `config/user_settings.json`).
 
 ### 4) Generate a tailored resume (Generate)
 
