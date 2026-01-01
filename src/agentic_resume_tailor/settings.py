@@ -17,7 +17,7 @@ def _json_settings_source() -> Dict[str, Any]:
     Returns:
         Dictionary result.
     """
-    return load_user_config(get_user_config_path())
+    return load_user_config()
 
 
 def _limited_env_settings_source() -> Dict[str, Any]:
