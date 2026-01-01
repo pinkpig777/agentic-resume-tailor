@@ -38,6 +38,14 @@ logger = logging.getLogger(__name__)
 
 
 def slugify(s: str) -> str:
+    """Slugify.
+
+    Args:
+        s: The s value.
+
+    Returns:
+        String result.
+    """
     if s is None:
         return "unknown"
     s = s.replace(ROLE_SPLIT_TOKEN, " ")
@@ -48,6 +56,14 @@ def slugify(s: str) -> str:
 
 
 def primary_role(role: str) -> str:
+    """Primary role.
+
+    Args:
+        role: Role title.
+
+    Returns:
+        String result.
+    """
     if not role:
         return "unknown"
     parts = role.split(ROLE_SPLIT_TOKEN, 1)
@@ -55,14 +71,39 @@ def primary_role(role: str) -> str:
 
 
 def make_job_id(company: str, role: str) -> str:
+    """Make job id.
+
+    Args:
+        company: Company name.
+        role: Role title.
+
+    Returns:
+        String result.
+    """
     return f"{slugify(company)}__{slugify(primary_role(role))}"
 
 
 def make_project_id(name: str) -> str:
+    """Make project id.
+
+    Args:
+        name: Name value.
+
+    Returns:
+        String result.
+    """
     return slugify(name)
 
 
 def _parse_bullet_num(bid: str) -> Optional[int]:
+    """Parse bullet num.
+
+    Args:
+        bid: Bullet identifier.
+
+    Returns:
+        Integer result.
+    """
     m = re.fullmatch(r"b(\d+)", (bid or "").strip().lower())
     if not m:
         return None
@@ -70,6 +111,14 @@ def _parse_bullet_num(bid: str) -> Optional[int]:
 
 
 def _next_bullet_id(existing_ids: List[str]) -> str:
+    """Next bullet ID.
+
+    Args:
+        existing_ids: Existing bullet identifiers.
+
+    Returns:
+        String result.
+    """
     nums = [_parse_bullet_num(x) for x in existing_ids]
     nums = [n for n in nums if n is not None]
     nxt = (max(nums) + 1) if nums else 1
@@ -78,6 +127,14 @@ def _next_bullet_id(existing_ids: List[str]) -> str:
 
 
 def normalize_bullets(bullets: Any) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Normalize bullets.
+
+    Args:
+        bullets: The bullets value.
+
+    Returns:
+        Tuple of results.
+    """
     warnings: List[str] = []
     if bullets is None:
         return [], warnings
@@ -100,6 +157,14 @@ def normalize_bullets(bullets: Any) -> Tuple[List[Dict[str, Any]], List[str]]:
     used_ids: set[str] = set()
 
     def allocate_id(for_text: str) -> str:
+        """Allocate ID.
+
+        Args:
+            for_text: The for text value.
+
+        Returns:
+            String result.
+        """
         if for_text in text_to_id and text_to_id[for_text] not in used_ids:
             return text_to_id[for_text]
         return _next_bullet_id(existing_ids + list(used_ids))
@@ -133,6 +198,14 @@ def normalize_bullets(bullets: Any) -> Tuple[List[Dict[str, Any]], List[str]]:
 
 
 def convert(input_path: Path) -> Tuple[Dict[str, Any], List[str]]:
+    """Convert.
+
+    Args:
+        input_path: Filesystem path for input.
+
+    Returns:
+        Tuple of results.
+    """
     try:
         data = json.loads(input_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
@@ -176,6 +249,8 @@ def convert(input_path: Path) -> Tuple[Dict[str, Any], List[str]]:
 
 
 def main() -> None:
+    """Main.
+    """
     p = argparse.ArgumentParser()
     p.add_argument("--input", type=str, help="Path to input JSON file")
     p.add_argument("--output", type=str, help="Path to write converted JSON file")

@@ -16,6 +16,14 @@ settings = get_settings()
 
 
 def _build_env(template_dir: Path) -> Environment:
+    """Build env.
+
+    Args:
+        template_dir: Directory path for template.
+
+    Returns:
+        Result value.
+    """
     # Custom delimiters avoid clashing with LaTeX syntax.
     return Environment(
         loader=FileSystemLoader(str(template_dir)),
@@ -29,6 +37,16 @@ def _build_env(template_dir: Path) -> Environment:
 
 
 def render_resume(data: Dict[str, Any], template_dir: Path, output_dir: Path) -> Path:
+    """Render resume.
+
+    Args:
+        data: The data value.
+        template_dir: Directory path for template.
+        output_dir: Output directory path.
+
+    Returns:
+        Result value.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     env = _build_env(template_dir)
     try:
@@ -43,6 +61,15 @@ def render_resume(data: Dict[str, Any], template_dir: Path, output_dir: Path) ->
 
 
 def compile_pdf(tex_path: Path, output_dir: Path) -> Path:
+    """Compile PDF.
+
+    Args:
+        tex_path: Filesystem path for TeX.
+        output_dir: Output directory path.
+
+    Returns:
+        Result value.
+    """
     # --interaction=nonstopmode helps Tectonic/LaTeX finish even if there are small warnings
     result = subprocess.run(
         ["tectonic", str(tex_path), "--outdir", str(output_dir)],

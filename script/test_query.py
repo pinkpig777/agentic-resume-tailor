@@ -22,6 +22,11 @@ EMBED_MODEL = settings.embed_model
 
 
 def load_collection() -> tuple[Any, Any]:
+    """Load collection.
+
+    Returns:
+        Result value.
+    """
     client = chromadb.PersistentClient(path=DB_PATH)
     ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=EMBED_MODEL)
     collection = client.get_collection(name=COLLECTION_NAME, embedding_function=ef)
@@ -30,6 +35,11 @@ def load_collection() -> tuple[Any, Any]:
 
 
 def _load_static_data() -> Dict[str, Any]:
+    """Load static data.
+
+    Returns:
+        Dictionary result.
+    """
     try:
         with open(settings.data_file, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -39,6 +49,13 @@ def _load_static_data() -> Dict[str, Any]:
 
 
 def print_top_candidates(cands: List[Any], top: int = 12, show_hits: bool = True) -> None:
+    """Print top candidates.
+
+    Args:
+        cands: The cands value.
+        top: The top value (optional).
+        show_hits: The show hits value (optional).
+    """
     print("\nRETRIEVAL RESULTS")
     print("-" * 60)
     for i, c in enumerate(cands[:top], start=1):
