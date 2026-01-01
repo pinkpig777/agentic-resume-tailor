@@ -96,21 +96,21 @@ def _inject_app_styles() -> None:
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
         :root {
-          --art-bg: #f5f7fb;
-          --art-bg-2: #eef2f8;
+          --art-bg: #ffffff;
+          --art-bg-2: #f9fafb;
           --art-surface: #ffffff;
-          --art-surface-glass: rgba(255, 255, 255, 0.88);
-          --art-text: #0f172a;
-          --art-muted: #5b6472;
-          --art-border: rgba(148, 163, 184, 0.4);
-          --art-accent: #0f766e;
-          --art-accent-2: #2563eb;
-          --art-accent-soft: rgba(15, 118, 110, 0.12);
-          --art-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
-          --art-shadow-soft: 0 10px 24px rgba(15, 23, 42, 0.08);
-          --art-radius-lg: 18px;
-          --art-radius-md: 12px;
-          --art-radius-sm: 10px;
+          --art-surface-glass: #ffffff;
+          --art-text: #000000;
+          --art-muted: #4b5563;
+          --art-border: #e5e7eb;
+          --art-accent: #000000;
+          --art-accent-2: #000000;
+          --art-accent-soft: #f3f4f6;
+          --art-shadow: none;
+          --art-shadow-soft: none;
+          --art-radius-lg: 8px;
+          --art-radius-md: 6px;
+          --art-radius-sm: 4px;
         }
         html, body, [class*="css"] {
           font-family: "Manrope", "Space Grotesk", sans-serif;
@@ -119,34 +119,74 @@ def _inject_app_styles() -> None:
         h1, h2, h3, h4, h5 {
           font-family: "Space Grotesk", sans-serif;
           letter-spacing: -0.02em;
+          color: #000000;
+          font-weight: 700;
         }
         body {
           background: var(--art-bg);
         }
         .stApp {
-          background:
-            radial-gradient(1200px 520px at 12% -10%, rgba(37, 99, 235, 0.12), transparent 60%),
-            radial-gradient(980px 520px at 88% 0%, rgba(15, 118, 110, 0.14), transparent 55%),
-            linear-gradient(180deg, var(--art-bg) 0%, var(--art-bg-2) 100%);
-          background-attachment: fixed;
+          background: #ffffff;
         }
-        header[data-testid="stHeader"],
-        div[data-testid="stToolbar"],
         div[data-testid="stDecoration"],
         #MainMenu,
         footer {
           display: none;
         }
-        section[data-testid="stSidebar"],
+        header[data-testid="stHeader"] {
+          background: transparent;
+          height: 0;
+          border: 0;
+        }
+        div[data-testid="stToolbar"] {
+          background: transparent;
+          height: 0;
+          padding: 0;
+          margin: 0;
+        }
+        div[data-testid="stToolbar"] > div {
+          height: 0;
+          padding: 0;
+          margin: 0;
+        }
+        div[data-testid="collapsedControl"] {
+          position: fixed;
+          top: 12px;
+          left: 12px;
+          width: 36px;
+          height: 36px;
+          border-radius: 999px;
+          background: #ffffff;
+          border: 2px solid #000000;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: none;
+          z-index: 1000;
+        }
+        div[data-testid="collapsedControl"] button {
+          color: #000000;
+        }
+        div[data-testid="collapsedControl"] svg {
+          width: 18px;
+          height: 18px;
+        }
         div[data-testid="stSidebarNav"],
         nav[data-testid="stSidebarNav"] {
           display: none;
         }
+        section[data-testid="stSidebar"] > div {
+          background: #ffffff;
+          border-right: 2px solid #e5e7eb;
+        }
         .main .block-container {
-          padding-top: 1.5rem;
+          padding-top: 0.2rem;
           padding-bottom: 2.5rem;
           max-width: 1200px;
           animation: rise-in 0.45s ease-out;
+        }
+        .main h1 {
+          margin-top: 0.15rem;
         }
         @keyframes rise-in {
           from {
@@ -158,44 +198,32 @@ def _inject_app_styles() -> None:
             transform: translateY(0);
           }
         }
-        .topbar-brand {
-          font-size: 2rem;
-          font-weight: 700;
-          letter-spacing: -0.02em;
-          color: var(--art-text);
-          padding: 0;
-          line-height: 1.1;
-          position: relative;
-          top: -8px;
-        }
         .topbar-status {
           display: inline-flex;
           align-items: center;
           gap: 8px;
-          padding: 8px 12px;
+          height: 44px;
+          padding: 0 12px;
           border-radius: 999px;
-          background: var(--art-surface);
-          border: 1px solid var(--art-border);
+          background: #ffffff;
+          border: 2px solid #000000;
           font-size: 0.85rem;
           font-weight: 600;
-          box-shadow: var(--art-shadow-soft);
           white-space: nowrap;
         }
         .art-card {
-          background: var(--art-surface-glass);
-          border: 1px solid var(--art-border);
+          background: #ffffff;
+          border: 2px solid #e5e7eb;
           border-radius: var(--art-radius-lg);
           padding: 16px 18px;
-          box-shadow: var(--art-shadow-soft);
-          backdrop-filter: blur(6px);
         }
         .art-card + .art-card {
           margin-top: 12px;
         }
         .art-title {
           font-size: 1.1rem;
-          font-weight: 600;
-          color: var(--art-text);
+          font-weight: 700;
+          color: #000000;
           margin: 0 0 8px 0;
         }
         .art-subtle {
@@ -207,24 +235,24 @@ def _inject_app_styles() -> None:
           padding: 4px 10px;
           border-radius: 999px;
           font-size: 0.78rem;
-          font-weight: 600;
+          font-weight: 700;
           margin: 2px 6px 2px 0;
-          border: 1px solid transparent;
+          border: 2px solid transparent;
         }
         .art-badge--must {
-          background: #fee2e2;
-          color: #991b1b;
-          border: 1px solid #fecaca;
+          background: #ffffff;
+          color: #b91c1c;
+          border: 2px solid #b91c1c;
         }
         .art-badge--nice {
-          background: #e0f2fe;
-          color: #075985;
-          border: 1px solid #bae6fd;
+          background: #ffffff;
+          color: #0369a1;
+          border: 2px solid #0369a1;
         }
         .art-badge--tag {
-          background: #ecfdf3;
-          color: #027a48;
-          border: 1px solid #abefc6;
+          background: #ffffff;
+          color: #15803d;
+          border: 2px solid #15803d;
         }
         .nav-link {
           position: relative;
@@ -234,43 +262,32 @@ def _inject_app_styles() -> None:
           padding: 10px 12px;
           border-radius: var(--art-radius-sm);
           text-decoration: none;
-          color: var(--art-text);
+          color: #000000;
           font-weight: 600;
-          border: 1px solid transparent;
+          border: 2px solid transparent;
           transition: all 0.2s ease;
         }
         .nav-link:hover {
-          background: var(--art-accent-soft);
-          border-color: rgba(15, 118, 110, 0.2);
+          background: #f3f4f6;
+          border-color: #000000;
         }
         .nav-link.active {
-          background: linear-gradient(120deg, rgba(15, 118, 110, 0.96), rgba(37, 99, 235, 0.96));
+          background: #000000;
           color: #ffffff;
-          box-shadow: var(--art-shadow-soft);
-          border-color: transparent;
-        }
-        .nav-link.active::after {
-          content: "";
-          position: absolute;
-          right: 12px;
-          width: 7px;
-          height: 7px;
-          border-radius: 999px;
-          background: rgba(255, 255, 255, 0.9);
+          border-color: #000000;
         }
         .sidebar-title {
           font-size: 0.95rem;
           font-weight: 600;
-          color: var(--art-text);
+          color: #000000;
           margin: 0 0 6px 0;
         }
         .sidebar-card {
-          background: var(--art-surface);
-          border: 1px solid var(--art-border);
+          background: #ffffff;
+          border: 2px solid #e5e7eb;
           border-radius: var(--art-radius-md);
           padding: 12px;
           margin-bottom: 12px;
-          box-shadow: var(--art-shadow-soft);
         }
         div[data-testid="stPageLink"] {
           margin-bottom: 0;
@@ -278,28 +295,29 @@ def _inject_app_styles() -> None:
         div[data-testid="stPageLink"] a {
           display: flex;
           align-items: center;
+          justify-content: center;
           gap: 10px;
-          padding: 10px 12px;
+          height: 44px;
+          padding: 0 12px;
+          line-height: 1;
           border-radius: var(--art-radius-sm);
           text-decoration: none;
-          color: var(--art-text);
+          color: #000000;
           font-weight: 600;
-          border: 1px solid rgba(148, 163, 184, 0.6);
-          background: rgba(255, 255, 255, 0.78);
-          box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+          border: 2px solid #e5e7eb;
+          background: #ffffff;
           transition: all 0.2s ease;
         }
         div[data-testid="stPageLink"] a:hover {
-          background: linear-gradient(120deg, rgba(37, 99, 235, 0.16), rgba(15, 118, 110, 0.18));
-          border-color: rgba(15, 118, 110, 0.55);
-          color: #0f172a;
-          box-shadow: 0 12px 22px rgba(15, 23, 42, 0.12);
+          background: #f3f4f6;
+          border-color: #000000;
+          color: #000000;
         }
         div[data-testid="stPageLink"] a[aria-disabled="true"],
         div[data-testid="stPageLink"] a[aria-current="page"] {
-          background: linear-gradient(120deg, #0f766e 0%, #1d4ed8 100%);
+          background: #000000;
           color: #ffffff !important;
-          border-color: rgba(15, 118, 110, 0.6);
+          border-color: #000000;
           opacity: 1 !important;
           cursor: default;
           pointer-events: none;
@@ -311,11 +329,10 @@ def _inject_app_styles() -> None:
           filter: none !important;
         }
         .bullet-card {
-          background: var(--art-surface);
-          border: 1px solid var(--art-border);
+          background: #ffffff;
+          border: 2px solid #e5e7eb;
           border-radius: var(--art-radius-md);
           padding: 10px 12px;
-          box-shadow: var(--art-shadow-soft);
         }
         .bullet-meta {
           color: var(--art-muted);
@@ -323,40 +340,36 @@ def _inject_app_styles() -> None:
           margin-bottom: 6px;
         }
         section[data-testid="stForm"] {
-          background: var(--art-surface);
-          border: 1px solid var(--art-border);
+          background: #ffffff;
+          border: 2px solid #e5e7eb;
           border-radius: var(--art-radius-lg);
           padding: 16px;
-          box-shadow: var(--art-shadow);
         }
         div[data-testid="stExpander"] {
           border-radius: var(--art-radius-lg);
-          border: 1px solid var(--art-border);
-          background: var(--art-surface);
-          box-shadow: var(--art-shadow-soft);
+          border: 2px solid #e5e7eb;
+          background: #ffffff;
         }
         div[data-testid="stAlert"] {
           border-radius: var(--art-radius-md);
-          border: 1px solid var(--art-border);
-          box-shadow: var(--art-shadow-soft);
+          border: 2px solid #e5e7eb;
         }
         div[data-testid="stDivider"] {
           margin: 1.5rem 0;
         }
         textarea, input, select {
-          background-color: rgba(255, 255, 255, 0.96) !important;
-          color: var(--art-text) !important;
-          border: 1px solid rgba(148, 163, 184, 0.6) !important;
+          background-color: #ffffff !important;
+          color: #000000 !important;
+          border: 2px solid #e5e7eb !important;
           border-radius: var(--art-radius-sm) !important;
           padding: 10px 12px !important;
-          box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2);
         }
         textarea::placeholder, input::placeholder {
-          color: rgba(91, 100, 114, 0.8) !important;
+          color: #9ca3af !important;
         }
         textarea:focus, input:focus, select:focus {
-          border-color: var(--art-accent-2) !important;
-          box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15) !important;
+          border-color: #000000 !important;
+          box-shadow: none !important;
         }
         div[data-baseweb="select"] input {
           background: transparent !important;
@@ -371,30 +384,36 @@ def _inject_app_styles() -> None:
         button, .stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {
           border-radius: var(--art-radius-sm) !important;
           font-weight: 600 !important;
-          transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+          transition: all 0.12s ease;
         }
         button[kind="primary"] {
-          background: linear-gradient(120deg, var(--art-accent) 0%, var(--art-accent-2) 100%) !important;
+          background: #000000 !important;
           color: #ffffff !important;
-          border: 1px solid transparent !important;
-          box-shadow: 0 12px 24px rgba(15, 118, 110, 0.2);
+          border: 2px solid #000000 !important;
+          box-shadow: none !important;
         }
         button[kind="primary"]:hover {
-          transform: translateY(-1px);
-          box-shadow: 0 14px 26px rgba(15, 118, 110, 0.25);
+          background: #333333 !important;
+          border-color: #333333 !important;
         }
         button[kind="secondary"], button[kind="tertiary"] {
-          background: var(--art-surface) !important;
-          color: var(--art-text) !important;
-          border: 1px solid var(--art-border) !important;
+          background: #ffffff !important;
+          color: #000000 !important;
+          border: 2px solid #e5e7eb !important;
+          height: 44px;
+          padding: 0 16px !important;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
         }
         button[kind="secondary"]:hover, button[kind="tertiary"]:hover {
-          border-color: rgba(37, 99, 235, 0.4) !important;
-          transform: translateY(-1px);
-          box-shadow: var(--art-shadow-soft);
+          border-color: #000000 !important;
+          background: #f9fafb !important;
+          box-shadow: none !important;
         }
         a {
-          color: var(--art-accent-2);
+          color: #000000;
+          text-decoration: underline;
         }
         @media (max-width: 768px) {
           .main .block-container {
@@ -410,8 +429,8 @@ def _inject_app_styles() -> None:
     )
 
 
-def _render_topbar(api_url: str, active_page: str) -> Tuple[bool, Any]:
-    """Render top navigation + health.
+def _render_sidebar(api_url: str, active_page: str) -> Tuple[bool, Any]:
+    """Render sidebar navigation + health.
 
     Args:
         api_url: Base URL for the API.
@@ -424,29 +443,36 @@ def _render_topbar(api_url: str, active_page: str) -> Tuple[bool, Any]:
     status_icon = "🟢" if ok else "🔴"
     status = "Healthy" if ok else "Down"
 
-    col_brand, col_nav, col_status, col_action = st.columns(
-        [2.4, 4.6, 1.4, 1.1])
-    col_brand.markdown(
-        "<div class='topbar-brand'>Agentic Resume Tailor</div>", unsafe_allow_html=True)
+    st.sidebar.markdown(
+        f"""
+        <div class="sidebar-card">
+          <div class="sidebar-title">Server Health</div>
+          <div class="topbar-status">{status_icon} {status}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.sidebar.button("Re-check", use_container_width=True):
+        st.session_state["_health_force_refresh"] = time.time()
+        ok, info = get_health_cached(api_url)
 
-    nav_cols = col_nav.columns([1.1, 1.6, 1.1])
+    st.sidebar.markdown("<div class='sidebar-title'>Navigation</div>", unsafe_allow_html=True)
     nav_items = [
         ("Generate", "✨", "app.py"),
         ("Resume Editor", "🧩", "pages/Resume_Editor.py"),
         ("Settings", "⚙️", "pages/Settings.py"),
     ]
-    if hasattr(st, "page_link"):
-        for col, (label, nav_icon, path) in zip(nav_cols, nav_items):
-            with col:
-                st.page_link(
-                    path,
-                    label=label,
-                    icon=nav_icon,
-                    disabled=(label == active_page),
-                )
+    if hasattr(st.sidebar, "page_link"):
+        for label, nav_icon, path in nav_items:
+            st.sidebar.page_link(
+                path,
+                label=label,
+                icon=nav_icon,
+                disabled=(label == active_page),
+            )
     else:
-        for col, (label, nav_icon, path) in zip(nav_cols, nav_items):
-            if col.button(
+        for label, nav_icon, path in nav_items:
+            if st.sidebar.button(
                 f"{nav_icon} {label}",
                 key=f"nav_{label}",
                 use_container_width=True,
@@ -455,15 +481,5 @@ def _render_topbar(api_url: str, active_page: str) -> Tuple[bool, Any]:
                 if hasattr(st, "switch_page"):
                     st.switch_page(path)
                 else:
-                    st.warning("Upgrade Streamlit to enable navigation.")
-
-    col_status.markdown(
-        f"<div class='topbar-status'>{status_icon} {status}</div>",
-        unsafe_allow_html=True,
-    )
-    if col_action.button("Re-check", key="topbar_recheck", use_container_width=True):
-        st.session_state["_health_force_refresh"] = time.time()
-        ok, info = get_health_cached(api_url)
-
-    st.divider()
+                    st.sidebar.warning("Upgrade Streamlit to enable navigation.")
     return ok, info
