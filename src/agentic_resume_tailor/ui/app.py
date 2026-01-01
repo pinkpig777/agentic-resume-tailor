@@ -1311,66 +1311,68 @@ def render_generate_page(api_url: str) -> None:
     if not exp_groups and not proj_groups:
         st.caption("No bullet text available yet. Add bullets in Resume Editor.")
 
-        apply_cols = st.columns([1, 1])
-        if apply_cols[0].button("Apply selection and re-render", use_container_width=True):
-            if not kept_ids:
-                st.error("Select at least one bullet to render.")
-            else:
-                ok_apply, _, err_apply = api_request(
-                    "POST",
-                    api_url,
-                    f"/runs/{run.get('run_id')}/render",
-                    json={"selected_ids": kept_ids},
-                    timeout_s=120,
-                )
-                if ok_apply:
-                    st.success("Updated artifacts with your selection.")
-                else:
-                    st.error(err_apply)
-
-        st.subheader("Downloads")
-        pdf_url = f"{api_url}{run['pdf_url']}"
-        tex_url = f"{api_url}{run['tex_url']}"
-        report_url = f"{api_url}{run['report_url']}"
-        st.markdown(
-            f"<a class='nav-link' href='{pdf_url}' target='_blank'>📄 Open PDF preview</a>",
-            unsafe_allow_html=True,
+    apply_cols = st.columns([1, 1])
+    apply_disabled = not kept_ids
+    if apply_cols[0].button(
+        "Apply selection and re-render",
+        use_container_width=True,
+        disabled=apply_disabled,
+    ):
+        ok_apply, _, err_apply = api_request(
+            "POST",
+            api_url,
+            f"/runs/{run.get('run_id')}/render",
+            json={"selected_ids": kept_ids},
+            timeout_s=120,
         )
-        try:
-            pdf = requests.get(pdf_url, timeout=120).content
-            st.download_button(
-                "Download tailored_resume.pdf",
-                data=pdf,
-                file_name="tailored_resume.pdf",
-                mime="application/pdf",
-                use_container_width=True,
-            )
-        except Exception:
-            st.warning("PDF not ready yet or download failed.")
+        if ok_apply:
+            st.success("Updated artifacts with your selection.")
+        else:
+            st.error(err_apply)
 
-        try:
-            tex_bytes = requests.get(tex_url, timeout=60).content
-            st.download_button(
-                "Download tailored_resume.tex",
-                data=tex_bytes,
-                file_name="tailored_resume.tex",
-                mime="application/x-tex",
-                use_container_width=True,
-            )
-        except Exception:
-            st.warning("tex not ready yet or download failed.")
+    st.subheader("Downloads")
+    pdf_url = f"{api_url}{run['pdf_url']}"
+    tex_url = f"{api_url}{run['tex_url']}"
+    report_url = f"{api_url}{run['report_url']}"
+    st.markdown(
+        f"<a class='nav-link' href='{pdf_url}' target='_blank'>📄 Open PDF preview</a>",
+        unsafe_allow_html=True,
+    )
+    try:
+        pdf = requests.get(pdf_url, timeout=120).content
+        st.download_button(
+            "Download tailored_resume.pdf",
+            data=pdf,
+            file_name="tailored_resume.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
+    except Exception:
+        st.warning("PDF not ready yet or download failed.")
 
-        try:
-            rep_bytes = requests.get(report_url, timeout=60).content
-            st.download_button(
-                "Download resume_report.json",
-                data=rep_bytes,
-                file_name="resume_report.json",
-                mime="application/json",
-                use_container_width=True,
-            )
-        except Exception:
-            st.warning("report.json not ready yet or download failed.")
+    try:
+        tex_bytes = requests.get(tex_url, timeout=60).content
+        st.download_button(
+            "Download tailored_resume.tex",
+            data=tex_bytes,
+            file_name="tailored_resume.tex",
+            mime="application/x-tex",
+            use_container_width=True,
+        )
+    except Exception:
+        st.warning("tex not ready yet or download failed.")
+
+    try:
+        rep_bytes = requests.get(report_url, timeout=60).content
+        st.download_button(
+            "Download resume_report.json",
+            data=rep_bytes,
+            file_name="resume_report.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+    except Exception:
+        st.warning("report.json not ready yet or download failed.")
 
 
 def main() -> None:
