@@ -61,6 +61,8 @@ class Settings(BaseSettings):
     threshold: int = 80
     alpha: float = 0.7
     must_weight: float = 0.8
+    quant_bonus_per_hit: float = 0.05
+    quant_bonus_cap: float = 0.20
 
     boost_weight: float = 1.6
     boost_top_n_missing: int = 6

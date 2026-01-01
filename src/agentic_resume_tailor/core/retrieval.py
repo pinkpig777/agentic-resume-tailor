@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Tuple
 import numpy as np
 
 from agentic_resume_tailor.core.keyword_matcher import latex_to_plain_for_matching
+from agentic_resume_tailor.settings import get_settings
 
 
 @dataclass(frozen=True)
@@ -92,15 +93,29 @@ _QUANT_PATTERNS = [
 ]
 
 
-def _compute_quant_bonus(text_latex: str) -> float:
+def _compute_quant_bonus(
+    text_latex: str,
+    per_hit: float | None = None,
+    cap: float | None = None,
+) -> float:
     """Compute a small bonus for quantified bullets.
 
     Args:
         text_latex: LaTeX-ready bullet text.
+        per_hit: Bonus applied per detected quant hit.
+        cap: Maximum bonus allowed.
 
     Returns:
         Float result.
     """
+    if per_hit is None or cap is None:
+        settings = get_settings()
+        if per_hit is None:
+            per_hit = settings.quant_bonus_per_hit
+        if cap is None:
+            cap = settings.quant_bonus_cap
+    if per_hit <= 0 or cap <= 0:
+        return 0.0
     plain = latex_to_plain_for_matching(text_latex or "")
     if not plain:
         return 0.0
@@ -108,7 +123,7 @@ def _compute_quant_bonus(text_latex: str) -> float:
     hits = sum(1 for pat in _QUANT_PATTERNS if pat.search(text))
     if hits <= 0:
         return 0.0
-    return min(0.05 * hits, 0.20)
+    return min(per_hit * hits, cap)
 
 
 def _build_query_items(jd_parser_result: Any) -> List[QueryItem]:
@@ -190,6 +205,9 @@ def multi_query_retrieve(
     query_items = _build_query_items(jd_parser_result)
 
     merged: Dict[str, Dict[str, Any]] = {}
+    settings = get_settings()
+    quant_per_hit = settings.quant_bonus_per_hit
+    quant_cap = settings.quant_bonus_cap
 
     for qi in query_items:
         # Apply boosts by appending canonical boosts to the query text (generic, no hardcoding)
@@ -264,7 +282,9 @@ def multi_query_retrieve(
         # sort hits desc for debugging/provenance
         v["hits"].sort(key=lambda h: h.weighted, reverse=True)
         total_weighted = float(v["total_weighted"])
-        quant_bonus = _compute_quant_bonus(v["text_latex"])
+        quant_bonus = _compute_quant_bonus(
+            v["text_latex"], per_hit=quant_per_hit, cap=quant_cap
+        )
         selection_score = float(v["best_hit"].weighted) + quant_bonus
         effective_total_weighted = total_weighted + quant_bonus
         candidates.append(
