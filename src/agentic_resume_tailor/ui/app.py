@@ -300,6 +300,22 @@ def render_settings_page(api_url: str) -> None:
                 step=0.05,
                 help="Weight applied to must-have keyword coverage.",
             )
+            quant_bonus_per_hit = st.number_input(
+                "Quant bonus per hit",
+                min_value=0.0,
+                max_value=0.5,
+                value=float(app_settings.get("quant_bonus_per_hit", 0.05) or 0.05),
+                step=0.01,
+                help="Bonus added per quantitative pattern match in a bullet.",
+            )
+            quant_bonus_cap = st.number_input(
+                "Quant bonus cap",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(app_settings.get("quant_bonus_cap", 0.2) or 0.2),
+                step=0.05,
+                help="Maximum total bonus allowed per bullet.",
+            )
             boost_weight = st.number_input(
                 "Boost query weight",
                 min_value=0.1,
@@ -337,6 +353,8 @@ def render_settings_page(api_url: str) -> None:
                 "threshold": threshold,
                 "alpha": alpha,
                 "must_weight": must_weight,
+                "quant_bonus_per_hit": quant_bonus_per_hit,
+                "quant_bonus_cap": quant_bonus_cap,
                 "boost_weight": boost_weight,
                 "boost_top_n_missing": boost_top_n_missing,
             },
@@ -952,6 +970,18 @@ def render_generate_page(api_url: str) -> None:
                 )
             except Exception:
                 st.warning("report.json not ready yet or download failed.")
+
+            try:
+                tex_bytes = requests.get(f"{api_url}{run['tex_url']}", timeout=60).content
+                st.download_button(
+                    "Download tailored_resume.tex",
+                    data=tex_bytes,
+                    file_name="tailored_resume.tex",
+                    mime="application/x-tex",
+                    use_container_width=True,
+                )
+            except Exception:
+                st.warning("tex not ready yet or download failed.")
 
     st.markdown("---")
     st.caption(
