@@ -10,7 +10,7 @@ from agentic_resume_tailor.ui.common import api_request, check_server_health, ge
 GEN_EXECUTOR = ThreadPoolExecutor(max_workers=1)
 
 
-def _autorefresh(interval_ms: int, key: str) -> None:
+def _autorefresh(interval_ms: int) -> None:
     """Trigger a client-driven rerun without blocking the server thread."""
     components.html(
         f"""
@@ -25,7 +25,6 @@ def _autorefresh(interval_ms: int, key: str) -> None:
         </script>
         """,
         height=0,
-        key=key,
     )
 
 
@@ -384,7 +383,7 @@ def render_generate_page(api_url: str) -> None:
     future = st.session_state.get("generate_future")
     if isinstance(future, Future) and not future.done():
         st.info("Generation running. Auto-refreshing until results are ready.")
-        _autorefresh(750, "generate_autorefresh")
+        _autorefresh(750)
     if st.session_state.get("generate_error"):
         st.error(st.session_state.get("generate_error"))
     run = st.session_state.get("last_run")
