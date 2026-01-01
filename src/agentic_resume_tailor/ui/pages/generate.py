@@ -332,7 +332,9 @@ def render_generate_page(api_url: str) -> None:
 
     future = st.session_state.get("generate_future")
     if isinstance(future, Future) and not future.done():
-        st.info("Generation running. You can navigate to other pages while this runs.")
+        st.info("Generation running. Auto-refreshing until results are ready.")
+        time.sleep(0.75)
+        st.rerun()
     if st.session_state.get("generate_error"):
         st.error(st.session_state.get("generate_error"))
     run = st.session_state.get("last_run")
