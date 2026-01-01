@@ -1338,6 +1338,8 @@ def render_generate_page(api_url: str) -> None:
 
     temp_additions: List[Dict[str, Any]] = st.session_state.get("temp_additions", [])
     temp_edits: Dict[str, str] = st.session_state.get("temp_edits", {})
+    if st.session_state.pop("rerender_success", False):
+        st.success("Updated artifacts with your selection.")
 
     best = report.get("best_score") or {}
     st.subheader("Results summary")
@@ -1702,7 +1704,8 @@ def render_generate_page(api_url: str) -> None:
             timeout_s=120,
         )
         if ok_apply:
-            st.success("Updated artifacts with your selection.")
+            st.session_state["rerender_success"] = True
+            st.rerun()
         else:
             st.error(err_apply)
 
