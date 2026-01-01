@@ -1,13 +1,32 @@
-import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Dict, List, Tuple
 
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 
 from agentic_resume_tailor.ui.common import api_request, check_server_health, get_health_cached
 
 GEN_EXECUTOR = ThreadPoolExecutor(max_workers=1)
+
+
+def _autorefresh(interval_ms: int, key: str) -> None:
+    """Trigger a client-driven rerun without blocking the server thread."""
+    components.html(
+        f"""
+        <script>
+        const sendMessage = (value) => {{
+          window.parent.postMessage(
+            {{ isStreamlitMessage: true, type: "streamlit:setComponentValue", value: value }},
+            "*"
+          );
+        }};
+        setTimeout(() => sendMessage(Date.now()), {interval_ms});
+        </script>
+        """,
+        height=0,
+        key=key,
+    )
 
 
 def _run_generate(api_url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -333,8 +352,7 @@ def render_generate_page(api_url: str) -> None:
     future = st.session_state.get("generate_future")
     if isinstance(future, Future) and not future.done():
         st.info("Generation running. Auto-refreshing until results are ready.")
-        time.sleep(0.75)
-        st.rerun()
+        _autorefresh(750, "generate_autorefresh")
     if st.session_state.get("generate_error"):
         st.error(st.session_state.get("generate_error"))
     run = st.session_state.get("last_run")
