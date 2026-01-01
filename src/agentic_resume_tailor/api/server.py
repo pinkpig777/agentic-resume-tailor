@@ -5,6 +5,7 @@ import os
 import subprocess
 import threading
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import chromadb
@@ -118,6 +119,10 @@ class GenerateResponse(BaseModel):
     pdf_url: str
     tex_url: str
     report_url: str
+
+
+class RenderSelectionRequest(BaseModel):
+    selected_ids: List[str]
 
 
 class PersonalInfoUpdate(BaseModel):
@@ -1535,6 +1540,49 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
         tex_url=f"/runs/{run_id}/tex",
         report_url=f"/runs/{run_id}/report",
     )
+
+
+@app.post("/runs/{run_id}/render")
+def render_selected(run_id: str, payload: RenderSelectionRequest):
+    """Re-render artifacts for a filtered bullet selection.
+
+    Args:
+        run_id: Run identifier.
+        payload: Selected bullet identifiers.
+    """
+    selected_ids = payload.selected_ids or []
+    if not selected_ids:
+        return JSONResponse({"error": "selected_ids is empty"}, status_code=400)
+
+    static_data = _load_static_data()
+    tailored_data = select_and_rebuild(static_data, selected_ids, [])
+    pdf_path, tex_path = render_pdf(tailored_data, run_id)
+    pdf_path, tex_path, selected_ids, _ = _trim_to_single_page(
+        run_id, static_data, selected_ids, [], pdf_path
+    )
+
+    report_path = os.path.join(OUTPUT_DIR, f"{run_id}_report.json")
+    if os.path.exists(report_path):
+        try:
+            report = json.loads(Path(report_path).read_text(encoding="utf-8"))
+        except Exception:
+            report = {}
+        report["selected_ids"] = selected_ids
+        report["filtered_selection"] = True
+        report.setdefault("artifacts", {})
+        report["artifacts"]["pdf"] = os.path.basename(pdf_path)
+        report["artifacts"]["tex"] = os.path.basename(tex_path)
+        Path(report_path).write_text(
+            json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+
+    return {
+        "status": "ok",
+        "run_id": run_id,
+        "pdf_url": f"/runs/{run_id}/pdf",
+        "tex_url": f"/runs/{run_id}/tex",
+        "report_url": f"/runs/{run_id}/report",
+    }
 
 
 @app.get("/runs/{run_id}/pdf")
