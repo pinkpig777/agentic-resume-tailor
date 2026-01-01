@@ -1,19 +1,28 @@
 from __future__ import annotations
 
-from dataclasses import asdict
-from typing import Any, Dict, List, Optional
-import os
 import json
+import os
 from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 
 def utc_now_iso() -> str:
+    """Return the current UTC timestamp in ISO format.
+
+    Returns:
+        String result.
+    """
     return datetime.now(timezone.utc).isoformat()
 
 
 def _safe_candidate_dict(c: Any) -> Dict[str, Any]:
-    """
-    Candidate is from retrieval.py. Keep JSON-friendly and compact.
+    """Serialize a candidate into a compact JSON-friendly dict.
+
+    Args:
+        c: The c value.
+
+    Returns:
+        Dictionary result.
     """
     d = {
         "bullet_id": getattr(c, "bullet_id", ""),
@@ -38,31 +47,39 @@ def _safe_candidate_dict(c: Any) -> Dict[str, Any]:
     hits = getattr(c, "hits", []) or []
     out_hits = []
     for h in hits:
-        out_hits.append({
-            "query": getattr(h, "query", ""),
-            "purpose": getattr(h, "purpose", ""),
-            "weight": float(getattr(h, "weight", 0.0) or 0.0),
-            "cosine": float(getattr(h, "cosine", 0.0) or 0.0),
-            "weighted": float(getattr(h, "weighted", 0.0) or 0.0),
-        })
+        out_hits.append(
+            {
+                "query": getattr(h, "query", ""),
+                "purpose": getattr(h, "purpose", ""),
+                "weight": float(getattr(h, "weight", 0.0) or 0.0),
+                "cosine": float(getattr(h, "cosine", 0.0) or 0.0),
+                "weighted": float(getattr(h, "weighted", 0.0) or 0.0),
+            }
+        )
     d["hits"] = out_hits[:8]  # cap for size
     return d
 
 
 def _evidence_list(evidences: List[Any]) -> List[Dict[str, Any]]:
-    """
-    MatchEvidence from keyword_matcher.py:
-      keyword, tier, satisfied_by, bullet_ids, notes
+    """Serialize evidence items into JSON-friendly dicts.
+
+    Args:
+        evidences: The evidences value.
+
+    Returns:
+        List of results.
     """
     out: List[Dict[str, Any]] = []
     for e in evidences or []:
-        out.append({
-            "keyword": getattr(e, "keyword", ""),
-            "tier": getattr(e, "tier", "none"),
-            "satisfied_by": getattr(e, "satisfied_by", None),
-            "bullet_ids": list(getattr(e, "bullet_ids", []) or [])[:10],
-            "notes": getattr(e, "notes", "") or "",
-        })
+        out.append(
+            {
+                "keyword": getattr(e, "keyword", ""),
+                "tier": getattr(e, "tier", "none"),
+                "satisfied_by": getattr(e, "satisfied_by", None),
+                "bullet_ids": list(getattr(e, "bullet_ids", []) or [])[:10],
+                "notes": getattr(e, "notes", "") or "",
+            }
+        )
     return out
 
 
@@ -85,14 +102,30 @@ def build_report(
     # loop history
     iterations: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    """
-    Returns a JSON-serializable dict.
+    """Build a JSON-serializable report for a generation run.
+
+    Args:
+        jd_text: Job description text.
+        profile: The profile value.
+        config: Configuration mapping.
+        final_iteration_index: The final iteration index value.
+        selected_ids: Selected bullet identifiers.
+        selected_candidates: Selected candidate bullets.
+        all_candidates: All candidate bullets.
+        hybrid: The hybrid value.
+        must_evs_bullets_only: The must evs bullets only value (optional).
+        nice_evs_bullets_only: The nice evs bullets only value (optional).
+        must_evs_all: The must evs all value (optional).
+        nice_evs_all: The nice evs all value (optional).
+        iterations: The iterations value (optional).
+
+    Returns:
+        Dictionary result.
     """
     profile_dump = None
     if profile is not None:
         try:
-            profile_dump = profile.model_dump() if hasattr(
-                profile, "model_dump") else dict(profile)
+            profile_dump = profile.model_dump() if hasattr(profile, "model_dump") else dict(profile)
         except Exception:
             profile_dump = None
 
@@ -131,8 +164,12 @@ def build_report(
             "retrieval_score": float(getattr(hybrid, "retrieval_score", 0.0) or 0.0),
             "coverage_bullets_only": float(getattr(hybrid, "coverage_bullets_only", 0.0) or 0.0),
             "coverage_all": float(getattr(hybrid, "coverage_all", 0.0) or 0.0),
-            "must_missing_bullets_only": list(getattr(hybrid, "must_missing_bullets_only", []) or []),
-            "nice_missing_bullets_only": list(getattr(hybrid, "nice_missing_bullets_only", []) or []),
+            "must_missing_bullets_only": list(
+                getattr(hybrid, "must_missing_bullets_only", []) or []
+            ),
+            "nice_missing_bullets_only": list(
+                getattr(hybrid, "nice_missing_bullets_only", []) or []
+            ),
             "must_missing_all": list(getattr(hybrid, "must_missing_all", []) or []),
             "nice_missing_all": list(getattr(hybrid, "nice_missing_all", []) or []),
         }
@@ -140,7 +177,19 @@ def build_report(
     return report
 
 
-def write_report_json(report: Dict[str, Any], output_dir: str, filename: str = "resume_report.json") -> str:
+def write_report_json(
+    report: Dict[str, Any], output_dir: str, filename: str = "resume_report.json"
+) -> str:
+    """Write the report to disk and return its path.
+
+    Args:
+        report: The report value.
+        output_dir: Output directory path.
+        filename: The filename value (optional).
+
+    Returns:
+        String result.
+    """
     os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, filename)
     with open(path, "w", encoding="utf-8") as f:

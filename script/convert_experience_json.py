@@ -22,18 +22,30 @@ Notes
 
 from __future__ import annotations
 
+import argparse
 import json
+import logging
 import re
+import sys
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 ROLE_SPLIT_TOKEN = "$|$"
 
 _slug_non_alnum = re.compile(r"[^a-z0-9]+")
 _slug_multi_us = re.compile(r"_+")
+logger = logging.getLogger(__name__)
 
 
 def slugify(s: str) -> str:
+    """Slugify.
+
+    Args:
+        s: The s value.
+
+    Returns:
+        String result.
+    """
     if s is None:
         return "unknown"
     s = s.replace(ROLE_SPLIT_TOKEN, " ")
@@ -44,6 +56,14 @@ def slugify(s: str) -> str:
 
 
 def primary_role(role: str) -> str:
+    """Primary role.
+
+    Args:
+        role: Role title.
+
+    Returns:
+        String result.
+    """
     if not role:
         return "unknown"
     parts = role.split(ROLE_SPLIT_TOKEN, 1)
@@ -51,14 +71,39 @@ def primary_role(role: str) -> str:
 
 
 def make_job_id(company: str, role: str) -> str:
+    """Make job id.
+
+    Args:
+        company: Company name.
+        role: Role title.
+
+    Returns:
+        String result.
+    """
     return f"{slugify(company)}__{slugify(primary_role(role))}"
 
 
 def make_project_id(name: str) -> str:
+    """Make project id.
+
+    Args:
+        name: Name value.
+
+    Returns:
+        String result.
+    """
     return slugify(name)
 
 
 def _parse_bullet_num(bid: str) -> Optional[int]:
+    """Parse bullet num.
+
+    Args:
+        bid: Bullet identifier.
+
+    Returns:
+        Integer result.
+    """
     m = re.fullmatch(r"b(\d+)", (bid or "").strip().lower())
     if not m:
         return None
@@ -66,6 +111,14 @@ def _parse_bullet_num(bid: str) -> Optional[int]:
 
 
 def _next_bullet_id(existing_ids: List[str]) -> str:
+    """Next bullet ID.
+
+    Args:
+        existing_ids: Existing bullet identifiers.
+
+    Returns:
+        String result.
+    """
     nums = [_parse_bullet_num(x) for x in existing_ids]
     nums = [n for n in nums if n is not None]
     nxt = (max(nums) + 1) if nums else 1
@@ -74,6 +127,14 @@ def _next_bullet_id(existing_ids: List[str]) -> str:
 
 
 def normalize_bullets(bullets: Any) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Normalize bullets.
+
+    Args:
+        bullets: The bullets value.
+
+    Returns:
+        Tuple of results.
+    """
     warnings: List[str] = []
     if bullets is None:
         return [], warnings
@@ -86,8 +147,7 @@ def normalize_bullets(bullets: Any) -> Tuple[List[Dict[str, Any]], List[str]]:
     for item in raw_items:
         if isinstance(item, dict):
             bid = item.get("id")
-            txt = item.get(
-                "text_latex") if "text_latex" in item else item.get("text")
+            txt = item.get("text_latex") if "text_latex" in item else item.get("text")
             if isinstance(bid, str) and isinstance(txt, str):
                 bid_norm = bid.strip()
                 text_to_id[txt] = bid_norm
@@ -97,6 +157,14 @@ def normalize_bullets(bullets: Any) -> Tuple[List[Dict[str, Any]], List[str]]:
     used_ids: set[str] = set()
 
     def allocate_id(for_text: str) -> str:
+        """Allocate ID.
+
+        Args:
+            for_text: The for text value.
+
+        Returns:
+            String result.
+        """
         if for_text in text_to_id and text_to_id[for_text] not in used_ids:
             return text_to_id[for_text]
         return _next_bullet_id(existing_ids + list(used_ids))
@@ -110,23 +178,19 @@ def normalize_bullets(bullets: Any) -> Tuple[List[Dict[str, Any]], List[str]]:
         elif isinstance(item, dict):
             if "id" in item and ("text_latex" in item or "text" in item):
                 bid = str(item.get("id")).strip()
-                txt = item.get(
-                    "text_latex") if "text_latex" in item else item.get("text")
+                txt = item.get("text_latex") if "text_latex" in item else item.get("text")
                 if not isinstance(txt, str):
-                    warnings.append(
-                        f"Bullet with id {bid} has non-string text, skipped")
+                    warnings.append(f"Bullet with id {bid} has non-string text, skipped")
                     continue
                 if not bid:
                     bid = allocate_id(txt)
                 if bid in used_ids:
-                    warnings.append(
-                        f"Duplicate bullet id {bid} detected, reassigned")
+                    warnings.append(f"Duplicate bullet id {bid} detected, reassigned")
                     bid = allocate_id(txt)
                 used_ids.add(bid)
                 normalized.append({"id": bid, "text_latex": txt})
             else:
-                warnings.append(
-                    "Found bullet dict not in expected shape, skipped")
+                warnings.append("Found bullet dict not in expected shape, skipped")
         else:
             warnings.append("Found bullet item not string or dict, skipped")
 
@@ -134,7 +198,18 @@ def normalize_bullets(bullets: Any) -> Tuple[List[Dict[str, Any]], List[str]]:
 
 
 def convert(input_path: Path) -> Tuple[Dict[str, Any], List[str]]:
-    data = json.loads(input_path.read_text(encoding="utf-8"))
+    """Convert.
+
+    Args:
+        input_path: Filesystem path for input.
+
+    Returns:
+        Tuple of results.
+    """
+    try:
+        data = json.loads(input_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in {input_path}") from exc
     warnings: List[str] = []
 
     data.setdefault("schema_version", "my_experience_v2")
@@ -174,21 +249,19 @@ def convert(input_path: Path) -> Tuple[Dict[str, Any], List[str]]:
 
 
 def main() -> None:
-    import argparse
-
+    """Main.
+    """
     p = argparse.ArgumentParser()
     p.add_argument("--input", type=str, help="Path to input JSON file")
-    p.add_argument("--output", type=str,
-                   help="Path to write converted JSON file")
-    p.add_argument("--in-place", type=str,
-                   help="Convert and overwrite this JSON file")
-    p.add_argument("--print-warnings", action="store_true",
-                   help="Print warnings to stderr")
+    p.add_argument("--output", type=str, help="Path to write converted JSON file")
+    p.add_argument("--in-place", type=str, help="Convert and overwrite this JSON file")
+    p.add_argument("--print-warnings", action="store_true", help="Print warnings to stderr")
     args = p.parse_args()
 
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+
     if bool(args.in_place) == bool(args.input):
-        raise SystemExit(
-            "Provide exactly one of --in-place or --input/--output")
+        raise SystemExit("Provide exactly one of --in-place or --input/--output")
 
     if args.in_place:
         in_path = Path(args.in_place)
@@ -203,13 +276,16 @@ def main() -> None:
         raise SystemExit(f"Input file not found: {in_path}")
 
     converted, warnings = convert(in_path)
-    out_path.write_text(json.dumps(
-        converted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        json.dumps(converted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
 
     if args.print_warnings and warnings:
-        import sys
         for w in warnings:
             print(w, file=sys.stderr)
+    elif warnings:
+        logger.info("Conversion completed with %s warnings.", len(warnings))
 
 
 if __name__ == "__main__":

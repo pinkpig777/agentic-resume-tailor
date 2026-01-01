@@ -11,6 +11,11 @@ env/
 build/
 dist/
 *.egg-info/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 
 # Agent & LangChain
 .langsmith/
@@ -27,6 +32,8 @@ output/
 # personal data
 data/my_experience.json
 data/raw_experience_data.json
+config/user_settings.local.json
+templates/resume.local.tex
 # OS & IDE
 .DS_Store
 .vscode/
@@ -37,4 +44,5 @@ data/raw_experience_data.json
 .dockerignore
 .cache_docker/
 
-
+# uv
+uv.lock

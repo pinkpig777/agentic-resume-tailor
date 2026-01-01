@@ -32,13 +32,13 @@ services:
     env_file:
       - .env
     environment:
-      # IMPORTANT: in Docker, Streamlit must call the backend by service name
-      ART_API_URL: http://api:8000
+      USER_SETTINGS_FILE: /app/config/user_settings.docker.json
     command: streamlit run /app/src/app.py --server.address=0.0.0.0 --server.port=8501
     ports:
       - "8501:8501"
     volumes:
       - ./src:/app/src
+      - ./config:/app/config
     depends_on:
       api:
         condition: service_healthy

@@ -1,0 +1,69 @@
+{
+  "run_id": "RUN_ID",
+  "created_at": "CREATED_AT",
+  "profile_used": false,
+  "loop_config": {
+    "max_iters": 2,
+    "threshold": 70,
+    "per_query_k": 8,
+    "final_k": 24,
+    "max_bullets": 8,
+    "alpha": 0.7,
+    "must_weight": 0.8,
+    "boost_weight": 1.6,
+    "boost_top_n_missing": 4
+  },
+  "best_iteration_index": 0,
+  "selected_ids": [
+    "<ID>",
+    "<ID>",
+    "<ID>",
+    "<ID>",
+    "<ID>",
+    "<ID>",
+    "<ID>",
+    "<ID>"
+  ],
+  "iterations": [
+    {
+      "iteration": 0,
+      "queries_used": [
+        "<QUERY>"
+      ],
+      "selected_ids": [
+        "<ID>",
+        "<ID>",
+        "<ID>",
+        "<ID>",
+        "<ID>",
+        "<ID>",
+        "<ID>",
+        "<ID>"
+      ],
+      "candidate_count": 8,
+      "scored": false
+    },
+    {
+      "iteration": 1,
+      "queries_used": [
+        "<QUERY>"
+      ],
+      "selected_ids": [
+        "<ID>",
+        "<ID>",
+        "<ID>",
+        "<ID>",
+        "<ID>",
+        "<ID>",
+        "<ID>",
+        "<ID>"
+      ],
+      "candidate_count": 8,
+      "scored": false
+    }
+  ],
+  "artifacts": {
+    "pdf": "RUN_ID.pdf",
+    "tex": "RUN_ID.tex"
+  }
+}

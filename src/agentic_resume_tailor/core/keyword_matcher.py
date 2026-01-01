@@ -1,9 +1,10 @@
 import json
-import os
+import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
+from agentic_resume_tailor.settings import get_settings
 
 # ----------------------------
 # Config loaders
@@ -27,7 +28,19 @@ DEFAULT_FAMILY_CONFIG: Dict[str, Any] = {
 }
 
 
+logger = logging.getLogger(__name__)
+
+
 def _load_json(path: str, fallback: Dict[str, Any]) -> Dict[str, Any]:
+    """Load a JSON file with fallback defaults.
+
+    Args:
+        path: Filesystem path.
+        fallback: The fallback value.
+
+    Returns:
+        Dictionary result.
+    """
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -35,15 +48,16 @@ def _load_json(path: str, fallback: Dict[str, Any]) -> Dict[str, Any]:
             return fallback
         return data
     except FileNotFoundError:
-        print(f"⚠️ {path} not found; using empty config")
+        logger.warning("%s not found; using empty config", path)
         return fallback
     except Exception as e:
-        print(f"⚠️ Failed to load {path}: {e}; using empty config")
+        logger.warning("Failed to load %s: %s; using empty config", path, e)
         return fallback
 
 
-CANON_PATH = os.environ.get("ART_CANON_CONFIG", "config/canonicalization.json")
-FAMILY_PATH = os.environ.get("ART_FAMILY_CONFIG", "config/families.json")
+_settings = get_settings()
+CANON_PATH = _settings.canon_config
+FAMILY_PATH = _settings.family_config
 
 _CANON_CONFIG = _load_json(CANON_PATH, DEFAULT_CANON_CONFIG)
 _FAMILY_CONFIG = _load_json(FAMILY_PATH, DEFAULT_FAMILY_CONFIG)
@@ -53,7 +67,18 @@ _FAMILY_CONFIG = _load_json(FAMILY_PATH, DEFAULT_FAMILY_CONFIG)
 # Canonicalization helpers
 # ----------------------------
 
+
 def _base_normalize(text: str, keep_chars: str, collapse_ws: bool = True) -> str:
+    """Normalize text for canonicalization.
+
+    Args:
+        text: The text value.
+        keep_chars: The keep chars value.
+        collapse_ws: The collapse ws value (optional).
+
+    Returns:
+        String result.
+    """
     s = (text or "").lower().strip()
     if collapse_ws:
         s = re.sub(r"\s+", " ", s)
@@ -66,12 +91,20 @@ def _base_normalize(text: str, keep_chars: str, collapse_ws: bool = True) -> str
 
 
 def _build_variant_to_canon_map(canon_cfg: Dict[str, Any]) -> Dict[str, str]:
+    """Build a variant-to-canonical mapping.
+
+    Args:
+        canon_cfg: The canon config value.
+
+    Returns:
+        Dictionary result.
+    """
     opts = canon_cfg.get("options", {})
     keep_chars = str(opts.get("keep_chars", "+#./-"))
     collapse_ws = bool(opts.get("collapse_whitespace", True))
 
     m: Dict[str, str] = {}
-    for g in (canon_cfg.get("canon_groups") or []):
+    for g in canon_cfg.get("canon_groups") or []:
         if not isinstance(g, dict):
             continue
         canonical = g.get("canonical")
@@ -94,6 +127,14 @@ _VARIANT_TO_CANON = _build_variant_to_canon_map(_CANON_CONFIG)
 
 
 def canonicalize_term(term: str) -> str:
+    """Canonicalize a single term for matching.
+
+    Args:
+        term: The term value.
+
+    Returns:
+        String result.
+    """
     opts = _CANON_CONFIG.get("options", {})
     keep_chars = str(opts.get("keep_chars", "+#./-"))
     collapse_ws = bool(opts.get("collapse_whitespace", True))
@@ -115,9 +156,13 @@ def canonicalize_term(term: str) -> str:
 
 
 def canonicalize_text(text: str) -> str:
-    """
-    Normalize text and also replace known variants -> canonical.
-    This is what makes matching work without hardcoding.
+    """Canonicalize free text for matching.
+
+    Args:
+        text: The text value.
+
+    Returns:
+        String result.
     """
     opts = _CANON_CONFIG.get("options", {})
     keep_chars = str(opts.get("keep_chars", "+#./-"))
@@ -143,20 +188,20 @@ def canonicalize_text(text: str) -> str:
 # Bullet text normalization (LaTeX-aware)
 # ----------------------------
 
-_LATEX_TWO_ARGS = re.compile(
-    r"\\[a-zA-Z]+\*?(?:\[[^\]]*\])?\{([^{}]*)\}\{([^{}]*)\}"
-)
-_LATEX_ONE_ARG = re.compile(
-    r"\\[a-zA-Z]+\*?(?:\[[^\]]*\])?\{([^{}]*)\}"
-)
+_LATEX_TWO_ARGS = re.compile(r"\\[a-zA-Z]+\*?(?:\[[^\]]*\])?\{([^{}]*)\}\{([^{}]*)\}")
+_LATEX_ONE_ARG = re.compile(r"\\[a-zA-Z]+\*?(?:\[[^\]]*\])?\{([^{}]*)\}")
 _LATEX_CMD_ONLY = re.compile(r"\\[a-zA-Z]+\*?")
 _BRACES = re.compile(r"[{}]")
 
 
 def latex_to_plain_for_matching(latex: str) -> str:
-    """
-    Remove common LaTeX markup while keeping human-readable content.
-    ONLY used for matching / coverage checks.
+    """Strip LaTeX markup for matching.
+
+    Args:
+        latex: The latex value.
+
+    Returns:
+        String result.
     """
     s = latex or ""
 
@@ -189,13 +234,19 @@ def latex_to_plain_for_matching(latex: str) -> str:
 # Families (generic -> specifics)
 # ----------------------------
 
+
 def load_families() -> Dict[str, List[str]]:
+    """Load family mappings for keyword matching.
+
+    Returns:
+        Dictionary result.
+    """
     fam_cfg = _FAMILY_CONFIG
     if fam_cfg.get("schema_version") != "families_v1":
         return {}
 
     out: Dict[str, List[str]] = {}
-    for f in (fam_cfg.get("families") or []):
+    for f in fam_cfg.get("families") or []:
         if not isinstance(f, dict):
             continue
         generic = f.get("generic")
@@ -203,8 +254,7 @@ def load_families() -> Dict[str, List[str]]:
         if not isinstance(generic, str) or not generic.strip():
             continue
         generic_c = canonicalize_term(generic)
-        sats_c = [canonicalize_term(x)
-                  for x in sats if isinstance(x, str) and x.strip()]
+        sats_c = [canonicalize_term(x) for x in sats if isinstance(x, str) and x.strip()]
         out[generic_c] = list(dict.fromkeys(sats_c))
     return out
 
@@ -221,7 +271,7 @@ MatchTier = str  # "exact" | "family" | "substring" | "none"
 
 @dataclass
 class MatchEvidence:
-    keyword: str                 # canonical
+    keyword: str  # canonical
     tier: MatchTier
     satisfied_by: Optional[str]
     bullet_ids: List[str]
@@ -229,12 +279,28 @@ class MatchEvidence:
 
 
 def _safe_word_boundary_regex(phrase: str) -> re.Pattern:
+    """Build a word-boundary regex for a phrase.
+
+    Args:
+        phrase: The phrase value.
+
+    Returns:
+        Result value.
+    """
     parts = [re.escape(p) for p in phrase.split()]
     pat = r"(?<![a-z0-9])" + r"\s+".join(parts) + r"(?![a-z0-9])"
     return re.compile(pat)
 
 
 def _is_safe_substring_token(t: str) -> bool:
+    """Check if a token is safe for substring matching.
+
+    Args:
+        t: The t value.
+
+    Returns:
+        True if the condition is met, otherwise False.
+    """
     if len(t) < 6:
         return False
     return bool(re.fullmatch(r"[a-z0-9]+", t))
@@ -244,9 +310,16 @@ def match_keywords_against_bullets(
     keywords: List[Dict[str, Any]],
     bullets: List[Dict[str, Any]],
 ) -> List[MatchEvidence]:
-    """
-    keywords: list of {raw, canonical, ...} (from TargetProfileV1 lists)
-    bullets: list of {bullet_id, text_latex, meta}
+    """Match profile keywords against bullet text.
+
+    Tiers: exact phrase, family mapping, safe substring, or none.
+
+    Args:
+        keywords: The keywords value.
+        bullets: The bullets value.
+
+    Returns:
+        List of results.
     """
     bullet_text: Dict[str, str] = {}
     for b in bullets:
@@ -271,8 +344,9 @@ def match_keywords_against_bullets(
                     exact_hits.append(bid)
 
         if exact_hits:
-            evidences.append(MatchEvidence(
-                keyword=k, tier="exact", satisfied_by=k, bullet_ids=exact_hits))
+            evidences.append(
+                MatchEvidence(keyword=k, tier="exact", satisfied_by=k, bullet_ids=exact_hits)
+            )
             continue
 
         # Tier 2: family match (generic keyword satisfied by specific)
@@ -282,16 +356,16 @@ def match_keywords_against_bullets(
             sat_term = None
             for spec in fam:
                 rx2 = _safe_word_boundary_regex(spec)
-                hit_bids = [bid for bid, txt in bullet_text.items()
-                            if rx2.search(txt)]
+                hit_bids = [bid for bid, txt in bullet_text.items() if rx2.search(txt)]
                 if hit_bids:
                     fam_hits = hit_bids
                     sat_term = spec
                     break
             if fam_hits:
                 evidences.append(
-                    MatchEvidence(keyword=k, tier="family",
-                                  satisfied_by=sat_term, bullet_ids=fam_hits)
+                    MatchEvidence(
+                        keyword=k, tier="family", satisfied_by=sat_term, bullet_ids=fam_hits
+                    )
                 )
                 continue
 
@@ -306,16 +380,28 @@ def match_keywords_against_bullets(
                 sat_term = k
 
         if sub_hits:
-            evidences.append(MatchEvidence(
-                keyword=k, tier="substring", satisfied_by=sat_term, bullet_ids=sub_hits))
+            evidences.append(
+                MatchEvidence(
+                    keyword=k, tier="substring", satisfied_by=sat_term, bullet_ids=sub_hits
+                )
+            )
         else:
-            evidences.append(MatchEvidence(
-                keyword=k, tier="none", satisfied_by=None, bullet_ids=[]))
+            evidences.append(
+                MatchEvidence(keyword=k, tier="none", satisfied_by=None, bullet_ids=[])
+            )
 
     return evidences
 
 
 def extract_profile_keywords(profile: Any) -> Dict[str, List[Dict[str, Any]]]:
+    """Extract must-have and nice-to-have lists.
+
+    Args:
+        profile: The profile value.
+
+    Returns:
+        Dictionary result.
+    """
     if hasattr(profile, "model_dump"):
         profile = profile.model_dump()
 
@@ -331,16 +417,19 @@ def extract_profile_keywords(profile: Any) -> Dict[str, List[Dict[str, Any]]]:
 # NEW: build match corpus (skills + selected bullets)
 # ----------------------------
 
+
 def build_match_corpus(
     resume_data: Dict[str, Any],
     selected_bullets: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """
-    Build a unified matching corpus so keywords can be satisfied by:
-    - Skills section text (pseudo-bullets)
-    - Selected experience/project bullets
+    """Build a matching corpus from skills and bullets.
 
-    This avoids false "missing" when the keyword exists in Skills.
+    Args:
+        resume_data: Resume data snapshot.
+        selected_bullets: The selected bullets value.
+
+    Returns:
+        List of results.
     """
     corpus: List[Dict[str, Any]] = []
 
@@ -348,11 +437,13 @@ def build_match_corpus(
     if isinstance(skills, dict):
         for field, val in skills.items():
             if isinstance(val, str) and val.strip():
-                corpus.append({
-                    "bullet_id": f"skills:{field}",
-                    "text_latex": val,
-                    "meta": {"section": "skills", "field": field},
-                })
+                corpus.append(
+                    {
+                        "bullet_id": f"skills:{field}",
+                        "text_latex": val,
+                        "meta": {"section": "skills", "field": field},
+                    }
+                )
 
     # Add selected bullets as-is
     corpus.extend(selected_bullets or [])
