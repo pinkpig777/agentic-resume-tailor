@@ -356,32 +356,26 @@ def _render_sidebar(api_url: str) -> Tuple[bool, Any, str]:
         st.session_state["_health_force_refresh"] = time.time()
         ok, info = get_health_cached(api_url)
 
-    page = st.session_state.get("page", "Generate")
+    params = st.query_params
+    page_val = params.get("page", "Generate")
+    page = page_val[0] if isinstance(page_val, list) else page_val
     nav_items = [
         ("Generate", "✨"),
         ("Resume Editor", "🧩"),
         ("Settings", "⚙️"),
     ]
-    icon_map = {name: icon_text for name, icon_text in nav_items}
-    nav_labels = [name for name, _ in nav_items]
     st.sidebar.markdown(
         f"""
         <div class="sidebar-card">
           <div style="font-weight:600; margin-bottom:6px;">Navigation</div>
+          {''.join(
+              f"<a class='nav-link {'active' if name == page else ''}' href='?page={name}'>{icon} {name}</a>"
+              for name, icon in nav_items
+          )}
         </div>
         """,
         unsafe_allow_html=True,
     )
-    selected = st.sidebar.radio(
-        "Navigation",
-        nav_labels,
-        index=nav_labels.index(page) if page in nav_labels else 0,
-        format_func=lambda x: f"{icon_map.get(x, '')} {x}",
-        label_visibility="collapsed",
-    )
-    st.sidebar.markdown("</div>", unsafe_allow_html=True)
-    st.session_state["page"] = selected
-    page = selected
     return ok, info, page
 
 
