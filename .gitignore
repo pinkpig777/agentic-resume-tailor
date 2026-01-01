@@ -42,3 +42,5 @@ data/raw_experience_data.json
 .dockerignore
 .cache_docker/
 
+# uv
+uv.lock
