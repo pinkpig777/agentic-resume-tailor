@@ -886,7 +886,7 @@ def render_resume_editor(api_url: str) -> None:
             if col_delete.button("Delete education", key=f"delete_edu_{edu_id}"):
                 ok, _, err = api_request("DELETE", api_url, f"/education/{edu_id}")
                 if ok:
-                    _set_editor_message("success", f"Deleted education entry {edu_id}.")
+                    _set_editor_message("success", "Deleted education entry.")
                     st.rerun()
                 else:
                     st.error(err)
@@ -942,7 +942,7 @@ def render_resume_editor(api_url: str) -> None:
                         )
                         if ok:
                             st.session_state[edit_key] = False
-                            _set_editor_message("success", f"Updated education {edu_id}.")
+                            _set_editor_message("success", "Updated education entry.")
                             st.rerun()
                         else:
                             st.error(err)
@@ -1015,7 +1015,7 @@ def render_resume_editor(api_url: str) -> None:
             if col_delete.button("Delete experience", key=f"delete_exp_{job_id}"):
                 ok, _, err = api_request("DELETE", api_url, f"/experiences/{job_id}")
                 if ok:
-                    _set_editor_message("success", f"Deleted experience {job_id}.")
+                    _set_editor_message("success", "Deleted experience.")
                     st.rerun()
                 else:
                     st.error(err)
@@ -1053,7 +1053,7 @@ def render_resume_editor(api_url: str) -> None:
                         )
                         if ok:
                             st.session_state[edit_key] = False
-                            _set_editor_message("success", f"Updated experience {job_id}.")
+                            _set_editor_message("success", "Updated experience.")
                             st.rerun()
                         else:
                             st.error(err)
@@ -1078,7 +1078,7 @@ def render_resume_editor(api_url: str) -> None:
                     )
                     if ok:
                         st.session_state[new_key] = ""
-                        _set_editor_message("success", f"Added bullet to {job_id}.")
+                        _set_editor_message("success", "Added bullet to experience.")
                         st.rerun()
                     else:
                         st.error(err)
@@ -1118,7 +1118,7 @@ def render_resume_editor(api_url: str) -> None:
             if col_delete.button("Delete project", key=f"delete_proj_{project_id}"):
                 ok, _, err = api_request("DELETE", api_url, f"/projects/{project_id}")
                 if ok:
-                    _set_editor_message("success", f"Deleted project {project_id}.")
+                    _set_editor_message("success", "Deleted project.")
                     st.rerun()
                 else:
                     st.error(err)
@@ -1147,7 +1147,7 @@ def render_resume_editor(api_url: str) -> None:
                         )
                         if ok:
                             st.session_state[edit_key] = False
-                            _set_editor_message("success", f"Updated project {project_id}.")
+                            _set_editor_message("success", "Updated project.")
                             st.rerun()
                         else:
                             st.error(err)
@@ -1172,7 +1172,7 @@ def render_resume_editor(api_url: str) -> None:
                     )
                     if ok:
                         st.session_state[new_key] = ""
-                        _set_editor_message("success", f"Added bullet to {project_id}.")
+                        _set_editor_message("success", "Added bullet to project.")
                         st.rerun()
                     else:
                         st.error(err)
