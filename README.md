@@ -44,7 +44,8 @@ Notes:
 ### 3) Adjust defaults (Settings)
 
 - Open **Settings** to change default generation and ingest behavior.
-- Settings are loaded from `config/user_settings.json` and overridden by:
+- Settings are loaded from `config/user_settings.json`, then a runtime-specific override file is
+  auto-created on first start and used for saves:
   - `config/user_settings.local.json` for local runs
   - `config/user_settings.docker.json` for Docker/Compose runs
 - If you enable **Auto re-ingest on save**, the vector store refreshes after each edit.
