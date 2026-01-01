@@ -188,6 +188,14 @@ def _inject_app_styles() -> None:
         .main h1 {
           margin-top: 0.15rem;
         }
+        .app-topbar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 0.1rem 0 0.7rem;
+          margin-bottom: 1.1rem;
+          border-bottom: 2px solid #e5e7eb;
+        }
         @keyframes rise-in {
           from {
             opacity: 0;
@@ -197,6 +205,17 @@ def _inject_app_styles() -> None:
             opacity: 1;
             transform: translateY(0);
           }
+        }
+        .topbar-brand {
+          font-size: 2rem;
+          font-weight: 700;
+          letter-spacing: -0.02em;
+          color: #000000;
+          padding: 0;
+          line-height: 1.05;
+          display: flex;
+          align-items: center;
+          height: auto;
         }
         .topbar-status {
           display: inline-flex;
@@ -424,6 +443,18 @@ def _inject_app_styles() -> None:
           }
         }
         </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_brand_bar(title: str = "Agentic Resume Tailor") -> None:
+    """Render the app brand in a compact top bar."""
+    st.markdown(
+        f"""
+        <div class="app-topbar">
+          <div class="topbar-brand">{title}</div>
+        </div>
         """,
         unsafe_allow_html=True,
     )
