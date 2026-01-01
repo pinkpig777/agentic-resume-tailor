@@ -30,6 +30,17 @@ Edit app settings (optional):
 - `config/user_settings.json` for local runs
 - `config/user_settings.docker.json` for Docker Compose
 
+### Build the Docker Image
+```bash
+docker build -t resume-agent .  
+```
+
+
+### Initial Chroma Ingestion
+```bash
+docker compose run --rm api python /app/src/ingest.py
+```
+
 ### Deploy with Docker Compose (recommended)
 
 ```bash
