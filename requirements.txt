@@ -21,6 +21,8 @@ python-multipart
 
 # Dev tooling
 ruff
+pytest
+pytest-cov
 
 # Database
 sqlalchemy
