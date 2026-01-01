@@ -220,15 +220,17 @@ def _inject_app_styles() -> None:
         .topbar-status {
           display: inline-flex;
           align-items: center;
-          gap: 8px;
+          justify-content: center;
+          gap: 0;
           height: 44px;
-          padding: 0 12px;
+          padding: 0;
           border-radius: 999px;
-          background: #ffffff;
-          border: 2px solid #000000;
+          background: transparent;
+          border: 0;
           font-size: 0.85rem;
           font-weight: 600;
           white-space: nowrap;
+          width: 100%;
         }
         .art-card {
           background: #ffffff;
@@ -471,14 +473,13 @@ def _render_sidebar(api_url: str, active_page: str) -> Tuple[bool, Any]:
         Tuple of results including health info.
     """
     ok, info = get_health_cached(api_url)
-    status_icon = "🟢" if ok else "🔴"
     status = "Healthy" if ok else "Down"
 
     st.sidebar.markdown(
         f"""
         <div class="sidebar-card">
           <div class="sidebar-title">Server Health</div>
-          <div class="topbar-status">{status_icon} {status}</div>
+          <div class="topbar-status">{status}</div>
         </div>
         """,
         unsafe_allow_html=True,
