@@ -24,22 +24,51 @@ class ScoreResult:
 
 
 def clamp01(x: float) -> float:
-    """Clamp a float value to the [0, 1] range."""
+    """Clamp a float value to the [0, 1] range.
+
+    Args:
+        x: Input vector.
+
+    Returns:
+        Float result.
+    """
     return max(0.0, min(1.0, x))
 
 
 def _mean(xs: List[float]) -> float:
-    """Compute the mean of a list of floats."""
+    """Compute the mean of a list of floats.
+
+    Args:
+        xs: The xs value.
+
+    Returns:
+        Float result.
+    """
     return sum(xs) / len(xs) if xs else 0.0
 
 
 def _candidate_weight(c: Any) -> float:
-    """Return the selection weight for a candidate."""
+    """Return the selection weight for a candidate.
+
+    Args:
+        c: The c value.
+
+    Returns:
+        Float result.
+    """
     return float(getattr(c, "effective_total_weighted", getattr(c, "total_weighted", 0.0)) or 0.0)
 
 
 def compute_retrieval_norm(selected_candidates: List[Any], all_candidates: List[Any]) -> float:
-    """Compute a normalized retrieval score."""
+    """Compute a normalized retrieval score.
+
+    Args:
+        selected_candidates: Selected candidate bullets.
+        all_candidates: All candidate bullets.
+
+    Returns:
+        Float result.
+    """
     if not selected_candidates or not all_candidates:
         return 0.0
 
@@ -61,7 +90,15 @@ def compute_retrieval_norm(selected_candidates: List[Any], all_candidates: List[
 
 
 def _canonical_list(profile_keywords: Dict[str, List[Dict[str, str]]], key: str) -> List[str]:
-    """Extract canonical keywords for a category."""
+    """Extract canonical keywords for a category.
+
+    Args:
+        profile_keywords: The profile keywords value.
+        key: The key value.
+
+    Returns:
+        List of results.
+    """
     items = profile_keywords.get(key, []) or []
     out: List[str] = []
     for k in items:
@@ -80,7 +117,15 @@ def _canonical_list(profile_keywords: Dict[str, List[Dict[str, str]]], key: str)
 
 
 def _best_tier_per_keyword(keywords: List[str], evidences) -> Tuple[float, List[str]]:
-    """Compute coverage tier and missing keywords."""
+    """Compute coverage tier and missing keywords.
+
+    Args:
+        keywords: The keywords value.
+        evidences: The evidences value.
+
+    Returns:
+        Tuple of results.
+    """
     if not keywords:
         return 1.0, []
 
@@ -106,7 +151,17 @@ def compute_coverage_norm(
     nice_evs,
     must_weight: float = 0.8,
 ) -> Tuple[float, List[str], List[str]]:
-    """Compute a normalized coverage score."""
+    """Compute a normalized coverage score.
+
+    Args:
+        profile_keywords: The profile keywords value.
+        must_evs: The must evs value.
+        nice_evs: The nice evs value.
+        must_weight: Must-have weight in coverage scoring (optional).
+
+    Returns:
+        Tuple of results.
+    """
     must_weight = clamp01(float(must_weight))
     nice_weight = 1.0 - must_weight
 
@@ -132,7 +187,22 @@ def score(
     alpha: float = 0.7,
     must_weight: float = 0.8,
 ) -> ScoreResult:
-    """Compute the hybrid score for a selection."""
+    """Compute the hybrid score for a selection.
+
+    Args:
+        selected_candidates: Selected candidate bullets.
+        all_candidates: All candidate bullets.
+        profile_keywords: The profile keywords value.
+        must_evs_all: The must evs all value.
+        nice_evs_all: The nice evs all value.
+        must_evs_bullets_only: The must evs bullets only value.
+        nice_evs_bullets_only: The nice evs bullets only value.
+        alpha: Retrieval weight in hybrid scoring (optional).
+        must_weight: Must-have weight in coverage scoring (optional).
+
+    Returns:
+        Result value.
+    """
     alpha = clamp01(float(alpha))
     must_weight = clamp01(float(must_weight))
 

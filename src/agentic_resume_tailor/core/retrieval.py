@@ -41,17 +41,39 @@ class Candidate:
 
 
 def _l2norm(x: np.ndarray) -> float:
-    """Return the L2 norm with a small epsilon for stability."""
+    """Return the L2 norm with a small epsilon for stability.
+
+    Args:
+        x: Input vector.
+
+    Returns:
+        Float result.
+    """
     return float(np.linalg.norm(x) + 1e-12)
 
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
-    """Compute cosine similarity between two vectors."""
+    """Compute cosine similarity between two vectors.
+
+    Args:
+        a: First vector.
+        b: Second vector.
+
+    Returns:
+        Float result.
+    """
     return float(np.dot(a, b) / (_l2norm(a) * _l2norm(b)))
 
 
 def normalize_query_text(q: str) -> str:
-    """Normalize query text for embeddings."""
+    """Normalize query text for embeddings.
+
+    Args:
+        q: Query string.
+
+    Returns:
+        String result.
+    """
     # Keep it simple and embedding-friendly (no boolean logic).
     q = (q or "").strip()
     q = " ".join(q.split())
@@ -71,7 +93,14 @@ _QUANT_PATTERNS = [
 
 
 def _compute_quant_bonus(text_latex: str) -> float:
-    """Compute a small bonus for quantified bullets."""
+    """Compute a small bonus for quantified bullets.
+
+    Args:
+        text_latex: LaTeX-ready bullet text.
+
+    Returns:
+        Float result.
+    """
     plain = latex_to_plain_for_matching(text_latex or "")
     if not plain:
         return 0.0
@@ -83,13 +112,18 @@ def _compute_quant_bonus(text_latex: str) -> float:
 
 
 def _build_query_items(jd_parser_result: Any) -> List[QueryItem]:
-    """
-    Build QueryItem objects from a JD parser result.
+    """Build QueryItem objects from a JD parser result.
 
     Accepts:
     - TargetProfileV1 with retrieval_plan.experience_queries
     - object with experience_queries list[str]
     - list[str] fallback queries
+
+    Args:
+        jd_parser_result: The job description parser result value.
+
+    Returns:
+        List of results.
     """
     # Case 3: list[str]
     if isinstance(jd_parser_result, list) and all(isinstance(x, str) for x in jd_parser_result):
@@ -136,13 +170,22 @@ def multi_query_retrieve(
     per_query_k: int = 10,
     final_k: int = 30,
 ) -> List[Candidate]:
-    """
-    Retrieve and rank candidates with multi-query search.
+    """Retrieve and rank candidates with multi-query search.
 
     Steps:
     - run per-query search in Chroma
     - merge hits by bullet_id
     - rerank using explicit cosine + quant bonus
+
+    Args:
+        collection: Chroma collection instance.
+        embedding_fn: Embedding function.
+        jd_parser_result: The job description parser result value.
+        per_query_k: Top-k results per query (optional).
+        final_k: Final candidate pool size (optional).
+
+    Returns:
+        List of results.
     """
     query_items = _build_query_items(jd_parser_result)
 

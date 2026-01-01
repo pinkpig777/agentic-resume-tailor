@@ -43,7 +43,14 @@ class LoopResult:
 
 
 def _dedupe_keep_order(xs: List[str]) -> List[str]:
-    """Deduplicate strings while preserving order."""
+    """Deduplicate strings while preserving order.
+
+    Args:
+        xs: The xs value.
+
+    Returns:
+        List of results.
+    """
     seen = set()
     out = []
     for x in xs:
@@ -58,7 +65,14 @@ def _dedupe_keep_order(xs: List[str]) -> List[str]:
 
 
 def build_skills_pseudo_bullet(static_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Build a pseudo-bullet for skills to include in scoring."""
+    """Build a pseudo-bullet for skills to include in scoring.
+
+    Args:
+        static_data: Exported resume data snapshot.
+
+    Returns:
+        Dictionary result.
+    """
     skills = static_data.get("skills", {}) or {}
     parts = []
     for k in ["languages_frameworks", "ai_ml", "db_tools"]:
@@ -72,7 +86,14 @@ def build_skills_pseudo_bullet(static_data: Dict[str, Any]) -> Optional[Dict[str
 
 
 def _profile_to_query_payload(profile: Any) -> Dict[str, Any]:
-    """Convert a parsed JD profile into a retrieval payload."""
+    """Convert a parsed JD profile into a retrieval payload.
+
+    Args:
+        profile: The profile value.
+
+    Returns:
+        Dictionary result.
+    """
     if hasattr(profile, "model_dump"):
         return profile.model_dump()
     if isinstance(profile, dict):
@@ -86,7 +107,16 @@ def _boost_query_payload(
     boost_terms: List[str],
     boost_weight: float,
 ) -> Tuple[Any, List[str]]:
-    """Apply boost terms and return payload plus queries used."""
+    """Apply boost terms and return payload plus queries used.
+
+    Args:
+        base_profile_or_queries: The base profile or queries value.
+        boost_terms: The boost terms value.
+        boost_weight: Boost query weight for missing terms.
+
+    Returns:
+        Tuple of results.
+    """
     boost_terms = _dedupe_keep_order([t.lower().strip() for t in boost_terms])
 
     # Case A: TargetProfile-like
@@ -165,11 +195,21 @@ def run_loop(
     base_profile_or_queries: Any,  # TargetProfile OR list[str]
     cfg: LoopConfig,
 ) -> LoopResult:
-    """
-    Run the retrieval/selection/scoring loop with optional boosts.
+    """Run the retrieval/selection/scoring loop with optional boosts.
 
     The loop does not call OpenAI; it only re-runs retrieval with boosted terms
     based on missing must-have keywords (bullets-only).
+
+    Args:
+        jd_text: Job description text.
+        static_data: Exported resume data snapshot.
+        collection: Chroma collection instance.
+        embedding_fn: Embedding function.
+        base_profile_or_queries: The base profile or queries value.
+        cfg: The config value.
+
+    Returns:
+        Result value.
     """
 
     iterations: List[Dict[str, Any]] = []

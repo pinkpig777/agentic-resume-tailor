@@ -7,12 +7,23 @@ from typing import Any, Dict, List, Optional
 
 
 def utc_now_iso() -> str:
-    """Return the current UTC timestamp in ISO format."""
+    """Return the current UTC timestamp in ISO format.
+
+    Returns:
+        String result.
+    """
     return datetime.now(timezone.utc).isoformat()
 
 
 def _safe_candidate_dict(c: Any) -> Dict[str, Any]:
-    """Serialize a candidate into a compact JSON-friendly dict."""
+    """Serialize a candidate into a compact JSON-friendly dict.
+
+    Args:
+        c: The c value.
+
+    Returns:
+        Dictionary result.
+    """
     d = {
         "bullet_id": getattr(c, "bullet_id", ""),
         "source": getattr(c, "source", ""),
@@ -50,7 +61,14 @@ def _safe_candidate_dict(c: Any) -> Dict[str, Any]:
 
 
 def _evidence_list(evidences: List[Any]) -> List[Dict[str, Any]]:
-    """Serialize evidence items into JSON-friendly dicts."""
+    """Serialize evidence items into JSON-friendly dicts.
+
+    Args:
+        evidences: The evidences value.
+
+    Returns:
+        List of results.
+    """
     out: List[Dict[str, Any]] = []
     for e in evidences or []:
         out.append(
@@ -84,7 +102,26 @@ def build_report(
     # loop history
     iterations: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    """Build a JSON-serializable report for a generation run."""
+    """Build a JSON-serializable report for a generation run.
+
+    Args:
+        jd_text: Job description text.
+        profile: The profile value.
+        config: Configuration mapping.
+        final_iteration_index: The final iteration index value.
+        selected_ids: Selected bullet identifiers.
+        selected_candidates: Selected candidate bullets.
+        all_candidates: All candidate bullets.
+        hybrid: The hybrid value.
+        must_evs_bullets_only: The must evs bullets only value (optional).
+        nice_evs_bullets_only: The nice evs bullets only value (optional).
+        must_evs_all: The must evs all value (optional).
+        nice_evs_all: The nice evs all value (optional).
+        iterations: The iterations value (optional).
+
+    Returns:
+        Dictionary result.
+    """
     profile_dump = None
     if profile is not None:
         try:
@@ -143,7 +180,16 @@ def build_report(
 def write_report_json(
     report: Dict[str, Any], output_dir: str, filename: str = "resume_report.json"
 ) -> str:
-    """Write the report to disk and return its path."""
+    """Write the report to disk and return its path.
+
+    Args:
+        report: The report value.
+        output_dir: Output directory path.
+        filename: The filename value (optional).
+
+    Returns:
+        String result.
+    """
     os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, filename)
     with open(path, "w", encoding="utf-8") as f:

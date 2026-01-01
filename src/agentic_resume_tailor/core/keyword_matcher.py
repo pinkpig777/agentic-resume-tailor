@@ -32,7 +32,15 @@ logger = logging.getLogger(__name__)
 
 
 def _load_json(path: str, fallback: Dict[str, Any]) -> Dict[str, Any]:
-    """Load a JSON file with fallback defaults."""
+    """Load a JSON file with fallback defaults.
+
+    Args:
+        path: Filesystem path.
+        fallback: The fallback value.
+
+    Returns:
+        Dictionary result.
+    """
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -61,7 +69,16 @@ _FAMILY_CONFIG = _load_json(FAMILY_PATH, DEFAULT_FAMILY_CONFIG)
 
 
 def _base_normalize(text: str, keep_chars: str, collapse_ws: bool = True) -> str:
-    """Normalize text for canonicalization."""
+    """Normalize text for canonicalization.
+
+    Args:
+        text: The text value.
+        keep_chars: The keep chars value.
+        collapse_ws: The collapse ws value (optional).
+
+    Returns:
+        String result.
+    """
     s = (text or "").lower().strip()
     if collapse_ws:
         s = re.sub(r"\s+", " ", s)
@@ -74,7 +91,14 @@ def _base_normalize(text: str, keep_chars: str, collapse_ws: bool = True) -> str
 
 
 def _build_variant_to_canon_map(canon_cfg: Dict[str, Any]) -> Dict[str, str]:
-    """Build a variant-to-canonical mapping."""
+    """Build a variant-to-canonical mapping.
+
+    Args:
+        canon_cfg: The canon config value.
+
+    Returns:
+        Dictionary result.
+    """
     opts = canon_cfg.get("options", {})
     keep_chars = str(opts.get("keep_chars", "+#./-"))
     collapse_ws = bool(opts.get("collapse_whitespace", True))
@@ -103,7 +127,14 @@ _VARIANT_TO_CANON = _build_variant_to_canon_map(_CANON_CONFIG)
 
 
 def canonicalize_term(term: str) -> str:
-    """Canonicalize a single term for matching."""
+    """Canonicalize a single term for matching.
+
+    Args:
+        term: The term value.
+
+    Returns:
+        String result.
+    """
     opts = _CANON_CONFIG.get("options", {})
     keep_chars = str(opts.get("keep_chars", "+#./-"))
     collapse_ws = bool(opts.get("collapse_whitespace", True))
@@ -125,7 +156,14 @@ def canonicalize_term(term: str) -> str:
 
 
 def canonicalize_text(text: str) -> str:
-    """Canonicalize free text for matching."""
+    """Canonicalize free text for matching.
+
+    Args:
+        text: The text value.
+
+    Returns:
+        String result.
+    """
     opts = _CANON_CONFIG.get("options", {})
     keep_chars = str(opts.get("keep_chars", "+#./-"))
     collapse_ws = bool(opts.get("collapse_whitespace", True))
@@ -157,7 +195,14 @@ _BRACES = re.compile(r"[{}]")
 
 
 def latex_to_plain_for_matching(latex: str) -> str:
-    """Strip LaTeX markup for matching."""
+    """Strip LaTeX markup for matching.
+
+    Args:
+        latex: The latex value.
+
+    Returns:
+        String result.
+    """
     s = latex or ""
 
     s = (
@@ -191,7 +236,11 @@ def latex_to_plain_for_matching(latex: str) -> str:
 
 
 def load_families() -> Dict[str, List[str]]:
-    """Load family mappings for keyword matching."""
+    """Load family mappings for keyword matching.
+
+    Returns:
+        Dictionary result.
+    """
     fam_cfg = _FAMILY_CONFIG
     if fam_cfg.get("schema_version") != "families_v1":
         return {}
@@ -230,14 +279,28 @@ class MatchEvidence:
 
 
 def _safe_word_boundary_regex(phrase: str) -> re.Pattern:
-    """Build a word-boundary regex for a phrase."""
+    """Build a word-boundary regex for a phrase.
+
+    Args:
+        phrase: The phrase value.
+
+    Returns:
+        Result value.
+    """
     parts = [re.escape(p) for p in phrase.split()]
     pat = r"(?<![a-z0-9])" + r"\s+".join(parts) + r"(?![a-z0-9])"
     return re.compile(pat)
 
 
 def _is_safe_substring_token(t: str) -> bool:
-    """Check if a token is safe for substring matching."""
+    """Check if a token is safe for substring matching.
+
+    Args:
+        t: The t value.
+
+    Returns:
+        True if the condition is met, otherwise False.
+    """
     if len(t) < 6:
         return False
     return bool(re.fullmatch(r"[a-z0-9]+", t))
@@ -247,10 +310,16 @@ def match_keywords_against_bullets(
     keywords: List[Dict[str, Any]],
     bullets: List[Dict[str, Any]],
 ) -> List[MatchEvidence]:
-    """
-    Match profile keywords against bullet text.
+    """Match profile keywords against bullet text.
 
     Tiers: exact phrase, family mapping, safe substring, or none.
+
+    Args:
+        keywords: The keywords value.
+        bullets: The bullets value.
+
+    Returns:
+        List of results.
     """
     bullet_text: Dict[str, str] = {}
     for b in bullets:
@@ -325,7 +394,14 @@ def match_keywords_against_bullets(
 
 
 def extract_profile_keywords(profile: Any) -> Dict[str, List[Dict[str, Any]]]:
-    """Extract must-have and nice-to-have lists."""
+    """Extract must-have and nice-to-have lists.
+
+    Args:
+        profile: The profile value.
+
+    Returns:
+        Dictionary result.
+    """
     if hasattr(profile, "model_dump"):
         profile = profile.model_dump()
 
@@ -346,7 +422,15 @@ def build_match_corpus(
     resume_data: Dict[str, Any],
     selected_bullets: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """Build a matching corpus from skills and bullets."""
+    """Build a matching corpus from skills and bullets.
+
+    Args:
+        resume_data: Resume data snapshot.
+        selected_bullets: The selected bullets value.
+
+    Returns:
+        List of results.
+    """
     corpus: List[Dict[str, Any]] = []
 
     skills = (resume_data or {}).get("skills", {}) or {}

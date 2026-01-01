@@ -10,7 +10,14 @@ logger = logging.getLogger(__name__)
 
 
 def try_parse_jd(jd_text: str) -> Any | None:
-    """Parse a JD with the optional JD parser, falling back on failure."""
+    """Parse a JD with the optional JD parser, falling back on failure.
+
+    Args:
+        jd_text: Job description text.
+
+    Returns:
+        Result value.
+    """
     settings = get_settings()
     if not settings.use_jd_parser:
         return None
@@ -27,7 +34,15 @@ def try_parse_jd(jd_text: str) -> Any | None:
 
 
 def fallback_queries_from_jd(jd_text: str, max_q: int = 6) -> List[str]:
-    """Build heuristic fallback queries from JD text."""
+    """Build heuristic fallback queries from JD text.
+
+    Args:
+        jd_text: Job description text.
+        max_q: Maximum q (optional).
+
+    Returns:
+        List of results.
+    """
     lines = [ln.strip() for ln in jd_text.splitlines() if ln.strip()]
     bulletish = [
         ln.lstrip("-•* ").strip() for ln in lines if ln.strip().startswith(("-", "•", "*"))
