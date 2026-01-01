@@ -1,10 +1,13 @@
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Dict, List, Tuple
 
 import requests
 import streamlit as st
 
 from agentic_resume_tailor.settings import get_settings
+
+GEN_EXECUTOR = ThreadPoolExecutor(max_workers=1)
 
 
 # ----------------------------
@@ -100,6 +103,42 @@ def _fetch_app_settings(api_url: str) -> Tuple[bool, Dict[str, Any], str]:
     if ok and isinstance(data, dict):
         return True, data, ""
     return False, {}, err or "Failed to load settings."
+
+
+def _run_generate(api_url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Run the generate request and return the response payload.
+
+    Args:
+        api_url: Base URL for the API.
+        payload: Request payload.
+
+    Returns:
+        Response JSON payload.
+    """
+    resp = requests.post(f"{api_url}/generate", json=payload, timeout=(3, 600))
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _check_generate_status() -> None:
+    """Update session state if a background generate task completed."""
+    future = st.session_state.get("generate_future")
+    if not isinstance(future, Future):
+        return
+    if not future.done():
+        return
+    st.session_state["generate_future"] = None
+    try:
+        out = future.result()
+    except Exception as exc:
+        st.session_state["generate_error"] = str(exc)
+        return
+    st.session_state["generate_error"] = ""
+    st.session_state["last_run"] = out
+    st.session_state["selection_run_id"] = out.get("run_id")
+    for key in list(st.session_state.keys()):
+        if key.startswith("keep_"):
+            del st.session_state[key]
 
 
 def _set_editor_message(level: str, text: str) -> None:
@@ -310,19 +349,6 @@ def _inject_app_styles() -> None:
     )
 
 
-def _page_from_query() -> str:
-    """Return the active page from query params.
-
-    Returns:
-        Page name.
-    """
-    params = st.experimental_get_query_params()
-    page = (params.get("page") or ["Generate"])[0]
-    if page not in {"Generate", "Resume Editor", "Settings"}:
-        return "Generate"
-    return page
-
-
 def _render_sidebar(api_url: str) -> Tuple[bool, Any, str]:
     """Render sidebar health + navigation.
 
@@ -351,27 +377,33 @@ def _render_sidebar(api_url: str) -> Tuple[bool, Any, str]:
         st.session_state["_health_force_refresh"] = time.time()
         ok, info = get_health_cached(api_url)
 
-    nav_links = []
-    page = _page_from_query()
+    page = st.session_state.get("page", "Generate")
     nav_items = [
         ("Generate", "✨"),
         ("Resume Editor", "🧩"),
         ("Settings", "⚙️"),
     ]
+    nav_buttons = []
     for name, icon_text in nav_items:
-        active = "active" if name == page else ""
-        nav_links.append(
-            f"<a class='nav-link {active}' href='?page={name}'>{icon_text} {name}</a>"
-        )
+        nav_buttons.append((name, icon_text))
     st.sidebar.markdown(
         f"""
         <div class="sidebar-card">
           <div style="font-weight:600; margin-bottom:6px;">Navigation</div>
-          {''.join(nav_links)}
         </div>
         """,
         unsafe_allow_html=True,
     )
+    for name, icon_text in nav_buttons:
+        is_active = name == page
+        if st.sidebar.button(
+            f"{icon_text} {name}",
+            key=f"nav_{name}",
+            use_container_width=True,
+            type="primary" if is_active else "secondary",
+        ):
+            st.session_state["page"] = name
+            page = name
     return ok, info, page
 
 
@@ -1200,8 +1232,10 @@ def render_generate_page(api_url: str) -> None:
 
     left, right = st.columns([5, 7], gap="large")
 
+    _check_generate_status()
     with left:
         st.markdown("### Job Description")
+        st.session_state.setdefault("jd_text_input", "")
         jd_text = st.text_area(
             "Paste the JD here",
             height=320,
@@ -1216,24 +1250,40 @@ def render_generate_page(api_url: str) -> None:
             use_container_width=True,
             disabled=disabled,
         ):
+            live_ok, info = check_server_health(api_url, timeout_s=2.0)
+            if not live_ok:
+                st.error(
+                    f"Cannot reach API server at {api_url}. "
+                    "Start the backend and click Re-check in the sidebar."
+                )
+                return
             if not jd_text.strip():
                 st.error("Please paste a job description first.")
             else:
                 payload = {"jd_text": jd_text.strip()}
-                with st.spinner("Running agent..."):
-                    try:
-                        resp = requests.post(f"{api_url}/generate", json=payload, timeout=600)
-                        resp.raise_for_status()
-                        out = resp.json()
-                        st.session_state["last_run"] = out
-                        st.session_state["selection_run_id"] = out.get("run_id")
-                        for key in list(st.session_state.keys()):
-                            if key.startswith("keep_"):
-                                del st.session_state[key]
-                    except Exception as e:
-                        st.exception(e)
+                future = st.session_state.get("generate_future")
+                if isinstance(future, Future) and not future.done():
+                    st.warning("Generation already running.")
+                else:
+                    st.session_state["generate_error"] = ""
+                    st.session_state["generate_future"] = GEN_EXECUTOR.submit(
+                        _run_generate, api_url, payload
+                    )
 
     with right:
+        future = st.session_state.get("generate_future")
+        if isinstance(future, Future) and not future.done():
+            st.markdown(
+                """
+                <div class="art-card">
+                  <div class="art-title">Generation running</div>
+                  <div class="art-subtle">You can navigate to other pages while this runs.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        if st.session_state.get("generate_error"):
+            st.error(st.session_state.get("generate_error"))
         run = st.session_state.get("last_run")
         if not run:
             st.markdown(
