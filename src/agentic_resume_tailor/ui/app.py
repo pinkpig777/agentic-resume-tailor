@@ -227,10 +227,31 @@ def render_settings_page(api_url: str) -> None:
                 value=bool(app_settings.get("use_jd_parser", True)),
                 help="Use the LLM-based JD parser to build retrieval queries.",
             )
-            jd_model = st.text_input(
+            jd_model_current = app_settings.get("jd_model", "") or ""
+            jd_model_options = [
+                "gpt-5.2-2025-12-11",
+                "gpt-5-mini-2025-08-07",
+                "gpt-5-nano-2025-08-07",
+                "gpt-4.1",
+                "gpt-4.1-2025-04-14",
+                "gpt-4.1-mini",
+                "gpt-4.1-mini-2025-04-14",
+                "gpt-4.1-nano",
+                "gpt-4.1-nano-2025-04-14",
+                "gpt-4o",
+                "gpt-4o-2024-08-06",
+                "gpt-4o-mini",
+                "gpt-4o-mini-2024-07-18",
+            ]
+            if jd_model_current and jd_model_current not in jd_model_options:
+                jd_model_options = [jd_model_current] + jd_model_options
+            jd_model = st.selectbox(
                 "JD model",
-                value=app_settings.get("jd_model", ""),
-                help="OpenAI model name for JD parsing.",
+                options=jd_model_options,
+                index=jd_model_options.index(jd_model_current)
+                if jd_model_current in jd_model_options
+                else 0,
+                help="OpenAI model used for JD parsing.",
             )
             skip_pdf = st.checkbox(
                 "Skip PDF render (dev/testing)",
