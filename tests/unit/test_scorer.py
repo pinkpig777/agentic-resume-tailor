@@ -65,6 +65,11 @@ class TestScorer(unittest.TestCase):
         self.assertEqual(result.final_score, 100)
         self.assertEqual(result.must_missing_bullets_only, [])
 
+    def test_compute_retrieval_norm_empty(self) -> None:
+        """Test compute retrieval norm with empty inputs.
+        """
+        self.assertEqual(compute_retrieval_norm([], []), 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

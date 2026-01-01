@@ -20,6 +20,17 @@ class TestRetrievalQuantBonus(unittest.TestCase):
         bonus = _compute_quant_bonus("Built a scalable service for users")
         self.assertEqual(bonus, 0.0)
 
+    def test_quant_bonus_caps(self) -> None:
+        """Test quant bonus caps at configured max.
+        """
+        text = (
+            "Improved latency by 45% from 200 ms to 50 ms, cut costs by 2x for 10 users, "
+            "processed 1gb data, auc 0.91"
+        )
+        bonus = _compute_quant_bonus(text)
+        self.assertLessEqual(bonus, 0.20)
+        self.assertEqual(bonus, 0.20)
+
 
 if __name__ == "__main__":
     unittest.main()
