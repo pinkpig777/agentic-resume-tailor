@@ -351,8 +351,7 @@ def _render_sidebar(api_url: str) -> Tuple[bool, Any, str]:
         st.session_state["_health_force_refresh"] = time.time()
         ok, info = get_health_cached(api_url)
 
-    st.sidebar.markdown("<div class='sidebar-card'>", unsafe_allow_html=True)
-    st.sidebar.markdown("**Navigation**")
+    nav_links = []
     page = _page_from_query()
     nav_items = [
         ("Generate", "✨"),
@@ -361,11 +360,18 @@ def _render_sidebar(api_url: str) -> Tuple[bool, Any, str]:
     ]
     for name, icon_text in nav_items:
         active = "active" if name == page else ""
-        st.sidebar.markdown(
-            f"<a class='nav-link {active}' href='?page={name}'>{icon_text} {name}</a>",
-            unsafe_allow_html=True,
+        nav_links.append(
+            f"<a class='nav-link {active}' href='?page={name}'>{icon_text} {name}</a>"
         )
-    st.sidebar.markdown("</div>", unsafe_allow_html=True)
+    st.sidebar.markdown(
+        f"""
+        <div class="sidebar-card">
+          <div style="font-weight:600; margin-bottom:6px;">Navigation</div>
+          {''.join(nav_links)}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     return ok, info, page
 
 
