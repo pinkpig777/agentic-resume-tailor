@@ -483,7 +483,9 @@ def render_pdf(context: Dict[str, Any], run_id: str) -> Tuple[str, str]:
         autoescape=False,
     )
 
-    template = env.get_template("resume.tex")
+    local_template = os.path.join(TEMPLATE_DIR, "resume.local.tex")
+    template_name = "resume.local.tex" if os.path.exists(local_template) else "resume.tex"
+    template = env.get_template(template_name)
     tex_content = template.render(context)
 
     tex_path = os.path.join(OUTPUT_DIR, f"{run_id}.tex")
