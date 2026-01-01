@@ -152,8 +152,7 @@ def _set_editor_message(level: str, text: str) -> None:
 
 
 def _show_editor_message() -> None:
-    """Render and clear the editor flash message.
-    """
+    """Render and clear the editor flash message."""
     msg = st.session_state.pop("editor_message", None)
     if not msg:
         return
@@ -167,9 +166,7 @@ def _show_editor_message() -> None:
         st.info(text)
 
 
-def _render_bullet_controls(
-    api_url: str, section: str, parent_id: str, bullet: dict
-) -> None:
+def _render_bullet_controls(api_url: str, section: str, parent_id: str, bullet: dict) -> None:
     """Render edit/delete controls for a bullet.
 
     Args:
@@ -188,9 +185,7 @@ def _render_bullet_controls(
     if col_edit.button("Edit", key=f"edit_btn_{edit_key}"):
         st.session_state[edit_key] = not st.session_state.get(edit_key, False)
     if col_del.button("Delete", key=f"del_btn_{edit_key}"):
-        ok, _, err = api_request(
-            "DELETE", api_url, f"/{section}/{parent_id}/bullets/{bullet_id}"
-        )
+        ok, _, err = api_request("DELETE", api_url, f"/{section}/{parent_id}/bullets/{bullet_id}")
         if ok:
             _set_editor_message("success", f"Deleted {section} bullet.")
             st.rerun()
@@ -218,8 +213,7 @@ def _render_bullet_controls(
 
 
 def _inject_app_styles() -> None:
-    """Inject shared CSS for a unified UI theme.
-    """
+    """Inject shared CSS for a unified UI theme."""
     st.markdown(
         """
         <style>
@@ -368,10 +362,12 @@ def _render_sidebar(api_url: str) -> Tuple[bool, Any, str]:
         f"""
         <div class="sidebar-card">
           <div style="font-weight:600; margin-bottom:6px;">Navigation</div>
-          {''.join(
-              f"<a class='nav-link {'active' if name == page else ''}' href='?page={name}'>{icon} {name}</a>"
-              for name, icon in nav_items
-          )}
+          {
+            "".join(
+                f"<a class='nav-link {'active' if name == page else ''}' href='?page={name}'>{icon} {name}</a>"
+                for name, icon in nav_items
+            )
+        }
         </div>
         """,
         unsafe_allow_html=True,
@@ -379,7 +375,9 @@ def _render_sidebar(api_url: str) -> Tuple[bool, Any, str]:
     return ok, info, page
 
 
-def _fetch_resume_sections(api_url: str) -> Tuple[bool, List[Dict[str, Any]], List[Dict[str, Any]], str]:
+def _fetch_resume_sections(
+    api_url: str,
+) -> Tuple[bool, List[Dict[str, Any]], List[Dict[str, Any]], str]:
     """Fetch experiences and projects for bullet mapping.
 
     Args:
@@ -505,9 +503,7 @@ def _render_badges(items: List[str], kind: str) -> None:
         st.markdown("<span class='art-subtle'>None</span>", unsafe_allow_html=True)
         return
     badge_class = "art-badge--must" if kind == "must" else "art-badge--nice"
-    html = "".join(
-        f"<span class='art-badge {badge_class}'>{item}</span>" for item in items
-    )
+    html = "".join(f"<span class='art-badge {badge_class}'>{item}</span>" for item in items)
     st.markdown(html, unsafe_allow_html=True)
 
 
@@ -836,9 +832,7 @@ def render_resume_editor(api_url: str) -> None:
             edu_degree = st.text_input("Degree", key="new_edu_degree")
             edu_dates = st.text_input("Dates", key="new_edu_dates")
             edu_location = st.text_input("Location", key="new_edu_location")
-            edu_bullets = st.text_area(
-                "Bullets (one per line)", key="new_edu_bullets", height=120
-            )
+            edu_bullets = st.text_area("Bullets (one per line)", key="new_edu_bullets", height=120)
             submitted_edu = st.form_submit_button("Create Education")
 
     if submitted_edu:
@@ -965,9 +959,7 @@ def render_resume_editor(api_url: str) -> None:
             exp_role = st.text_input("Role", key="new_exp_role")
             exp_dates = st.text_input("Dates", key="new_exp_dates")
             exp_location = st.text_input("Location", key="new_exp_location")
-            exp_bullets = st.text_area(
-                "Bullets (one per line)", key="new_exp_bullets", height=120
-            )
+            exp_bullets = st.text_area("Bullets (one per line)", key="new_exp_bullets", height=120)
             submitted = st.form_submit_button("Create Experience")
 
     if submitted:
@@ -1013,9 +1005,7 @@ def render_resume_editor(api_url: str) -> None:
                     company = st.text_input(
                         "Company", value=exp.get("company", ""), key=f"{edit_key}_company"
                     )
-                    role = st.text_input(
-                        "Role", value=exp.get("role", ""), key=f"{edit_key}_role"
-                    )
+                    role = st.text_input("Role", value=exp.get("role", ""), key=f"{edit_key}_role")
                     dates = st.text_input(
                         "Dates", value=exp.get("dates", ""), key=f"{edit_key}_dates"
                     )
@@ -1227,101 +1217,99 @@ def render_generate_page(api_url: str) -> None:
         st.info("Generate a run to see summary metrics and bullets.")
         return
 
-        report = None
-        try:
-            r = requests.get(f"{api_url}{run['report_url']}", timeout=60)
-            r.raise_for_status()
-            report = r.json()
-        except Exception as e:
-            st.warning("Failed to load report.json from API")
-            st.exception(e)
+    report = None
+    try:
+        r = requests.get(f"{api_url}{run['report_url']}", timeout=60)
+        r.raise_for_status()
+        report = r.json()
+    except Exception as e:
+        st.warning("Failed to load report.json from API")
+        st.exception(e)
 
-        if not report:
-            st.info("No report data available yet.")
-            return
+    if not report:
+        st.info("No report data available yet.")
+        return
 
-        best = report.get("best_score") or {}
-        st.subheader("Results summary")
-        c1, c2 = st.columns(2)
-        c1.metric("Final score", best.get("final_score", "—"))
-        c2.metric("Retrieval", round(float(best.get("retrieval_score", 0.0)), 3))
-        c3, c4 = st.columns(2)
-        c3.metric(
-            "Coverage (bullets)",
-            round(float(best.get("coverage_bullets_only", 0.0)), 3),
-        )
-        c4.metric(
-            "Coverage (all)",
-            round(float(best.get("coverage_all", 0.0)), 3),
-        )
+    best = report.get("best_score") or {}
+    st.subheader("Results summary")
+    c1, c2 = st.columns(2)
+    c1.metric("Final score", best.get("final_score", "—"))
+    c2.metric("Retrieval", round(float(best.get("retrieval_score", 0.0)), 3))
+    c3, c4 = st.columns(2)
+    c3.metric(
+        "Coverage (bullets)",
+        round(float(best.get("coverage_bullets_only", 0.0)), 3),
+    )
+    c4.metric(
+        "Coverage (all)",
+        round(float(best.get("coverage_all", 0.0)), 3),
+    )
 
-        iters = report.get("iterations", []) or []
-        best_idx = int(report.get("best_iteration_index", 0) or 0)
-        best_iter = next((x for x in iters if int(x.get("iteration", -1)) == best_idx), None)
-        missing = (best_iter or {}).get("missing") or {}
+    iters = report.get("iterations", []) or []
+    best_idx = int(report.get("best_iteration_index", 0) or 0)
+    best_iter = next((x for x in iters if int(x.get("iteration", -1)) == best_idx), None)
+    missing = (best_iter or {}).get("missing") or {}
 
-        st.subheader("Missing keywords")
-        st.markdown("<div class='art-subtle'>Must-have</div>", unsafe_allow_html=True)
-        _render_badges(missing.get("must_bullets_only") or [], "must")
-        st.markdown("<div class='art-subtle'>Nice-to-have</div>", unsafe_allow_html=True)
-        _render_badges(missing.get("nice_bullets_only") or [], "nice")
+    st.subheader("Missing keywords")
+    st.markdown("<div class='art-subtle'>Must-have</div>", unsafe_allow_html=True)
+    _render_badges(missing.get("must_bullets_only") or [], "must")
+    st.markdown("<div class='art-subtle'>Nice-to-have</div>", unsafe_allow_html=True)
+    _render_badges(missing.get("nice_bullets_only") or [], "nice")
 
-        ok_sections, experiences, projects, err = _fetch_resume_sections(api_url)
-        lookup, exp_meta, proj_meta = _build_bullet_lookup(
-            experiences if ok_sections else [], projects if ok_sections else []
-        )
-        selected_ids = report.get("selected_ids") or []
-        exp_groups, proj_groups = _group_selected_bullets(
-            selected_ids, lookup, exp_meta, proj_meta
-        )
+    ok_sections, experiences, projects, err = _fetch_resume_sections(api_url)
+    lookup, exp_meta, proj_meta = _build_bullet_lookup(
+        experiences if ok_sections else [], projects if ok_sections else []
+    )
+    selected_ids = report.get("selected_ids") or []
+    exp_groups, proj_groups = _group_selected_bullets(selected_ids, lookup, exp_meta, proj_meta)
 
-        st.subheader("Selected bullets")
-        st.caption("Uncheck bullets to exclude them from re-render.")
-        kept_ids: List[str] = []
+    st.subheader("Selected bullets")
+    st.caption("Uncheck bullets to exclude them from re-render.")
+    kept_ids: List[str] = []
 
-        if exp_groups:
-            st.markdown("**Experience**")
-            for job_id, group in exp_groups.items():
-                meta = group.get("meta", {})
-                header = f"{meta.get('company', '')} · {meta.get('role', '')}"
-                st.markdown(f"<div class='bullet-meta'>{header}</div>", unsafe_allow_html=True)
-                if meta.get("dates") or meta.get("location"):
-                    st.markdown(
-                        f"<div class='art-subtle'>{meta.get('dates', '')} | {meta.get('location', '')}</div>",
-                        unsafe_allow_html=True,
-                    )
-                for bullet in group.get("bullets", []):
-                    bullet_id = bullet.get("id", "")
-                    keep_key = f"keep_{bullet_id}"
-                    cols = st.columns([0.2, 0.8])
-                    keep = cols[0].checkbox("Keep", value=True, key=keep_key)
-                    cols[1].markdown(
-                        f"<div class='bullet-card'>{bullet.get('text', '')}</div>",
-                        unsafe_allow_html=True,
-                    )
-                    if keep:
-                        kept_ids.append(bullet_id)
+    if exp_groups:
+        st.markdown("**Experience**")
+        for job_id, group in exp_groups.items():
+            meta = group.get("meta", {})
+            header = f"{meta.get('company', '')} · {meta.get('role', '')}"
+            st.markdown(f"<div class='bullet-meta'>{header}</div>", unsafe_allow_html=True)
+            if meta.get("dates") or meta.get("location"):
+                st.markdown(
+                    f"<div class='art-subtle'>{meta.get('dates', '')} | {meta.get('location', '')}</div>",
+                    unsafe_allow_html=True,
+                )
+            for bullet in group.get("bullets", []):
+                bullet_id = bullet.get("id", "")
+                keep_key = f"keep_{bullet_id}"
+                cols = st.columns([0.2, 0.8])
+                keep = cols[0].checkbox("Keep", value=True, key=keep_key)
+                cols[1].markdown(
+                    f"<div class='bullet-card'>{bullet.get('text', '')}</div>",
+                    unsafe_allow_html=True,
+                )
+                if keep:
+                    kept_ids.append(bullet_id)
 
-        if proj_groups:
-            st.markdown("**Projects**")
-            for project_id, group in proj_groups.items():
-                meta = group.get("meta", {})
-                header = f"{meta.get('name', '')} · {meta.get('technologies', '')}"
-                st.markdown(f"<div class='bullet-meta'>{header}</div>", unsafe_allow_html=True)
-                for bullet in group.get("bullets", []):
-                    bullet_id = bullet.get("id", "")
-                    keep_key = f"keep_{bullet_id}"
-                    cols = st.columns([0.2, 0.8])
-                    keep = cols[0].checkbox("Keep", value=True, key=keep_key)
-                    cols[1].markdown(
-                        f"<div class='bullet-card'>{bullet.get('text', '')}</div>",
-                        unsafe_allow_html=True,
-                    )
-                    if keep:
-                        kept_ids.append(bullet_id)
+    if proj_groups:
+        st.markdown("**Projects**")
+        for project_id, group in proj_groups.items():
+            meta = group.get("meta", {})
+            header = f"{meta.get('name', '')} · {meta.get('technologies', '')}"
+            st.markdown(f"<div class='bullet-meta'>{header}</div>", unsafe_allow_html=True)
+            for bullet in group.get("bullets", []):
+                bullet_id = bullet.get("id", "")
+                keep_key = f"keep_{bullet_id}"
+                cols = st.columns([0.2, 0.8])
+                keep = cols[0].checkbox("Keep", value=True, key=keep_key)
+                cols[1].markdown(
+                    f"<div class='bullet-card'>{bullet.get('text', '')}</div>",
+                    unsafe_allow_html=True,
+                )
+                if keep:
+                    kept_ids.append(bullet_id)
 
-        if not exp_groups and not proj_groups:
-            st.caption("No bullet text available yet. Add bullets in Resume Editor.")
+    if not exp_groups and not proj_groups:
+        st.caption("No bullet text available yet. Add bullets in Resume Editor.")
 
         apply_cols = st.columns([1, 1])
         if apply_cols[0].button("Apply selection and re-render", use_container_width=True):
@@ -1386,8 +1374,7 @@ def render_generate_page(api_url: str) -> None:
 
 
 def main() -> None:
-    """Run the Streamlit app.
-    """
+    """Run the Streamlit app."""
     settings = get_settings()
     api_url = settings.api_url.rstrip("/")
 
