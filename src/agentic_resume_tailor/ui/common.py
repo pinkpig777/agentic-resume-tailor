@@ -3,9 +3,10 @@ from typing import Any, Dict, Tuple
 
 import requests
 import streamlit as st
+from concurrent.futures import Future
 
 
-def check_server_health(api_base: str, timeout_s: float = 3.0) -> Tuple[bool, Any]:
+def check_server_health(api_base: str, timeout_s: float = 10.0) -> Tuple[bool, Any]:
     """Check the API health endpoint and return status.
 
     Args:
@@ -38,6 +39,12 @@ def get_health_cached(api_base: str, ttl_s: float = 6.0) -> Tuple[bool, Any]:
     now = time.time()
     last = st.session_state.get("_health_last_checked", 0.0)
     force = st.session_state.get("_health_force_refresh", 0.0)
+
+    future = st.session_state.get("generate_future")
+    if isinstance(future, Future) and not future.done():
+        return st.session_state.get("_health_ok", False), st.session_state.get(
+            "_health_info", "not checked"
+        )
 
     if (now - last) > ttl_s or force > last:
         ok, info = check_server_health(api_base)
