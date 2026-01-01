@@ -299,10 +299,12 @@ def _render_badges(items: List[str], kind: str) -> None:
 
 
 def _matched_keywords(
-    profile_keywords: Dict[str, Any], missing: Dict[str, Any], key: str
+    profile_keywords: Dict[str, Any],
+    missing: Dict[str, Any],
+    key: str,
+    missing_key: str,
 ) -> List[str]:
     """Compute matched keywords for a category."""
-    missing_key = "must_bullets_only" if key == "must_have" else "nice_bullets_only"
     missing_set = {
         str(item).strip().lower()
         for item in (missing.get(missing_key, []) or [])
@@ -436,8 +438,8 @@ def render_generate_page(api_url: str) -> None:
     st.subheader("Matched keywords")
     profile_keywords = report.get("profile_keywords") or {}
     if profile_keywords:
-        matched_must = _matched_keywords(profile_keywords, missing, "must_have")
-        matched_nice = _matched_keywords(profile_keywords, missing, "nice_to_have")
+        matched_must = _matched_keywords(profile_keywords, missing, "must_have", "must_all")
+        matched_nice = _matched_keywords(profile_keywords, missing, "nice_to_have", "nice_all")
         st.markdown("<div class='art-subtle'>Must-have</div>", unsafe_allow_html=True)
         _render_badges(matched_must, "must")
         st.markdown("<div class='art-subtle'>Nice-to-have</div>", unsafe_allow_html=True)
