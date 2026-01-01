@@ -35,6 +35,7 @@ Notes:
 - Open **Settings** to change default generation and ingest behavior.
 - Settings are saved to `config/user_settings.json` and loaded on startup.
 - If you enable **Auto re-ingest on save**, the vector store refreshes after each edit.
+- Use **Advanced tuning** to adjust the quantitative bullet bonus (per-hit and cap).
 
 ### 4) Generate a tailored resume (Generate)
 

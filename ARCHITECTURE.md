@@ -236,6 +236,7 @@ OPENAI_API_KEY=YOUR_OPENAI_API_KEY
 ```
 
 All other app settings live in `config/user_settings.json` and are edited via the Settings page.
+Quantitative bullet bonus tuning lives in `quant_bonus_per_hit` and `quant_bonus_cap`.
 
 ---
 
