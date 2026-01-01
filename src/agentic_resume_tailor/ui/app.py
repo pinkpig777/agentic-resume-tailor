@@ -431,6 +431,7 @@ def _build_bullet_lookup(
                 "section": "experience",
                 "group_id": job_id,
                 "text": bullet.get("text_latex", ""),
+                "is_temp": False,
             }
 
     for proj in projects:
@@ -450,9 +451,97 @@ def _build_bullet_lookup(
                 "section": "project",
                 "group_id": project_id,
                 "text": bullet.get("text_latex", ""),
+                "is_temp": False,
             }
 
     return lookup, exp_meta, proj_meta
+
+
+def _safe_key(value: str) -> str:
+    """Normalize a string to a safe Streamlit key."""
+    return value.replace(":", "_").replace("/", "_")
+
+
+def _temp_bullet_id(addition: Dict[str, Any]) -> str:
+    """Build a bullet id for a temp addition."""
+    parent_type = addition.get("parent_type")
+    parent_id = addition.get("parent_id")
+    temp_id = addition.get("temp_id")
+    if not parent_type or not parent_id or not temp_id:
+        return ""
+    prefix = "exp" if parent_type == "experience" else "proj"
+    return f"{prefix}:{parent_id}:{temp_id}"
+
+
+def _ensure_temp_state(run_id: str) -> None:
+    """Reset temp bullet state when the run changes."""
+    if st.session_state.get("temp_run_id") != run_id:
+        st.session_state["temp_run_id"] = run_id
+        st.session_state["temp_additions"] = []
+        st.session_state["temp_edits"] = {}
+        st.session_state["temp_bullet_counter"] = 0
+
+
+def _seed_temp_state_from_report(report: Dict[str, Any]) -> None:
+    """Seed temp state from report if local state is empty."""
+    if not st.session_state.get("temp_additions") and report.get("temp_additions"):
+        additions: List[Dict[str, Any]] = []
+        for addition in report.get("temp_additions", []):
+            if not isinstance(addition, dict):
+                continue
+            temp_id = addition.get("temp_id")
+            bullet_id = addition.get("bullet_id", "")
+            if not temp_id and isinstance(bullet_id, str):
+                parts = bullet_id.split(":")
+                if len(parts) >= 3:
+                    temp_id = parts[2]
+            parent_type = addition.get("parent_type")
+            parent_id = addition.get("parent_id")
+            if not temp_id or not parent_type or not parent_id:
+                continue
+            additions.append(
+                {
+                    "temp_id": temp_id,
+                    "parent_type": parent_type,
+                    "parent_id": parent_id,
+                    "text_latex": addition.get("text_latex", ""),
+                }
+            )
+        st.session_state["temp_additions"] = additions
+
+    if not st.session_state.get("temp_edits") and report.get("temp_edits"):
+        st.session_state["temp_edits"] = report.get("temp_edits", {})
+
+
+def _next_temp_id() -> str:
+    """Return the next temp bullet id for this run."""
+    counter = int(st.session_state.get("temp_bullet_counter", 0) or 0) + 1
+    st.session_state["temp_bullet_counter"] = counter
+    return f"tmp{counter:03d}"
+
+
+def _add_temp_bullets_to_lookup(
+    lookup: Dict[str, Dict[str, Any]],
+    temp_additions: List[Dict[str, Any]],
+) -> None:
+    """Add temp bullets to the lookup table."""
+    for addition in temp_additions:
+        bullet_id = _temp_bullet_id(addition)
+        if not bullet_id:
+            continue
+        parent_type = addition.get("parent_type")
+        if parent_type == "experience":
+            section = "experience"
+        elif parent_type == "project":
+            section = "project"
+        else:
+            continue
+        lookup[bullet_id] = {
+            "section": section,
+            "group_id": addition.get("parent_id", ""),
+            "text": addition.get("text_latex", ""),
+            "is_temp": True,
+        }
 
 
 def _group_selected_bullets(
@@ -483,12 +572,24 @@ def _group_selected_bullets(
             group = exp_groups.setdefault(
                 group_id, {"meta": exp_meta.get(group_id, {}), "bullets": []}
             )
-            group["bullets"].append({"id": bullet_id, "text": info.get("text", "")})
+            group["bullets"].append(
+                {
+                    "id": bullet_id,
+                    "text": info.get("text", ""),
+                    "is_temp": info.get("is_temp", False),
+                }
+            )
         elif info.get("section") == "project":
             group = proj_groups.setdefault(
                 group_id, {"meta": proj_meta.get(group_id, {}), "bullets": []}
             )
-            group["bullets"].append({"id": bullet_id, "text": info.get("text", "")})
+            group["bullets"].append(
+                {
+                    "id": bullet_id,
+                    "text": info.get("text", ""),
+                    "is_temp": info.get("is_temp", False),
+                }
+            )
     return exp_groups, proj_groups
 
 
@@ -1230,6 +1331,14 @@ def render_generate_page(api_url: str) -> None:
         st.info("No report data available yet.")
         return
 
+    run_id = run.get("run_id", "")
+    if run_id:
+        _ensure_temp_state(run_id)
+        _seed_temp_state_from_report(report)
+
+    temp_additions: List[Dict[str, Any]] = st.session_state.get("temp_additions", [])
+    temp_edits: Dict[str, str] = st.session_state.get("temp_edits", {})
+
     best = report.get("best_score") or {}
     st.subheader("Results summary")
     c1, c2 = st.columns(2)
@@ -1260,12 +1369,88 @@ def render_generate_page(api_url: str) -> None:
     lookup, exp_meta, proj_meta = _build_bullet_lookup(
         experiences if ok_sections else [], projects if ok_sections else []
     )
+    _add_temp_bullets_to_lookup(lookup, temp_additions)
     selected_ids = report.get("selected_ids") or []
-    exp_groups, proj_groups = _group_selected_bullets(selected_ids, lookup, exp_meta, proj_meta)
+    temp_ids = [_temp_bullet_id(addition) for addition in temp_additions]
+    display_ids = list(dict.fromkeys(selected_ids + [bid for bid in temp_ids if bid]))
+    exp_groups, proj_groups = _group_selected_bullets(display_ids, lookup, exp_meta, proj_meta)
 
     st.subheader("Selected bullets")
     st.caption("Uncheck bullets to exclude them from re-render.")
     kept_ids: List[str] = []
+    selected_set = set(selected_ids)
+    temp_additions_by_id = {
+        _temp_bullet_id(addition): addition
+        for addition in temp_additions
+        if _temp_bullet_id(addition)
+    }
+
+    with st.expander("Add temporary bullet", expanded=False):
+        if not exp_meta and not proj_meta:
+            st.info("Add experiences or projects in Resume Editor to attach temporary bullets.")
+        else:
+            with st.form("temp_add_form", clear_on_submit=True):
+                target_type = st.radio(
+                    "Attach to",
+                    options=["Experience", "Project"],
+                    horizontal=True,
+                )
+                parent_id = ""
+                if target_type == "Experience":
+                    exp_ids = list(exp_meta.keys())
+                    if exp_ids:
+                        exp_labels = {
+                            exp_id: f"{exp_meta[exp_id].get('company', '')} · "
+                            f"{exp_meta[exp_id].get('role', '')}"
+                            for exp_id in exp_ids
+                        }
+                        parent_id = st.selectbox(
+                            "Choose experience",
+                            options=exp_ids,
+                            format_func=lambda x: exp_labels.get(x, x),
+                        )
+                    else:
+                        st.info("No experiences available.")
+                else:
+                    proj_ids = list(proj_meta.keys())
+                    if proj_ids:
+                        proj_labels = {
+                            proj_id: f"{proj_meta[proj_id].get('name', '')} · "
+                            f"{proj_meta[proj_id].get('technologies', '')}"
+                            for proj_id in proj_ids
+                        }
+                        parent_id = st.selectbox(
+                            "Choose project",
+                            options=proj_ids,
+                            format_func=lambda x: proj_labels.get(x, x),
+                        )
+                    else:
+                        st.info("No projects available.")
+                text_latex = st.text_area(
+                    "Bullet text (LaTeX-ready)",
+                    height=100,
+                    placeholder="Write a LaTeX-ready bullet...",
+                )
+                submitted = st.form_submit_button("Add temporary bullet")
+
+            if submitted:
+                if not parent_id:
+                    st.error("Select a target experience or project.")
+                elif not text_latex.strip():
+                    st.error("Bullet text cannot be empty.")
+                else:
+                    temp_additions.append(
+                        {
+                            "temp_id": _next_temp_id(),
+                            "parent_type": "experience"
+                            if target_type == "Experience"
+                            else "project",
+                            "parent_id": parent_id,
+                            "text_latex": text_latex,
+                        }
+                    )
+                    st.session_state["temp_additions"] = temp_additions
+                    st.rerun()
 
     if exp_groups:
         st.markdown("**Experience**")
@@ -1280,13 +1465,83 @@ def render_generate_page(api_url: str) -> None:
                 )
             for bullet in group.get("bullets", []):
                 bullet_id = bullet.get("id", "")
-                keep_key = f"keep_{bullet_id}"
-                cols = st.columns([0.2, 0.8])
-                keep = cols[0].checkbox("Keep", value=True, key=keep_key)
-                cols[1].markdown(
-                    f"<div class='bullet-card'>{bullet.get('text', '')}</div>",
+                is_temp = bullet.get("is_temp", False)
+                safe_id = _safe_key(bullet_id)
+                default_keep = bullet_id in selected_set or is_temp
+                col_keep, col_body = st.columns([0.2, 0.8])
+                keep = col_keep.checkbox("Keep", value=default_keep, key=f"keep_{safe_id}")
+                display_text = bullet.get("text", "")
+                if is_temp:
+                    temp_add = temp_additions_by_id.get(bullet_id)
+                    if temp_add:
+                        display_text = temp_add.get("text_latex", display_text)
+                else:
+                    display_text = temp_edits.get(bullet_id, display_text)
+                badge = " <span class='art-badge art-badge--tag'>TEMP</span>" if is_temp else ""
+                col_body.markdown(
+                    f"<div class='bullet-card'>{display_text}{badge}</div>",
                     unsafe_allow_html=True,
                 )
+                if not is_temp and bullet_id in temp_edits:
+                    col_body.markdown(
+                        "<div class='art-subtle'>Edited for this render</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                if is_temp:
+                    edit_toggle = col_body.checkbox(
+                        "Edit temporary bullet",
+                        key=f"temp_edit_toggle_{safe_id}",
+                    )
+                    if edit_toggle:
+                        new_text = col_body.text_area(
+                            "Temporary bullet text",
+                            value=display_text,
+                            key=f"temp_edit_text_{safe_id}",
+                            height=90,
+                        )
+                        btn_cols = col_body.columns([1, 1])
+                        if btn_cols[0].button("Save temp edit", key=f"save_temp_{safe_id}"):
+                            if not new_text.strip():
+                                st.error("Bullet text cannot be empty.")
+                            else:
+                                temp_add = temp_additions_by_id.get(bullet_id)
+                                if temp_add:
+                                    temp_add["text_latex"] = new_text
+                                    st.session_state["temp_additions"] = temp_additions
+                                    st.rerun()
+                        if btn_cols[1].button("Delete temp bullet", key=f"del_temp_{safe_id}"):
+                            temp_additions = [
+                                add for add in temp_additions if _temp_bullet_id(add) != bullet_id
+                            ]
+                            st.session_state["temp_additions"] = temp_additions
+                            st.rerun()
+                else:
+                    edit_toggle = col_body.checkbox(
+                        "Edit for this render",
+                        key=f"edit_toggle_{safe_id}",
+                    )
+                    if edit_toggle:
+                        current_text = temp_edits.get(bullet_id, display_text)
+                        new_text = col_body.text_area(
+                            "Edited text",
+                            value=current_text,
+                            key=f"edit_text_{safe_id}",
+                            height=90,
+                        )
+                        btn_cols = col_body.columns([1, 1])
+                        if btn_cols[0].button("Save edit", key=f"save_edit_{safe_id}"):
+                            if not new_text.strip():
+                                st.error("Bullet text cannot be empty.")
+                            else:
+                                temp_edits[bullet_id] = new_text
+                                st.session_state["temp_edits"] = temp_edits
+                                st.rerun()
+                        if btn_cols[1].button("Clear edit", key=f"clear_edit_{safe_id}"):
+                            temp_edits.pop(bullet_id, None)
+                            st.session_state["temp_edits"] = temp_edits
+                            st.rerun()
+
                 if keep:
                     kept_ids.append(bullet_id)
 
@@ -1298,13 +1553,83 @@ def render_generate_page(api_url: str) -> None:
             st.markdown(f"<div class='bullet-meta'>{header}</div>", unsafe_allow_html=True)
             for bullet in group.get("bullets", []):
                 bullet_id = bullet.get("id", "")
-                keep_key = f"keep_{bullet_id}"
-                cols = st.columns([0.2, 0.8])
-                keep = cols[0].checkbox("Keep", value=True, key=keep_key)
-                cols[1].markdown(
-                    f"<div class='bullet-card'>{bullet.get('text', '')}</div>",
+                is_temp = bullet.get("is_temp", False)
+                safe_id = _safe_key(bullet_id)
+                default_keep = bullet_id in selected_set or is_temp
+                col_keep, col_body = st.columns([0.2, 0.8])
+                keep = col_keep.checkbox("Keep", value=default_keep, key=f"keep_{safe_id}")
+                display_text = bullet.get("text", "")
+                if is_temp:
+                    temp_add = temp_additions_by_id.get(bullet_id)
+                    if temp_add:
+                        display_text = temp_add.get("text_latex", display_text)
+                else:
+                    display_text = temp_edits.get(bullet_id, display_text)
+                badge = " <span class='art-badge art-badge--tag'>TEMP</span>" if is_temp else ""
+                col_body.markdown(
+                    f"<div class='bullet-card'>{display_text}{badge}</div>",
                     unsafe_allow_html=True,
                 )
+                if not is_temp and bullet_id in temp_edits:
+                    col_body.markdown(
+                        "<div class='art-subtle'>Edited for this render</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                if is_temp:
+                    edit_toggle = col_body.checkbox(
+                        "Edit temporary bullet",
+                        key=f"temp_edit_toggle_{safe_id}",
+                    )
+                    if edit_toggle:
+                        new_text = col_body.text_area(
+                            "Temporary bullet text",
+                            value=display_text,
+                            key=f"temp_edit_text_{safe_id}",
+                            height=90,
+                        )
+                        btn_cols = col_body.columns([1, 1])
+                        if btn_cols[0].button("Save temp edit", key=f"save_temp_{safe_id}"):
+                            if not new_text.strip():
+                                st.error("Bullet text cannot be empty.")
+                            else:
+                                temp_add = temp_additions_by_id.get(bullet_id)
+                                if temp_add:
+                                    temp_add["text_latex"] = new_text
+                                    st.session_state["temp_additions"] = temp_additions
+                                    st.rerun()
+                        if btn_cols[1].button("Delete temp bullet", key=f"del_temp_{safe_id}"):
+                            temp_additions = [
+                                add for add in temp_additions if _temp_bullet_id(add) != bullet_id
+                            ]
+                            st.session_state["temp_additions"] = temp_additions
+                            st.rerun()
+                else:
+                    edit_toggle = col_body.checkbox(
+                        "Edit for this render",
+                        key=f"edit_toggle_{safe_id}",
+                    )
+                    if edit_toggle:
+                        current_text = temp_edits.get(bullet_id, display_text)
+                        new_text = col_body.text_area(
+                            "Edited text",
+                            value=current_text,
+                            key=f"edit_text_{safe_id}",
+                            height=90,
+                        )
+                        btn_cols = col_body.columns([1, 1])
+                        if btn_cols[0].button("Save edit", key=f"save_edit_{safe_id}"):
+                            if not new_text.strip():
+                                st.error("Bullet text cannot be empty.")
+                            else:
+                                temp_edits[bullet_id] = new_text
+                                st.session_state["temp_edits"] = temp_edits
+                                st.rerun()
+                        if btn_cols[1].button("Clear edit", key=f"clear_edit_{safe_id}"):
+                            temp_edits.pop(bullet_id, None)
+                            st.session_state["temp_edits"] = temp_edits
+                            st.rerun()
+
                 if keep:
                     kept_ids.append(bullet_id)
 
@@ -1318,11 +1643,37 @@ def render_generate_page(api_url: str) -> None:
         use_container_width=True,
         disabled=apply_disabled,
     ):
+        removals = [bid for bid in selected_ids if bid not in kept_ids]
+        edits_payload = {
+            bid: text
+            for bid, text in temp_edits.items()
+            if bid in kept_ids and isinstance(text, str) and text.strip()
+        }
+        additions_payload = [
+            {
+                "parent_type": addition.get("parent_type"),
+                "parent_id": addition.get("parent_id"),
+                "text_latex": addition.get("text_latex", ""),
+                "temp_id": addition.get("temp_id"),
+            }
+            for addition in temp_additions
+            if addition.get("parent_type")
+            and addition.get("parent_id")
+            and addition.get("temp_id")
+            and str(addition.get("text_latex", "")).strip()
+        ]
+        payload: Dict[str, Any] = {"selected_ids": kept_ids}
+        if edits_payload or removals or additions_payload:
+            payload["temp_overrides"] = {
+                "edits": edits_payload,
+                "removals": removals,
+                "additions": additions_payload,
+            }
         ok_apply, _, err_apply = api_request(
             "POST",
             api_url,
             f"/runs/{run.get('run_id')}/render",
-            json={"selected_ids": kept_ids},
+            json=payload,
             timeout_s=120,
         )
         if ok_apply:
