@@ -1,7 +1,6 @@
 import time
 from typing import Any, Dict, List, Tuple
 
-import pandas as pd
 import requests
 import streamlit as st
 
@@ -262,6 +261,38 @@ def _inject_app_styles() -> None:
           padding: 12px;
           margin-bottom: 12px;
         }
+        .metric-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+        }
+        .metric-item {
+          background: #f8fafc;
+          border: 1px solid #e5e7eb;
+          border-radius: 12px;
+          padding: 10px 12px;
+        }
+        .metric-label {
+          color: #6b7280;
+          font-size: 0.78rem;
+          margin-bottom: 4px;
+        }
+        .metric-value {
+          font-size: 1.05rem;
+          font-weight: 600;
+          color: #111827;
+        }
+        .bullet-card {
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 12px;
+          padding: 10px 12px;
+        }
+        .bullet-meta {
+          color: #6b7280;
+          font-size: 0.8rem;
+          margin-bottom: 6px;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -325,6 +356,160 @@ def _render_sidebar(api_url: str) -> Tuple[bool, Any, str]:
         )
     st.sidebar.markdown("</div>", unsafe_allow_html=True)
     return ok, info, page
+
+
+def _fetch_resume_sections(api_url: str) -> Tuple[bool, List[Dict[str, Any]], List[Dict[str, Any]], str]:
+    """Fetch experiences and projects for bullet mapping.
+
+    Args:
+        api_url: Base URL for the API.
+
+    Returns:
+        Tuple of ok flag, experiences, projects, and error message.
+    """
+    ok_exp, experiences, err = api_request("GET", api_url, "/experiences", timeout_s=10)
+    ok_proj, projects, err_proj = api_request("GET", api_url, "/projects", timeout_s=10)
+    if not ok_exp:
+        return False, [], [], err
+    if not ok_proj:
+        return False, [], [], err_proj
+    return True, experiences or [], projects or [], ""
+
+
+def _build_bullet_lookup(
+    experiences: List[Dict[str, Any]],
+    projects: List[Dict[str, Any]],
+) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, str]], Dict[str, Dict[str, str]]]:
+    """Build lookup maps for bullet metadata.
+
+    Args:
+        experiences: Experience entries from the API.
+        projects: Project entries from the API.
+
+    Returns:
+        Tuple of bullet lookup, experience metadata, and project metadata.
+    """
+    lookup: Dict[str, Dict[str, Any]] = {}
+    exp_meta: Dict[str, Dict[str, str]] = {}
+    proj_meta: Dict[str, Dict[str, str]] = {}
+
+    for exp in experiences:
+        job_id = exp.get("job_id") or ""
+        if not job_id:
+            continue
+        exp_meta[job_id] = {
+            "company": exp.get("company", ""),
+            "role": exp.get("role", ""),
+            "dates": exp.get("dates", ""),
+            "location": exp.get("location", ""),
+        }
+        for bullet in exp.get("bullets", []) or []:
+            local_id = bullet.get("id", "")
+            if not local_id:
+                continue
+            bullet_id = f"exp:{job_id}:{local_id}"
+            lookup[bullet_id] = {
+                "section": "experience",
+                "group_id": job_id,
+                "text": bullet.get("text_latex", ""),
+            }
+
+    for proj in projects:
+        project_id = proj.get("project_id") or ""
+        if not project_id:
+            continue
+        proj_meta[project_id] = {
+            "name": proj.get("name", ""),
+            "technologies": proj.get("technologies", ""),
+        }
+        for bullet in proj.get("bullets", []) or []:
+            local_id = bullet.get("id", "")
+            if not local_id:
+                continue
+            bullet_id = f"proj:{project_id}:{local_id}"
+            lookup[bullet_id] = {
+                "section": "project",
+                "group_id": project_id,
+                "text": bullet.get("text_latex", ""),
+            }
+
+    return lookup, exp_meta, proj_meta
+
+
+def _group_selected_bullets(
+    selected_ids: List[str],
+    lookup: Dict[str, Dict[str, Any]],
+    exp_meta: Dict[str, Dict[str, str]],
+    proj_meta: Dict[str, Dict[str, str]],
+) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+    """Group selected bullets by experience and project.
+
+    Args:
+        selected_ids: Selected bullet identifiers.
+        lookup: Bullet lookup map.
+        exp_meta: Experience metadata map.
+        proj_meta: Project metadata map.
+
+    Returns:
+        Tuple of experience groups and project groups.
+    """
+    exp_groups: Dict[str, Dict[str, Any]] = {}
+    proj_groups: Dict[str, Dict[str, Any]] = {}
+    for bullet_id in selected_ids:
+        info = lookup.get(bullet_id)
+        if not info:
+            continue
+        group_id = info.get("group_id", "")
+        if info.get("section") == "experience":
+            group = exp_groups.setdefault(
+                group_id, {"meta": exp_meta.get(group_id, {}), "bullets": []}
+            )
+            group["bullets"].append({"id": bullet_id, "text": info.get("text", "")})
+        elif info.get("section") == "project":
+            group = proj_groups.setdefault(
+                group_id, {"meta": proj_meta.get(group_id, {}), "bullets": []}
+            )
+            group["bullets"].append({"id": bullet_id, "text": info.get("text", "")})
+    return exp_groups, proj_groups
+
+
+def _render_metric_grid(metrics: List[Tuple[str, Any]]) -> None:
+    """Render metric cards in a grid.
+
+    Args:
+        metrics: List of label/value pairs.
+    """
+    items = []
+    for label, value in metrics:
+        items.append(
+            f"""
+            <div class="metric-item">
+              <div class="metric-label">{label}</div>
+              <div class="metric-value">{value}</div>
+            </div>
+            """
+        )
+    st.markdown(
+        f"<div class='metric-grid'>{''.join(items)}</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_badges(items: List[str], kind: str) -> None:
+    """Render keyword badges.
+
+    Args:
+        items: List of keywords.
+        kind: Badge style kind.
+    """
+    if not items:
+        st.markdown("<span class='art-subtle'>None</span>", unsafe_allow_html=True)
+        return
+    badge_class = "art-badge--must" if kind == "must" else "art-badge--nice"
+    html = "".join(
+        f"<span class='art-badge {badge_class}'>{item}</span>" for item in items
+    )
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def render_settings_page(api_url: str) -> None:
@@ -983,164 +1168,228 @@ def render_generate_page(api_url: str) -> None:
         api_url: Base URL for the API.
     """
     st.header("Generate")
+    ok, info = get_health_cached(api_url)
+    if not ok:
+        st.error(
+            "API server is down. Start the backend and click Re-check in the sidebar.",
+            icon="🚨",
+        )
 
-    st.subheader("Job Description")
-    jd_text = st.text_area(
-        "Paste the JD here", height=260, placeholder="Paste a job description..."
-    )
+    left, right = st.columns([5, 7], gap="large")
 
-    colA, colB = st.columns([1, 2], gap="large")
-
-    with colA:
-        if st.button("Generate", type="primary", use_container_width=True):
+    with left:
+        st.markdown("### Job Description")
+        jd_text = st.text_area(
+            "Paste the JD here",
+            height=320,
+            placeholder="Paste a job description...",
+            label_visibility="collapsed",
+            key="jd_text_input",
+        )
+        disabled = not ok
+        if st.button(
+            "Generate",
+            type="primary",
+            use_container_width=True,
+            disabled=disabled,
+        ):
             if not jd_text.strip():
-                st.error("JD is empty.")
+                st.error("Please paste a job description first.")
             else:
-                payload = {
-                    "jd_text": jd_text.strip(),
-                }
+                payload = {"jd_text": jd_text.strip()}
                 with st.spinner("Running agent..."):
                     try:
                         resp = requests.post(f"{api_url}/generate", json=payload, timeout=600)
                         resp.raise_for_status()
                         out = resp.json()
                         st.session_state["last_run"] = out
+                        st.session_state["selection_run_id"] = out.get("run_id")
+                        for key in list(st.session_state.keys()):
+                            if key.startswith("keep_"):
+                                del st.session_state[key]
                     except Exception as e:
                         st.exception(e)
 
-    with colB:
-        st.subheader("Run Output")
+    with right:
         run = st.session_state.get("last_run")
-
         if not run:
-            st.info("No run yet. Click Generate.")
-        else:
-            run_id = run.get("run_id")
-            st.write(
-                {
-                    "run_id": run_id,
-                    "profile_used": run.get("profile_used"),
-                    "best_iteration_index": run.get("best_iteration_index"),
-                }
+            st.markdown(
+                """
+                <div class="art-card">
+                  <div class="art-title">Results</div>
+                  <div class="art-subtle">Generate a run to see summary metrics and bullets.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            return
+
+        report = None
+        try:
+            r = requests.get(f"{api_url}{run['report_url']}", timeout=60)
+            r.raise_for_status()
+            report = r.json()
+        except Exception as e:
+            st.warning("Failed to load report.json from API")
+            st.exception(e)
+
+        if not report:
+            st.info("No report data available yet.")
+            return
+
+        best = report.get("best_score") or {}
+        st.markdown('<div class="art-card">', unsafe_allow_html=True)
+        st.markdown("<div class='art-title'>Results summary</div>", unsafe_allow_html=True)
+        metrics = [
+            ("Final score", best.get("final_score", "—")),
+            ("Retrieval", round(float(best.get("retrieval_score", 0.0)), 3)),
+            ("Coverage (bullets)", round(float(best.get("coverage_bullets_only", 0.0)), 3)),
+            ("Coverage (all)", round(float(best.get("coverage_all", 0.0)), 3)),
+        ]
+        _render_metric_grid(metrics)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        iters = report.get("iterations", []) or []
+        best_idx = int(report.get("best_iteration_index", 0) or 0)
+        best_iter = next((x for x in iters if int(x.get("iteration", -1)) == best_idx), None)
+        missing = (best_iter or {}).get("missing") or {}
+
+        st.markdown('<div class="art-card">', unsafe_allow_html=True)
+        st.markdown("<div class='art-title'>Missing keywords</div>", unsafe_allow_html=True)
+        st.markdown("<div class='art-subtle'>Must-have</div>", unsafe_allow_html=True)
+        _render_badges(missing.get("must_bullets_only") or [], "must")
+        st.markdown("<div class='art-subtle'>Nice-to-have</div>", unsafe_allow_html=True)
+        _render_badges(missing.get("nice_bullets_only") or [], "nice")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        ok_sections, experiences, projects, err = _fetch_resume_sections(api_url)
+        lookup, exp_meta, proj_meta = _build_bullet_lookup(
+            experiences if ok_sections else [], projects if ok_sections else []
+        )
+        selected_ids = report.get("selected_ids") or []
+        exp_groups, proj_groups = _group_selected_bullets(
+            selected_ids, lookup, exp_meta, proj_meta
+        )
+
+        st.markdown('<div class="art-card">', unsafe_allow_html=True)
+        st.markdown("<div class='art-title'>Selected bullets</div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='art-subtle'>Uncheck bullets to exclude them from re-render.</div>",
+            unsafe_allow_html=True,
+        )
+        kept_ids: List[str] = []
+
+        if exp_groups:
+            st.markdown("**Experience**")
+            for job_id, group in exp_groups.items():
+                meta = group.get("meta", {})
+                header = f"{meta.get('company', '')} · {meta.get('role', '')}"
+                st.markdown(f"<div class='bullet-meta'>{header}</div>", unsafe_allow_html=True)
+                if meta.get("dates") or meta.get("location"):
+                    st.markdown(
+                        f"<div class='art-subtle'>{meta.get('dates', '')} | {meta.get('location', '')}</div>",
+                        unsafe_allow_html=True,
+                    )
+                for bullet in group.get("bullets", []):
+                    bullet_id = bullet.get("id", "")
+                    keep_key = f"keep_{bullet_id}"
+                    cols = st.columns([0.12, 0.88])
+                    keep = cols[0].checkbox("Keep", value=True, key=keep_key)
+                    cols[1].markdown(
+                        f"<div class='bullet-card'>{bullet.get('text', '')}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    if keep:
+                        kept_ids.append(bullet_id)
+
+        if proj_groups:
+            st.markdown("**Projects**")
+            for project_id, group in proj_groups.items():
+                meta = group.get("meta", {})
+                header = f"{meta.get('name', '')} · {meta.get('technologies', '')}"
+                st.markdown(f"<div class='bullet-meta'>{header}</div>", unsafe_allow_html=True)
+                for bullet in group.get("bullets", []):
+                    bullet_id = bullet.get("id", "")
+                    keep_key = f"keep_{bullet_id}"
+                    cols = st.columns([0.12, 0.88])
+                    keep = cols[0].checkbox("Keep", value=True, key=keep_key)
+                    cols[1].markdown(
+                        f"<div class='bullet-card'>{bullet.get('text', '')}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    if keep:
+                        kept_ids.append(bullet_id)
+
+        if not exp_groups and not proj_groups:
+            st.markdown(
+                "<div class='art-subtle'>No bullet text available yet. Add bullets in Resume Editor.</div>",
+                unsafe_allow_html=True,
             )
 
-            report = None
-            try:
-                r = requests.get(f"{api_url}{run['report_url']}", timeout=60)
-                r.raise_for_status()
-                report = r.json()
-            except Exception as e:
-                st.warning("Failed to load report.json from API")
-                st.exception(e)
-
-            if report:
-                best = report.get("best_score")
-                if best:
-                    c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("Final score", best.get("final_score"))
-                    c2.metric("Retrieval", round(float(best.get("retrieval_score", 0.0)), 3))
-                    c3.metric(
-                        "Coverage (bullets)",
-                        round(float(best.get("coverage_bullets_only", 0.0)), 3),
-                    )
-                    c4.metric(
-                        "Coverage (all+skills)",
-                        round(float(best.get("coverage_all", 0.0)), 3),
-                    )
-
-                iters = report.get("iterations", [])
-                if iters:
-                    rows = []
-                    for it in iters:
-                        scores = it.get("scores") or {}
-                        missing = it.get("missing") or {}
-                        rows.append(
-                            {
-                                "iter": it.get("iteration"),
-                                "final": scores.get("final"),
-                                "retrieval": scores.get("retrieval"),
-                                "cov_bullets": scores.get("coverage_bullets_only"),
-                                "cov_all": scores.get("coverage_all"),
-                                "missing_must_bullets": len(
-                                    missing.get("must_bullets_only") or []
-                                ),
-                                "missing_nice_bullets": len(
-                                    missing.get("nice_bullets_only") or []
-                                ),
-                            }
-                        )
-
-                    df = pd.DataFrame(rows)
-                    st.subheader("Iterations")
-                    st.dataframe(df, use_container_width=True, hide_index=True)
-
-                    st.subheader("Iteration details")
-                    idxs = [int(x.get("iteration", 0)) for x in iters]
-                    default_idx = min(
-                        int(report.get("best_iteration_index", 0)), max(len(idxs) - 1, 0)
-                    )
-                    pick = st.selectbox("Pick iteration", idxs, index=default_idx)
-
-                    chosen = next(
-                        (x for x in iters if int(x.get("iteration", -1)) == int(pick)), None
-                    )
-                    if chosen:
-                        st.markdown("**Queries used**")
-                        st.code("\n".join(chosen.get("queries_used") or []))
-
-                        missing = chosen.get("missing") or {}
-                        st.markdown("**Missing must-have (bullets only)**")
-                        st.write(missing.get("must_bullets_only") or [])
-                        st.markdown("**Missing nice-to-have (bullets only)**")
-                        st.write(missing.get("nice_bullets_only") or [])
-
-                        st.markdown("**Selected IDs**")
-                        st.code("\n".join(chosen.get("selected_ids") or []))
-
-                with st.expander("Raw report.json"):
-                    st.json(report)
-
-            st.subheader("Download")
-            try:
-                pdf = requests.get(f"{api_url}{run['pdf_url']}", timeout=120).content
-                st.download_button(
-                    "Download tailored_resume.pdf",
-                    data=pdf,
-                    file_name="tailored_resume.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
+        apply_cols = st.columns([1, 1])
+        if apply_cols[0].button("Apply selection and re-render", use_container_width=True):
+            if not kept_ids:
+                st.error("Select at least one bullet to render.")
+            else:
+                ok_apply, _, err_apply = api_request(
+                    "POST",
+                    api_url,
+                    f"/runs/{run.get('run_id')}/render",
+                    json={"selected_ids": kept_ids},
+                    timeout_s=120,
                 )
-            except Exception:
-                st.warning("PDF not ready yet or download failed.")
+                if ok_apply:
+                    st.success("Updated artifacts with your selection.")
+                else:
+                    st.error(err_apply)
 
-            try:
-                rep_bytes = requests.get(f"{api_url}{run['report_url']}", timeout=60).content
-                st.download_button(
-                    "Download resume_report.json",
-                    data=rep_bytes,
-                    file_name="resume_report.json",
-                    mime="application/json",
-                    use_container_width=True,
-                )
-            except Exception:
-                st.warning("report.json not ready yet or download failed.")
+        st.markdown("</div>", unsafe_allow_html=True)
 
-            try:
-                tex_bytes = requests.get(f"{api_url}{run['tex_url']}", timeout=60).content
-                st.download_button(
-                    "Download tailored_resume.tex",
-                    data=tex_bytes,
-                    file_name="tailored_resume.tex",
-                    mime="application/x-tex",
-                    use_container_width=True,
-                )
-            except Exception:
-                st.warning("tex not ready yet or download failed.")
+        st.markdown('<div class="art-card">', unsafe_allow_html=True)
+        st.markdown("<div class='art-title'>Downloads</div>", unsafe_allow_html=True)
+        pdf_url = f"{api_url}{run['pdf_url']}"
+        tex_url = f"{api_url}{run['tex_url']}"
+        report_url = f"{api_url}{run['report_url']}"
+        st.markdown(
+            f"<a class='nav-link' href='{pdf_url}' target='_blank'>📄 Open PDF preview</a>",
+            unsafe_allow_html=True,
+        )
+        try:
+            pdf = requests.get(pdf_url, timeout=120).content
+            st.download_button(
+                "Download tailored_resume.pdf",
+                data=pdf,
+                file_name="tailored_resume.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+        except Exception:
+            st.warning("PDF not ready yet or download failed.")
 
-    st.markdown("---")
-    st.caption(
-        "Tip: update app defaults in the Settings page or edit config/user_settings.json if needed."
-    )
+        try:
+            tex_bytes = requests.get(tex_url, timeout=60).content
+            st.download_button(
+                "Download tailored_resume.tex",
+                data=tex_bytes,
+                file_name="tailored_resume.tex",
+                mime="application/x-tex",
+                use_container_width=True,
+            )
+        except Exception:
+            st.warning("tex not ready yet or download failed.")
+
+        try:
+            rep_bytes = requests.get(report_url, timeout=60).content
+            st.download_button(
+                "Download resume_report.json",
+                data=rep_bytes,
+                file_name="resume_report.json",
+                mime="application/json",
+                use_container_width=True,
+            )
+        except Exception:
+            st.warning("report.json not ready yet or download failed.")
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 def main() -> None:
