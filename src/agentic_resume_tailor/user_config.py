@@ -7,6 +7,7 @@ from typing import Any, Dict
 
 DEFAULT_USER_CONFIG_PATH = "config/user_settings.json"
 LOCAL_USER_CONFIG_PATH = "config/user_settings.local.json"
+DOCKER_USER_CONFIG_PATH = "config/user_settings.docker.json"
 
 
 def _load_config_file(path: str) -> Dict[str, Any]:
@@ -30,6 +31,23 @@ def _load_config_file(path: str) -> Dict[str, Any]:
     return data
 
 
+def _in_docker() -> bool:
+    """Check if running inside a Docker container.
+
+    Returns:
+        True if running in Docker, otherwise False.
+    """
+    if os.path.exists("/.dockerenv"):
+        return True
+    try:
+        cgroup = Path("/proc/1/cgroup")
+        if cgroup.exists() and "docker" in cgroup.read_text(encoding="utf-8"):
+            return True
+    except Exception:
+        return False
+    return False
+
+
 def get_user_config_path() -> str:
     """Get user config path.
 
@@ -39,10 +57,9 @@ def get_user_config_path() -> str:
     env_path = os.environ.get("USER_SETTINGS_FILE")
     if env_path:
         return env_path
-    local_path = Path(LOCAL_USER_CONFIG_PATH)
-    if local_path.exists():
-        return str(local_path)
-    return DEFAULT_USER_CONFIG_PATH
+    if _in_docker():
+        return DOCKER_USER_CONFIG_PATH
+    return LOCAL_USER_CONFIG_PATH
 
 
 def load_user_config(path: str | None = None) -> Dict[str, Any]:
@@ -62,10 +79,12 @@ def load_user_config(path: str | None = None) -> Dict[str, Any]:
         return _load_config_file(env_path)
 
     base = _load_config_file(DEFAULT_USER_CONFIG_PATH)
+    if _in_docker():
+        docker = _load_config_file(DOCKER_USER_CONFIG_PATH)
+        return {**base, **docker} if docker else base
+
     local = _load_config_file(LOCAL_USER_CONFIG_PATH)
-    if local:
-        return {**base, **local}
-    return base
+    return {**base, **local} if local else base
 
 
 def save_user_config(path: str | None, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -82,7 +101,12 @@ def save_user_config(path: str | None, config: Dict[str, Any]) -> Dict[str, Any]
         config_path = Path(path)
     else:
         env_path = os.environ.get("USER_SETTINGS_FILE")
-        config_path = Path(env_path or LOCAL_USER_CONFIG_PATH)
+        if env_path:
+            config_path = Path(env_path)
+        elif _in_docker():
+            config_path = Path(DOCKER_USER_CONFIG_PATH)
+        else:
+            config_path = Path(LOCAL_USER_CONFIG_PATH)
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
         json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
