@@ -33,6 +33,7 @@ output/
 data/my_experience.json
 data/raw_experience_data.json
 config/user_settings.local.json
+config/user_settings.docker.json
 templates/resume.local.tex
 # OS & IDE
 .DS_Store
