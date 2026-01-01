@@ -12,10 +12,20 @@ from agentic_resume_tailor.user_config import get_user_config_path, load_user_co
 
 
 def _json_settings_source() -> Dict[str, Any]:
+    """JSON settings source.
+
+    Returns:
+        Dictionary result.
+    """
     return load_user_config(get_user_config_path())
 
 
 def _limited_env_settings_source() -> Dict[str, Any]:
+    """Limited env settings source.
+
+    Returns:
+        Dictionary result.
+    """
     data: Dict[str, Any] = {}
     env: Dict[str, Any] = {}
     env.update(dotenv_values(".env"))
@@ -76,6 +86,15 @@ class Settings(BaseSettings):
     def settings_customise_sources(
         cls, settings_cls, init_settings, env_settings, dotenv_settings, file_secret_settings
     ):
+        """Settings customise sources.
+
+        Args:
+            settings_cls: The settings cls value.
+            init_settings: The init settings value.
+            env_settings: The env settings value.
+            dotenv_settings: The dotenv settings value.
+            file_secret_settings: The file secret settings value.
+        """
         return (
             init_settings,
             _json_settings_source,
@@ -86,4 +105,9 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    """Get settings.
+
+    Returns:
+        Result value.
+    """
     return Settings()

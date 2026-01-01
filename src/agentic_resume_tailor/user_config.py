@@ -9,10 +9,23 @@ DEFAULT_USER_CONFIG_PATH = "config/user_settings.json"
 
 
 def get_user_config_path() -> str:
+    """Get user config path.
+
+    Returns:
+        String result.
+    """
     return os.environ.get("USER_SETTINGS_FILE", DEFAULT_USER_CONFIG_PATH)
 
 
 def load_user_config(path: str | None = None) -> Dict[str, Any]:
+    """Load user config.
+
+    Args:
+        path: Filesystem path (optional).
+
+    Returns:
+        Dictionary result.
+    """
     config_path = Path(path or get_user_config_path())
     if not config_path.exists():
         return {}
@@ -26,6 +39,15 @@ def load_user_config(path: str | None = None) -> Dict[str, Any]:
 
 
 def save_user_config(path: str | None, config: Dict[str, Any]) -> Dict[str, Any]:
+    """Save user config.
+
+    Args:
+        path: Filesystem path.
+        config: Configuration mapping.
+
+    Returns:
+        Dictionary result.
+    """
     config_path = Path(path or get_user_config_path())
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(

@@ -104,7 +104,14 @@ DEFAULT_CANON_CONFIG: Dict[str, Any] = {
 
 
 def load_canon_config(path: str) -> Dict[str, Any]:
-    """Load canonicalization config from JSON."""
+    """Load canonicalization config from JSON.
+
+    Args:
+        path: Filesystem path.
+
+    Returns:
+        Dictionary result.
+    """
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -130,7 +137,15 @@ _CANON_CONFIG = load_canon_config(CANON_CONFIG_PATH)
 
 
 def _base_normalize(text: str, keep_chars: str) -> str:
-    """Normalize text for canonicalization."""
+    """Normalize text for canonicalization.
+
+    Args:
+        text: The text value.
+        keep_chars: The keep chars value.
+
+    Returns:
+        String result.
+    """
     s = (text or "").lower().strip()
     s = re.sub(r"\s+", " ", s)
     keep = re.escape(keep_chars)
@@ -140,7 +155,14 @@ def _base_normalize(text: str, keep_chars: str) -> str:
 
 
 def build_variant_to_canonical_map(config: Dict[str, Any]) -> Dict[str, str]:
-    """Build a variant-to-canonical lookup map."""
+    """Build a variant-to-canonical lookup map.
+
+    Args:
+        config: Configuration mapping.
+
+    Returns:
+        Dictionary result.
+    """
     opts = config.get("options", {})
     keep_chars = str(opts.get("keep_chars", "+#./-"))
 
@@ -170,7 +192,14 @@ _VARIANT_TO_CANON = build_variant_to_canonical_map(_CANON_CONFIG)
 
 
 def canonicalize(text: str) -> str:
-    """Canonicalize a term using the loaded config."""
+    """Canonicalize a term using the loaded config.
+
+    Args:
+        text: The text value.
+
+    Returns:
+        String result.
+    """
     opts = _CANON_CONFIG.get("options", {})
     keep_chars = str(opts.get("keep_chars", "+#./-"))
     exceptions = set(opts.get("separator_exceptions") or [])
@@ -196,7 +225,15 @@ def canonicalize(text: str) -> str:
 
 
 def find_all_spans(haystack: str, needle: str) -> List[Tuple[int, int]]:
-    """Find all occurrences of a substring in text."""
+    """Find all occurrences of a substring in text.
+
+    Args:
+        haystack: The haystack value.
+        needle: The needle value.
+
+    Returns:
+        List of results.
+    """
     spans: List[Tuple[int, int]] = []
     if not needle:
         return spans
@@ -211,7 +248,12 @@ def find_all_spans(haystack: str, needle: str) -> List[Tuple[int, int]]:
 
 
 def repair_evidence_items(jd_text: str, items: List[KeywordItem]) -> None:
-    """Repair evidence spans based on JD snippets."""
+    """Repair evidence spans based on JD snippets.
+
+    Args:
+        jd_text: Job description text.
+        items: The items value.
+    """
     for item in items:
         repaired: List[EvidenceSpan] = []
         for ev in item.evidence:
@@ -243,7 +285,15 @@ def repair_evidence_items(jd_text: str, items: List[KeywordItem]) -> None:
 
 
 def validate_evidence_spans(jd_text: str, item: KeywordItem) -> List[str]:
-    """Validate evidence spans against the JD text."""
+    """Validate evidence spans against the JD text.
+
+    Args:
+        jd_text: Job description text.
+        item: The item value.
+
+    Returns:
+        List of results.
+    """
     errs: List[str] = []
     n = len(jd_text)
 
@@ -261,7 +311,15 @@ def validate_evidence_spans(jd_text: str, item: KeywordItem) -> List[str]:
 
 
 def _first_case_insensitive_span(haystack: str, needle: str) -> Optional[Tuple[int, int]]:
-    """Find a case-insensitive span for a substring."""
+    """Find a case-insensitive span for a substring.
+
+    Args:
+        haystack: The haystack value.
+        needle: The needle value.
+
+    Returns:
+        Tuple of results.
+    """
     if not haystack or not needle:
         return None
     n = needle.strip()
@@ -274,7 +332,12 @@ def _first_case_insensitive_span(haystack: str, needle: str) -> Optional[Tuple[i
 
 
 def salvage_evidence_for_item(jd_text: str, item: KeywordItem) -> None:
-    """Best-effort salvage of evidence spans for an item."""
+    """Best-effort salvage of evidence spans for an item.
+
+    Args:
+        jd_text: Job description text.
+        item: The item value.
+    """
     candidates: List[str] = []
     if item.raw:
         candidates.append(item.raw)
@@ -299,12 +362,26 @@ def salvage_evidence_for_item(jd_text: str, item: KeywordItem) -> None:
 
 
 def jd_hash(jd_text: str) -> str:
-    """Compute a stable hash for the JD text."""
+    """Compute a stable hash for the JD text.
+
+    Args:
+        jd_text: Job description text.
+
+    Returns:
+        String result.
+    """
     return hashlib.sha256((jd_text or "").encode("utf-8")).hexdigest()
 
 
 def dedupe_by_canonical(items: List[KeywordItem]) -> List[KeywordItem]:
-    """Deduplicate keyword items by canonical text."""
+    """Deduplicate keyword items by canonical text.
+
+    Args:
+        items: The items value.
+
+    Returns:
+        List of results.
+    """
     seen = set()
     out: List[KeywordItem] = []
     for it in items:
@@ -319,7 +396,14 @@ def dedupe_by_canonical(items: List[KeywordItem]) -> List[KeywordItem]:
 
 
 def sanitize_query_for_embeddings(q: str) -> str:
-    """Clean a query string for embeddings."""
+    """Clean a query string for embeddings.
+
+    Args:
+        q: Query string.
+
+    Returns:
+        String result.
+    """
     q = q or ""
     q = re.sub(r"\bAND\b|\bOR\b|\bNOT\b", " ", q, flags=re.IGNORECASE)
     q = q.replace("(", " ").replace(")", " ").replace('"', " ").replace("'", " ")
@@ -328,7 +412,16 @@ def sanitize_query_for_embeddings(q: str) -> str:
 
 
 def postprocess(profile: TargetProfileV1, jd_text: str, model_name: str) -> TargetProfileV1:
-    """Apply constraints and metadata to a parsed profile."""
+    """Apply constraints and metadata to a parsed profile.
+
+    Args:
+        profile: The profile value.
+        jd_text: Job description text.
+        model_name: The model name value.
+
+    Returns:
+        Result value.
+    """
     # canonicalize & dedupe keywords
     for group_name in ["must_have", "nice_to_have", "responsibilities", "domain_terms"]:
         group: List[KeywordItem] = getattr(profile, group_name)
@@ -424,10 +517,17 @@ def parse_job_description(
     model: str = "gpt-4.1-nano-2025-04-14",
     max_attempts: int = 2,
 ) -> TargetProfileV1:
-    """
-    Parse a JD into TargetProfile v1 using OpenAI.
+    """Parse a JD into TargetProfile v1 using OpenAI.
 
     Includes evidence repair/salvage and retries if contract checks fail.
+
+    Args:
+        jd_text: Job description text.
+        model: The model value (optional).
+        max_attempts: Maximum attempts (optional).
+
+    Returns:
+        Result value.
     """
     if not jd_text or not jd_text.strip():
         raise ValueError("jd_text is empty")
