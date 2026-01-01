@@ -21,6 +21,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from agentic_resume_tailor.core.jd_utils import fallback_queries_from_jd, try_parse_jd
+from agentic_resume_tailor.core.keyword_matcher import extract_profile_keywords
 from agentic_resume_tailor.core.loop_controller import LoopConfig, run_loop
 from agentic_resume_tailor.db.models import (
     Education,
@@ -1633,6 +1634,13 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
 
     profile = try_parse_jd(jd_text)
     base_profile_or_queries = profile if profile is not None else fallback_queries_from_jd(jd_text)
+    profile_keywords = None
+    if profile is not None:
+        try:
+            profile_keywords = extract_profile_keywords(profile)
+        except Exception:
+            logger.exception("Failed to extract profile keywords")
+            profile_keywords = None
 
     cfg = LoopConfig(
         max_iters=req.max_iters,
@@ -1698,6 +1706,8 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
             "tex": os.path.basename(tex_path),
         },
     }
+    if profile_keywords:
+        report["profile_keywords"] = profile_keywords
     if _has_temp_overrides(temp_overrides):
         report["temp_additions"] = temp_overrides.get("additions", [])
         report["temp_edits"] = temp_overrides.get("edits", {})
