@@ -186,6 +186,19 @@ def _inject_app_styles() -> None:
           border: 1px solid #e5e7eb;
           background: #ffffff;
         }
+        textarea, input, select {
+          background-color: #ffffff !important;
+          color: #111827 !important;
+          border: 1px solid #cbd5e1 !important;
+          box-shadow: inset 0 0 0 1px #cbd5e1;
+        }
+        textarea::placeholder, input::placeholder {
+          color: #6b7280 !important;
+        }
+        textarea:focus, input:focus, select:focus {
+          border-color: #2563eb !important;
+          box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15) !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
