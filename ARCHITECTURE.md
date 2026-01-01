@@ -53,15 +53,15 @@ Stop:
 docker compose down
 ```
 
-### Local run (Python)
+### Local run (uv)
 
 ```bash
-python -m venv .venv
+uv venv
 source .venv/bin/activate
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 
-python src/server.py
-streamlit run src/app.py
+uv run python src/server.py
+uv run streamlit run src/app.py
 ```
 
 ---
@@ -284,7 +284,8 @@ All other app settings live in `config/user_settings.json` and are edited via th
     - `utils/logging.py` - log configuration helpers
   - `server.py`, `app.py`, `ingest.py` - thin wrappers for backward-compatible entrypoints
 - `tests/`
-  - `characterization/run_generate_characterization.py` - black-box generate test
+  - `characterization/run_generate_characterization.py` - black-box generate test runner
+  - `characterization/test_generate_characterization.py` - pytest wrapper (optional)
   - `fixtures/` - characterization fixtures and expected output
   - `unit/` - fast unit tests for core modules
 - `templates/resume.tex` - Jinja2 LaTeX template with `<< >>` and `((% %))` delimiters
@@ -306,11 +307,11 @@ Tests:
 
 ```bash
 # characterization (black-box) test
-python tests/characterization/run_generate_characterization.py
+RUN_CHARACTERIZATION=1 pytest -m characterization
 
 # update expected output if intentional behavior changes
 python tests/characterization/run_generate_characterization.py --update
 
 # unit tests
-python -m unittest discover -s tests/unit
+pytest
 ```

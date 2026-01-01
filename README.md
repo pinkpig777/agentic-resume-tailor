@@ -57,3 +57,22 @@ Outputs:
 ## Need setup details?
 
 See `ARCHITECTURE.md` for deployment steps, system diagrams, DB schema, and API details.
+
+---
+
+## Local development (uv)
+
+```bash
+uv venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
+
+# run unit tests
+uv run pytest
+
+# run the API
+uv run python src/server.py
+
+# run the UI
+uv run streamlit run src/app.py
+```
