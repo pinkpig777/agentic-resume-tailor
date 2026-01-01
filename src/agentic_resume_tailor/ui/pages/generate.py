@@ -298,6 +298,36 @@ def _render_badges(items: List[str], kind: str) -> None:
     st.markdown(html, unsafe_allow_html=True)
 
 
+def _matched_keywords(
+    profile_keywords: Dict[str, Any], missing: Dict[str, Any], key: str
+) -> List[str]:
+    """Compute matched keywords for a category."""
+    missing_key = "must_bullets_only" if key == "must_have" else "nice_bullets_only"
+    missing_set = {
+        str(item).strip().lower()
+        for item in (missing.get(missing_key, []) or [])
+        if str(item).strip()
+    }
+    items = profile_keywords.get(key, []) or []
+    matched: List[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if isinstance(item, dict):
+            raw = str(item.get("raw") or "").strip()
+            canonical = str(item.get("canonical") or raw).strip().lower()
+            label = raw or canonical
+        else:
+            label = str(item).strip()
+            canonical = label.lower()
+        if not label or not canonical:
+            continue
+        if canonical in missing_set or canonical in seen:
+            continue
+        seen.add(canonical)
+        matched.append(label)
+    return matched
+
+
 def render_generate_page(api_url: str) -> None:
     """Render the Generate page UI.
 
@@ -402,6 +432,21 @@ def render_generate_page(api_url: str) -> None:
     best_idx = int(report.get("best_iteration_index", 0) or 0)
     best_iter = next((x for x in iters if int(x.get("iteration", -1)) == best_idx), None)
     missing = (best_iter or {}).get("missing") or {}
+
+    st.subheader("Matched keywords")
+    profile_keywords = report.get("profile_keywords") or {}
+    if profile_keywords:
+        matched_must = _matched_keywords(profile_keywords, missing, "must_have")
+        matched_nice = _matched_keywords(profile_keywords, missing, "nice_to_have")
+        st.markdown("<div class='art-subtle'>Must-have</div>", unsafe_allow_html=True)
+        _render_badges(matched_must, "must")
+        st.markdown("<div class='art-subtle'>Nice-to-have</div>", unsafe_allow_html=True)
+        _render_badges(matched_nice, "nice")
+    else:
+        st.markdown(
+            "<span class='art-subtle'>Not available (JD parser disabled)</span>",
+            unsafe_allow_html=True,
+        )
 
     st.subheader("Missing keywords")
     st.markdown("<div class='art-subtle'>Must-have</div>", unsafe_allow_html=True)
