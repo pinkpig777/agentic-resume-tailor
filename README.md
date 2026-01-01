@@ -1,6 +1,6 @@
 # Agentic Resume Tailor (ART)
 
-Local, privacy-first resume tailoring agent. ART keeps your data on disk, stores bullets in a local ChromaDB vector store, retrieves the most relevant bullets for a job description (JD), and renders a single-page LaTeX PDF via Tectonic.
+Local, privacy-first resume tailoring agent. ART keeps your profile on disk, stores bullets in a local ChromaDB vector store, retrieves the most relevant bullets for a job description (JD), and renders a single-page LaTeX PDF via Tectonic.
 
 This repo has two runtimes:
 
@@ -9,15 +9,43 @@ This repo has two runtimes:
 
 ---
 
-## Typical workflow
+## Table of contents
 
-1) Open **Resume Editor**, add your profile (personal info, skills, education, experiences/projects, bullets).
-2) Click **Re-ingest ChromaDB** to rebuild the vector store from the DB.
-3) Open **Generate**, paste a JD, and create a tailored resume.
+- Overview
+- Workflow
+- Features
+- UI pages
+- Data workflow (DB-first)
+- Settings and environment
+- Run the app
+- API
+- Database schema
+- Repo layout
+- Workflow diagram
+- Development
+- Troubleshooting
 
 ---
 
-## Highlights
+## Overview
+
+ART is designed for a simple flow:
+
+1) Create or update your profile in Resume Editor.
+2) Re-ingest ChromaDB to refresh retrieval.
+3) Paste a JD in Generate and create a tailored resume.
+
+---
+
+## Workflow
+
+- Resume Editor writes CRUD changes to the SQL database.
+- Re-ingest exports the DB to `data/my_experience.json`, then rebuilds Chroma.
+- Generate uses the latest DB snapshot and selection pipeline to render PDF + report.
+
+---
+
+## Features
 
 - DB-first profile storage with CRUD UI.
 - Stable, deterministic `bullet_id` for every bullet.
@@ -28,22 +56,9 @@ This repo has two runtimes:
 
 ---
 
-## Pipeline details
-
-- Local vector store (ChromaDB): embeds each bullet with `BAAI/bge-small-en-v1.5`.
-- Multi-query retrieval: uses JD parser output (`experience_queries`) or fallback queries, merges + dedupes by `bullet_id`, then reranks.
-- Top-K selection: keeps the best `N` bullets (default `16`).
-- Keyword matching: canonicalization + family rules for explainable coverage scoring.
-- Hybrid scoring: blends retrieval strength and keyword coverage each iteration.
-- Quant bonus: small bounded boost for quantified results.
-- Within-experience ordering: sorts selected bullets inside each job/project by relevance (ties by bullet id).
-- Report: writes `output/<run_id>_report.json` with queries used, selected IDs, missing keywords, scores, and iteration history.
-
----
-
 ## UI pages
 
-- **Generate**: paste a JD and run the agent using saved defaults.
+- **Generate**: paste a JD and run the agent using saved defaults (set in Settings).
 - **Resume Editor**: CRUD personal info, skills, education, experiences/projects, and bullets; re-ingest Chroma.
 - **Settings**: edit app defaults for generation and ingest; saved to `config/user_settings.json`.
 
@@ -210,7 +225,7 @@ Note: Tectonic must be installed on your machine to render PDFs locally.
 
 ---
 
-## API usage
+## API
 
 ### `GET /health`
 
@@ -288,7 +303,7 @@ Notes:
 
 ---
 
-## Repo map
+## Repo layout
 
 - `data/`
   - `raw_experience_data_example.json` - legacy JSON sample (not used by default)
