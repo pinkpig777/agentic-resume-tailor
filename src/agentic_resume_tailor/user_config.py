@@ -98,7 +98,15 @@ def load_user_config(path: str | None = None) -> Dict[str, Any]:
     if not Path(override_path).exists():
         _write_config_file(override_path, base)
     override = _load_config_file(override_path)
-    return {**base, **override} if override else base
+    merged = {**base, **override} if override else base
+    if _in_docker():
+        api_url = merged.get("api_url")
+        if not api_url or api_url.startswith("http://localhost"):
+            merged["api_url"] = "http://api:8000"
+            if override_path:
+                override = {**override, "api_url": merged["api_url"]}
+                _write_config_file(override_path, override)
+    return merged
 
 
 def save_user_config(path: str | None, config: Dict[str, Any]) -> Dict[str, Any]:
