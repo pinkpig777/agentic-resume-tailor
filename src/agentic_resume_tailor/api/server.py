@@ -5,7 +5,8 @@ import os
 import subprocess
 import threading
 import time
-from typing import Any, Dict, List, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Literal, Tuple
 
 import chromadb
 import jinja2
@@ -20,6 +21,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from agentic_resume_tailor.core.jd_utils import fallback_queries_from_jd, try_parse_jd
+from agentic_resume_tailor.core.keyword_matcher import extract_profile_keywords
 from agentic_resume_tailor.core.loop_controller import LoopConfig, run_loop
 from agentic_resume_tailor.db.models import (
     Education,
@@ -40,7 +42,11 @@ from agentic_resume_tailor.db.utils import (
     next_bullet_id,
     next_sort_order,
 )
-from agentic_resume_tailor.user_config import get_user_config_path, load_user_config, save_user_config
+from agentic_resume_tailor.user_config import (
+    get_user_config_path,
+    load_user_config,
+    save_user_config,
+)
 from agentic_resume_tailor.settings import get_settings
 from agentic_resume_tailor.utils.logging import configure_logging
 
@@ -92,6 +98,19 @@ app.add_middleware(
 )
 
 
+class TempAddition(BaseModel):
+    parent_type: Literal["experience", "project"]
+    parent_id: str = Field(min_length=1)
+    text_latex: str = Field(min_length=1)
+    temp_id: str | None = None
+
+
+class TempOverrides(BaseModel):
+    edits: Dict[str, str] = Field(default_factory=dict)
+    removals: List[str] = Field(default_factory=list)
+    additions: List[TempAddition] = Field(default_factory=list)
+
+
 class GenerateRequest(BaseModel):
     jd_text: str = Field(min_length=1)
 
@@ -109,6 +128,7 @@ class GenerateRequest(BaseModel):
     # Boosting behavior
     boost_weight: float = Field(default=settings.boost_weight, ge=0.1, le=3.0)
     boost_top_n_missing: int = Field(default=settings.boost_top_n_missing, ge=1, le=20)
+    temp_overrides: TempOverrides | None = None
 
 
 class GenerateResponse(BaseModel):
@@ -118,6 +138,11 @@ class GenerateResponse(BaseModel):
     pdf_url: str
     tex_url: str
     report_url: str
+
+
+class RenderSelectionRequest(BaseModel):
+    selected_ids: List[str] = Field(default_factory=list)
+    temp_overrides: TempOverrides | None = None
 
 
 class PersonalInfoUpdate(BaseModel):
@@ -195,8 +220,7 @@ class EducationUpdate(BaseModel):
 
 
 def _ensure_dirs() -> None:
-    """Ensure output directories exist.
-    """
+    """Ensure output directories exist."""
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
@@ -211,8 +235,7 @@ def _load_static_data() -> Dict[str, Any]:
 
 
 def _load_collection():
-    """Load the Chroma collection and embedding function.
-    """
+    """Load the Chroma collection and embedding function."""
     client = chromadb.PersistentClient(path=DB_PATH)
     ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=EMBED_MODEL)
     collection = client.get_collection(name=COLLECTION_NAME, embedding_function=ef)
@@ -232,8 +255,7 @@ def _reload_static_data() -> Dict[str, Any]:
 
 
 def _reload_collection() -> None:
-    """Refresh the in-memory Chroma collection.
-    """
+    """Refresh the in-memory Chroma collection."""
     global COLLECTION, EMB_FN
     COLLECTION, EMB_FN = _load_collection()
 
@@ -261,8 +283,7 @@ def _get_user_setting(key: str, default: Any) -> Any:
 
 
 def _maybe_auto_reingest() -> None:
-    """Auto re-ingest Chroma when enabled and idle.
-    """
+    """Auto re-ingest Chroma when enabled and idle."""
     if not _get_user_setting("auto_reingest_on_save", settings.auto_reingest_on_save):
         return
     if not INGEST_LOCK.acquire(blocking=False):
@@ -393,10 +414,142 @@ def _skills_to_dict(skills: Skills | None) -> Dict[str, str]:
     }
 
 
+def _dedupe_ids(ids: List[str]) -> List[str]:
+    """Deduplicate bullet ids while preserving order.
+
+    Args:
+        ids: Candidate bullet identifiers.
+
+    Returns:
+        List of deduplicated identifiers.
+    """
+    seen: set[str] = set()
+    out: List[str] = []
+    for bid in ids:
+        if not bid or bid in seen:
+            continue
+        seen.add(bid)
+        out.append(bid)
+    return out
+
+
+def _apply_temp_overrides(
+    run_id: str,
+    selected_ids: List[str],
+    selected_candidates: List[Any],
+    temp_overrides: TempOverrides | None,
+    *,
+    auto_include_additions: bool,
+) -> Tuple[List[str], List[Any], Dict[str, Any]]:
+    """Apply temporary edits/removals/additions to selected ids.
+
+    Args:
+        run_id: Run identifier.
+        selected_ids: Selected bullet identifiers.
+        selected_candidates: Candidate bullets tied to selection.
+        temp_overrides: Temporary override payload (optional).
+        auto_include_additions: Whether to auto-include additions in selection.
+
+    Returns:
+        Tuple of selected ids, selected candidates, and normalized overrides.
+    """
+    normalized: Dict[str, Any] = {"edits": {}, "removals": [], "additions": []}
+    if temp_overrides is None:
+        return _dedupe_ids(selected_ids), selected_candidates, normalized
+
+    selected_ids = _dedupe_ids(selected_ids)
+    selected_set = set(selected_ids)
+
+    removals = [bid for bid in temp_overrides.removals if bid in selected_set]
+    if removals:
+        selected_set.difference_update(removals)
+        selected_ids = [bid for bid in selected_ids if bid in selected_set]
+        selected_candidates = [
+            c for c in selected_candidates if getattr(c, "bullet_id", "") in selected_set
+        ]
+
+    additions: List[Dict[str, Any]] = []
+    for idx, addition in enumerate(temp_overrides.additions or [], start=1):
+        parent_type = addition.parent_type
+        parent_id = addition.parent_id
+        text_latex = addition.text_latex
+        if not text_latex.strip():
+            raise HTTPException(status_code=400, detail="temp_additions text_latex is empty")
+        temp_id = (addition.temp_id or "").strip()
+        if not temp_id:
+            temp_id = f"tmp_{run_id}_{idx:03d}"
+        prefix = "exp" if parent_type == "experience" else "proj"
+        bullet_id = f"{prefix}:{parent_id}:{temp_id}"
+        additions.append(
+            {
+                "temp_id": temp_id,
+                "parent_type": parent_type,
+                "parent_id": parent_id,
+                "text_latex": text_latex,
+                "bullet_id": bullet_id,
+            }
+        )
+        if auto_include_additions and bullet_id not in selected_set:
+            selected_set.add(bullet_id)
+            selected_ids.append(bullet_id)
+
+    edits = {
+        bid: text
+        for bid, text in (temp_overrides.edits or {}).items()
+        if bid in selected_set and isinstance(text, str) and text.strip()
+    }
+
+    normalized["removals"] = removals
+    normalized["edits"] = edits
+    normalized["additions"] = [a for a in additions if a["bullet_id"] in selected_set]
+    return selected_ids, selected_candidates, normalized
+
+
+def _filter_temp_overrides_for_report(
+    temp_overrides: Dict[str, Any], selected_ids: List[str]
+) -> Dict[str, Any]:
+    """Filter temp overrides to match the final selected ids.
+
+    Args:
+        temp_overrides: Normalized temp overrides.
+        selected_ids: Final selected identifiers.
+
+    Returns:
+        Filtered overrides for reporting.
+    """
+    selected_set = set(selected_ids)
+    additions = [
+        addition
+        for addition in (temp_overrides.get("additions", []) or [])
+        if addition.get("bullet_id") in selected_set
+    ]
+    edits = {
+        bid: text
+        for bid, text in (temp_overrides.get("edits", {}) or {}).items()
+        if bid in selected_set
+    }
+    removals = [
+        bid for bid in (temp_overrides.get("removals", []) or []) if bid not in selected_set
+    ]
+    return {"additions": additions, "edits": edits, "removals": removals}
+
+
+def _has_temp_overrides(temp_overrides: Dict[str, Any]) -> bool:
+    """Return True when any temp override data exists."""
+    if temp_overrides.get("additions"):
+        return True
+    if temp_overrides.get("edits"):
+        return True
+    if temp_overrides.get("removals"):
+        return True
+    return False
+
+
 def select_and_rebuild(
     static_data: Dict[str, Any],
     selected_ids: List[str],
     selected_candidates: List[Any] | None = None,
+    temp_overrides: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """Build a tailored resume snapshot with selected bullets only.
 
@@ -404,11 +557,15 @@ def select_and_rebuild(
         static_data: Exported resume data snapshot.
         selected_ids: Selected bullet identifiers.
         selected_candidates: Selected candidate bullets (optional).
+        temp_overrides: Temporary bullet overrides (optional).
 
     Returns:
         Dictionary result.
     """
     selected_set = set(selected_ids)
+    temp_overrides = temp_overrides or {}
+    temp_edits: Dict[str, str] = temp_overrides.get("edits", {}) or {}
+    temp_additions: List[Dict[str, Any]] = temp_overrides.get("additions", []) or []
     tailored = copy.deepcopy(static_data)
     score_map: Dict[str, float] = {}
     for c in selected_candidates or []:
@@ -416,6 +573,24 @@ def select_and_rebuild(
         if score is None:
             score = getattr(getattr(c, "best_hit", None), "weighted", 0.0)
         score_map[getattr(c, "bullet_id", "")] = float(score or 0.0)
+
+    for addition in temp_additions:
+        parent_type = addition.get("parent_type")
+        parent_id = addition.get("parent_id")
+        temp_id = addition.get("temp_id")
+        text_latex = addition.get("text_latex")
+        if not parent_type or not parent_id or not temp_id or not text_latex:
+            continue
+        if parent_type == "experience":
+            for exp in tailored.get("experiences", []) or []:
+                if exp.get("job_id") == parent_id:
+                    exp.setdefault("bullets", []).append({"id": temp_id, "text_latex": text_latex})
+                    break
+        elif parent_type == "project":
+            for proj in tailored.get("projects", []) or []:
+                if proj.get("project_id") == parent_id:
+                    proj.setdefault("bullets", []).append({"id": temp_id, "text_latex": text_latex})
+                    break
 
     # Experiences
     new_exps = []
@@ -430,7 +605,8 @@ def select_and_rebuild(
             if bid in selected_set:
                 score = score_map.get(bid, 0.0)
                 tie = local_id or f"idx:{idx:04d}"
-                kept_bullets.append((score, tie, b.get("text_latex", "")))
+                text = temp_edits.get(bid, b.get("text_latex", ""))
+                kept_bullets.append((score, tie, text))
         if kept_bullets:
             kept_bullets.sort(key=lambda item: (-item[0], item[1]))
             exp["bullets"] = [text for _, _, text in kept_bullets]
@@ -449,7 +625,8 @@ def select_and_rebuild(
             if bid in selected_set:
                 score = score_map.get(bid, 0.0)
                 tie = local_id or f"idx:{idx:04d}"
-                kept_bullets.append((score, tie, b.get("text_latex", "")))
+                text = temp_edits.get(bid, b.get("text_latex", ""))
+                kept_bullets.append((score, tie, text))
         if kept_bullets:
             kept_bullets.sort(key=lambda item: (-item[0], item[1]))
             proj["bullets"] = [text for _, _, text in kept_bullets]
@@ -538,6 +715,7 @@ def _trim_to_single_page(
     selected_ids: List[str],
     selected_candidates: List[Any],
     pdf_path: str,
+    temp_overrides: Dict[str, Any] | None = None,
 ) -> Tuple[str, str, List[str], List[Any]]:
     """Trim lowest-weight bullets until the PDF is single-page.
 
@@ -576,7 +754,9 @@ def _trim_to_single_page(
         ]
         if os.path.exists(pdf_path):
             os.remove(pdf_path)
-        tailored = select_and_rebuild(static_data, selected_ids, selected_candidates)
+        tailored = select_and_rebuild(
+            static_data, selected_ids, selected_candidates, temp_overrides=temp_overrides
+        )
         pdf_path, tex_path = render_pdf(tailored, run_id)
         page_count = _pdf_page_count(pdf_path)
 
@@ -616,15 +796,13 @@ logger.info("API Server ready.")
 # -----------------------------
 @app.get("/health")
 def health():
-    """Return API health metadata.
-    """
+    """Return API health metadata."""
     return {"status": "ok", "collection": COLLECTION_NAME, "embed_model": EMBED_MODEL}
 
 
 @app.get("/settings")
 def get_user_settings():
-    """Return merged settings with user overrides.
-    """
+    """Return merged settings with user overrides."""
     base = settings.model_dump()
     base.pop("openai_api_key", None)
     merged = {**base, **USER_CONFIG}
@@ -1006,8 +1184,7 @@ def list_experience_bullets(job_id: str, db: Session = Depends(get_db)):
         .all()
     )
     return [
-        {"id": b.local_id, "text_latex": b.text_latex, "sort_order": b.sort_order}
-        for b in bullets
+        {"id": b.local_id, "text_latex": b.text_latex, "sort_order": b.sort_order} for b in bullets
     ]
 
 
@@ -1225,10 +1402,7 @@ def update_project(project_id: str, payload: ProjectUpdate, db: Session = Depend
         new_base = make_project_id(proj.name)
         if new_base != proj.project_id:
             existing_ids = [
-                row[0]
-                for row in db.query(Project.project_id)
-                .filter(Project.id != proj.id)
-                .all()
+                row[0] for row in db.query(Project.project_id).filter(Project.id != proj.id).all()
             ]
             proj.project_id = ensure_unique_slug(new_base, existing_ids)
 
@@ -1280,8 +1454,7 @@ def list_project_bullets(project_id: str, db: Session = Depends(get_db)):
         .all()
     )
     return [
-        {"id": b.local_id, "text_latex": b.text_latex, "sort_order": b.sort_order}
-        for b in bullets
+        {"id": b.local_id, "text_latex": b.text_latex, "sort_order": b.sort_order} for b in bullets
     ]
 
 
@@ -1461,6 +1634,13 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
 
     profile = try_parse_jd(jd_text)
     base_profile_or_queries = profile if profile is not None else fallback_queries_from_jd(jd_text)
+    profile_keywords = None
+    if profile is not None:
+        try:
+            profile_keywords = extract_profile_keywords(profile)
+        except Exception:
+            logger.exception("Failed to extract profile keywords")
+            profile_keywords = None
 
     cfg = LoopConfig(
         max_iters=req.max_iters,
@@ -1486,7 +1666,22 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
     # Build final resume and render artifacts from best iteration
     selected_ids = list(loop.best_selected_ids)
     selected_candidates = list(loop.best_selected_candidates or [])
-    tailored_data = select_and_rebuild(static_data, selected_ids, selected_candidates)
+    selected_ids, selected_candidates, temp_overrides = _apply_temp_overrides(
+        run_id,
+        selected_ids,
+        selected_candidates,
+        req.temp_overrides,
+        auto_include_additions=True,
+    )
+    if not selected_ids:
+        return JSONResponse({"error": "selected_ids is empty after overrides"}, status_code=400)
+
+    tailored_data = select_and_rebuild(
+        static_data,
+        selected_ids,
+        selected_candidates,
+        temp_overrides=temp_overrides,
+    )
     pdf_path, tex_path = render_pdf(tailored_data, run_id)
     pdf_path, tex_path, selected_ids, selected_candidates = _trim_to_single_page(
         run_id,
@@ -1494,7 +1689,9 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
         selected_ids,
         selected_candidates,
         pdf_path,
+        temp_overrides=temp_overrides,
     )
+    temp_overrides = _filter_temp_overrides_for_report(temp_overrides, selected_ids)
 
     report = {
         "run_id": run_id,
@@ -1509,6 +1706,12 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
             "tex": os.path.basename(tex_path),
         },
     }
+    if profile_keywords:
+        report["profile_keywords"] = profile_keywords
+    if _has_temp_overrides(temp_overrides):
+        report["temp_additions"] = temp_overrides.get("additions", [])
+        report["temp_edits"] = temp_overrides.get("edits", {})
+        report["temp_removals"] = temp_overrides.get("removals", [])
 
     # Attach best score summary if available
     if loop.best_hybrid is not None:
@@ -1535,6 +1738,75 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
         tex_url=f"/runs/{run_id}/tex",
         report_url=f"/runs/{run_id}/report",
     )
+
+
+@app.post("/runs/{run_id}/render")
+def render_selected(run_id: str, payload: RenderSelectionRequest):
+    """Re-render artifacts for a filtered bullet selection.
+
+    Args:
+        run_id: Run identifier.
+        payload: Selected bullet identifiers.
+    """
+    selected_ids = payload.selected_ids or []
+    selected_ids, _, temp_overrides = _apply_temp_overrides(
+        run_id,
+        selected_ids,
+        [],
+        payload.temp_overrides,
+        auto_include_additions=False,
+    )
+    if not selected_ids:
+        return JSONResponse({"error": "selected_ids is empty"}, status_code=400)
+
+    static_data = _load_static_data()
+    tailored_data = select_and_rebuild(
+        static_data,
+        selected_ids,
+        [],
+        temp_overrides=temp_overrides,
+    )
+    pdf_path, tex_path = render_pdf(tailored_data, run_id)
+    pdf_path, tex_path, selected_ids, _ = _trim_to_single_page(
+        run_id,
+        static_data,
+        selected_ids,
+        [],
+        pdf_path,
+        temp_overrides=temp_overrides,
+    )
+    temp_overrides = _filter_temp_overrides_for_report(temp_overrides, selected_ids)
+
+    report_path = os.path.join(OUTPUT_DIR, f"{run_id}_report.json")
+    if os.path.exists(report_path):
+        try:
+            report = json.loads(Path(report_path).read_text(encoding="utf-8"))
+        except Exception:
+            report = {}
+        report["selected_ids"] = selected_ids
+        report["filtered_selection"] = True
+        report.setdefault("artifacts", {})
+        report["artifacts"]["pdf"] = os.path.basename(pdf_path)
+        report["artifacts"]["tex"] = os.path.basename(tex_path)
+        if _has_temp_overrides(temp_overrides):
+            report["temp_additions"] = temp_overrides.get("additions", [])
+            report["temp_edits"] = temp_overrides.get("edits", {})
+            report["temp_removals"] = temp_overrides.get("removals", [])
+        else:
+            report.pop("temp_additions", None)
+            report.pop("temp_edits", None)
+            report.pop("temp_removals", None)
+        Path(report_path).write_text(
+            json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+
+    return {
+        "status": "ok",
+        "run_id": run_id,
+        "pdf_url": f"/runs/{run_id}/pdf",
+        "tex_url": f"/runs/{run_id}/tex",
+        "report_url": f"/runs/{run_id}/report",
+    }
 
 
 @app.get("/runs/{run_id}/pdf")
@@ -1577,8 +1849,7 @@ def get_report(run_id: str):
 
 
 def main() -> None:
-    """Run the API server entrypoint.
-    """
+    """Run the API server entrypoint."""
     uvicorn.run(app, host="0.0.0.0", port=settings.port)
 
 
