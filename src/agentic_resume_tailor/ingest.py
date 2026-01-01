@@ -6,7 +6,7 @@ import chromadb
 from chromadb.utils import embedding_functions
 from tqdm import tqdm
 
-from agentic_resume_tailor.db.session import SessionLocal
+from agentic_resume_tailor.db.session import SessionLocal, init_db
 from agentic_resume_tailor.db.sync import export_resume_data, write_resume_json
 from agentic_resume_tailor.settings import get_settings
 from agentic_resume_tailor.utils.logging import configure_logging
@@ -150,6 +150,7 @@ def ingest(data: dict | None = None, json_path: str | None = None) -> int:
 def main() -> None:
     """Export current DB to JSON and ingest into Chroma.
     """
+    init_db()
     with SessionLocal() as db:
         write_resume_json(db, settings.export_file)
     ingest(json_path=settings.export_file)
