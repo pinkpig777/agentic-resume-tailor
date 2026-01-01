@@ -362,9 +362,8 @@ def _render_sidebar(api_url: str) -> Tuple[bool, Any, str]:
         ("Resume Editor", "🧩"),
         ("Settings", "⚙️"),
     ]
-    nav_buttons = []
-    for name, icon_text in nav_items:
-        nav_buttons.append((name, icon_text))
+    icon_map = {name: icon_text for name, icon_text in nav_items}
+    nav_labels = [name for name, _ in nav_items]
     st.sidebar.markdown(
         f"""
         <div class="sidebar-card">
@@ -373,16 +372,16 @@ def _render_sidebar(api_url: str) -> Tuple[bool, Any, str]:
         """,
         unsafe_allow_html=True,
     )
-    for name, icon_text in nav_buttons:
-        is_active = name == page
-        if st.sidebar.button(
-            f"{icon_text} {name}",
-            key=f"nav_{name}",
-            use_container_width=True,
-            type="primary" if is_active else "secondary",
-        ):
-            st.session_state["page"] = name
-            page = name
+    selected = st.sidebar.radio(
+        "Navigation",
+        nav_labels,
+        index=nav_labels.index(page) if page in nav_labels else 0,
+        format_func=lambda x: f"{icon_map.get(x, '')} {x}",
+        label_visibility="collapsed",
+    )
+    st.sidebar.markdown("</div>", unsafe_allow_html=True)
+    st.session_state["page"] = selected
+    page = selected
     return ok, info, page
 
 
