@@ -300,27 +300,6 @@ def _inject_app_styles() -> None:
           padding: 12px;
           margin-bottom: 12px;
         }
-        .metric-grid {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 12px;
-        }
-        .metric-item {
-          background: #f8fafc;
-          border: 1px solid #e5e7eb;
-          border-radius: 12px;
-          padding: 10px 12px;
-        }
-        .metric-label {
-          color: #6b7280;
-          font-size: 0.78rem;
-          margin-bottom: 4px;
-        }
-        .metric-value {
-          font-size: 1.05rem;
-          font-weight: 600;
-          color: #111827;
-        }
         .bullet-card {
           background: #ffffff;
           border: 1px solid #e5e7eb;
@@ -520,28 +499,6 @@ def _group_selected_bullets(
             )
             group["bullets"].append({"id": bullet_id, "text": info.get("text", "")})
     return exp_groups, proj_groups
-
-
-def _render_metric_grid(metrics: List[Tuple[str, Any]]) -> None:
-    """Render metric cards in a grid.
-
-    Args:
-        metrics: List of label/value pairs.
-    """
-    items = []
-    for label, value in metrics:
-        items.append(
-            f"""
-            <div class="metric-item">
-              <div class="metric-label">{label}</div>
-              <div class="metric-value">{value}</div>
-            </div>
-            """
-        )
-    st.markdown(
-        f"<div class='metric-grid'>{''.join(items)}</div>",
-        unsafe_allow_html=True,
-    )
 
 
 def _render_badges(items: List[str], kind: str) -> None:
@@ -1230,72 +1187,52 @@ def render_generate_page(api_url: str) -> None:
             icon="🚨",
         )
 
-    left, right = st.columns([5, 7], gap="large")
-
     _check_generate_status()
-    with left:
-        st.markdown("### Job Description")
-        st.session_state.setdefault("jd_text_input", "")
-        jd_text = st.text_area(
-            "Paste the JD here",
-            height=320,
-            placeholder="Paste a job description...",
-            label_visibility="collapsed",
-            key="jd_text_input",
-        )
-        disabled = not ok
-        if st.button(
-            "Generate",
-            type="primary",
-            use_container_width=True,
-            disabled=disabled,
-        ):
-            live_ok, info = check_server_health(api_url, timeout_s=2.0)
-            if not live_ok:
-                st.error(
-                    f"Cannot reach API server at {api_url}. "
-                    "Start the backend and click Re-check in the sidebar."
-                )
-                return
-            if not jd_text.strip():
-                st.error("Please paste a job description first.")
-            else:
-                payload = {"jd_text": jd_text.strip()}
-                future = st.session_state.get("generate_future")
-                if isinstance(future, Future) and not future.done():
-                    st.warning("Generation already running.")
-                else:
-                    st.session_state["generate_error"] = ""
-                    st.session_state["generate_future"] = GEN_EXECUTOR.submit(
-                        _run_generate, api_url, payload
-                    )
-
-    with right:
-        future = st.session_state.get("generate_future")
-        if isinstance(future, Future) and not future.done():
-            st.markdown(
-                """
-                <div class="art-card">
-                  <div class="art-title">Generation running</div>
-                  <div class="art-subtle">You can navigate to other pages while this runs.</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        if st.session_state.get("generate_error"):
-            st.error(st.session_state.get("generate_error"))
-        run = st.session_state.get("last_run")
-        if not run:
-            st.markdown(
-                """
-                <div class="art-card">
-                  <div class="art-title">Results</div>
-                  <div class="art-subtle">Generate a run to see summary metrics and bullets.</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
+    st.markdown("### Job Description")
+    st.session_state.setdefault("jd_text_input", "")
+    jd_text = st.text_area(
+        "Paste the JD here",
+        height=320,
+        placeholder="Paste a job description...",
+        label_visibility="collapsed",
+        key="jd_text_input",
+    )
+    disabled = not ok
+    if st.button(
+        "Generate",
+        type="primary",
+        use_container_width=True,
+        disabled=disabled,
+    ):
+        live_ok, info = check_server_health(api_url, timeout_s=2.0)
+        if not live_ok:
+            st.error(
+                f"Cannot reach API server at {api_url}. "
+                "Start the backend and click Re-check in the sidebar."
             )
             return
+        if not jd_text.strip():
+            st.error("Please paste a job description first.")
+        else:
+            payload = {"jd_text": jd_text.strip()}
+            future = st.session_state.get("generate_future")
+            if isinstance(future, Future) and not future.done():
+                st.warning("Generation already running.")
+            else:
+                st.session_state["generate_error"] = ""
+                st.session_state["generate_future"] = GEN_EXECUTOR.submit(
+                    _run_generate, api_url, payload
+                )
+
+    future = st.session_state.get("generate_future")
+    if isinstance(future, Future) and not future.done():
+        st.info("Generation running. You can navigate to other pages while this runs.")
+    if st.session_state.get("generate_error"):
+        st.error(st.session_state.get("generate_error"))
+    run = st.session_state.get("last_run")
+    if not run:
+        st.info("Generate a run to see summary metrics and bullets.")
+        return
 
         report = None
         try:
@@ -1311,29 +1248,30 @@ def render_generate_page(api_url: str) -> None:
             return
 
         best = report.get("best_score") or {}
-        st.markdown('<div class="art-card">', unsafe_allow_html=True)
-        st.markdown("<div class='art-title'>Results summary</div>", unsafe_allow_html=True)
-        metrics = [
-            ("Final score", best.get("final_score", "—")),
-            ("Retrieval", round(float(best.get("retrieval_score", 0.0)), 3)),
-            ("Coverage (bullets)", round(float(best.get("coverage_bullets_only", 0.0)), 3)),
-            ("Coverage (all)", round(float(best.get("coverage_all", 0.0)), 3)),
-        ]
-        _render_metric_grid(metrics)
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.subheader("Results summary")
+        c1, c2 = st.columns(2)
+        c1.metric("Final score", best.get("final_score", "—"))
+        c2.metric("Retrieval", round(float(best.get("retrieval_score", 0.0)), 3))
+        c3, c4 = st.columns(2)
+        c3.metric(
+            "Coverage (bullets)",
+            round(float(best.get("coverage_bullets_only", 0.0)), 3),
+        )
+        c4.metric(
+            "Coverage (all)",
+            round(float(best.get("coverage_all", 0.0)), 3),
+        )
 
         iters = report.get("iterations", []) or []
         best_idx = int(report.get("best_iteration_index", 0) or 0)
         best_iter = next((x for x in iters if int(x.get("iteration", -1)) == best_idx), None)
         missing = (best_iter or {}).get("missing") or {}
 
-        st.markdown('<div class="art-card">', unsafe_allow_html=True)
-        st.markdown("<div class='art-title'>Missing keywords</div>", unsafe_allow_html=True)
+        st.subheader("Missing keywords")
         st.markdown("<div class='art-subtle'>Must-have</div>", unsafe_allow_html=True)
         _render_badges(missing.get("must_bullets_only") or [], "must")
         st.markdown("<div class='art-subtle'>Nice-to-have</div>", unsafe_allow_html=True)
         _render_badges(missing.get("nice_bullets_only") or [], "nice")
-        st.markdown("</div>", unsafe_allow_html=True)
 
         ok_sections, experiences, projects, err = _fetch_resume_sections(api_url)
         lookup, exp_meta, proj_meta = _build_bullet_lookup(
@@ -1344,12 +1282,8 @@ def render_generate_page(api_url: str) -> None:
             selected_ids, lookup, exp_meta, proj_meta
         )
 
-        st.markdown('<div class="art-card">', unsafe_allow_html=True)
-        st.markdown("<div class='art-title'>Selected bullets</div>", unsafe_allow_html=True)
-        st.markdown(
-            "<div class='art-subtle'>Uncheck bullets to exclude them from re-render.</div>",
-            unsafe_allow_html=True,
-        )
+        st.subheader("Selected bullets")
+        st.caption("Uncheck bullets to exclude them from re-render.")
         kept_ids: List[str] = []
 
         if exp_groups:
@@ -1366,7 +1300,7 @@ def render_generate_page(api_url: str) -> None:
                 for bullet in group.get("bullets", []):
                     bullet_id = bullet.get("id", "")
                     keep_key = f"keep_{bullet_id}"
-                    cols = st.columns([0.12, 0.88])
+                    cols = st.columns([0.2, 0.8])
                     keep = cols[0].checkbox("Keep", value=True, key=keep_key)
                     cols[1].markdown(
                         f"<div class='bullet-card'>{bullet.get('text', '')}</div>",
@@ -1384,7 +1318,7 @@ def render_generate_page(api_url: str) -> None:
                 for bullet in group.get("bullets", []):
                     bullet_id = bullet.get("id", "")
                     keep_key = f"keep_{bullet_id}"
-                    cols = st.columns([0.12, 0.88])
+                    cols = st.columns([0.2, 0.8])
                     keep = cols[0].checkbox("Keep", value=True, key=keep_key)
                     cols[1].markdown(
                         f"<div class='bullet-card'>{bullet.get('text', '')}</div>",
@@ -1394,10 +1328,7 @@ def render_generate_page(api_url: str) -> None:
                         kept_ids.append(bullet_id)
 
         if not exp_groups and not proj_groups:
-            st.markdown(
-                "<div class='art-subtle'>No bullet text available yet. Add bullets in Resume Editor.</div>",
-                unsafe_allow_html=True,
-            )
+            st.caption("No bullet text available yet. Add bullets in Resume Editor.")
 
         apply_cols = st.columns([1, 1])
         if apply_cols[0].button("Apply selection and re-render", use_container_width=True):
@@ -1416,10 +1347,7 @@ def render_generate_page(api_url: str) -> None:
                 else:
                     st.error(err_apply)
 
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        st.markdown('<div class="art-card">', unsafe_allow_html=True)
-        st.markdown("<div class='art-title'>Downloads</div>", unsafe_allow_html=True)
+        st.subheader("Downloads")
         pdf_url = f"{api_url}{run['pdf_url']}"
         tex_url = f"{api_url}{run['tex_url']}"
         report_url = f"{api_url}{run['report_url']}"
@@ -1462,7 +1390,6 @@ def render_generate_page(api_url: str) -> None:
             )
         except Exception:
             st.warning("report.json not ready yet or download failed.")
-        st.markdown("</div>", unsafe_allow_html=True)
 
 
 def main() -> None:
