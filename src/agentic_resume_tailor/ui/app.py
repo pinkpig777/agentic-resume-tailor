@@ -1331,24 +1331,8 @@ def render_generate_page(api_url: str) -> None:
             st.error(err_apply)
 
     st.subheader("Downloads")
-    pdf_url = f"{api_url}{run['pdf_url']}"
     tex_url = f"{api_url}{run['tex_url']}"
     report_url = f"{api_url}{run['report_url']}"
-    st.markdown(
-        f"<a class='nav-link' href='{pdf_url}' target='_blank'>📄 Open PDF preview</a>",
-        unsafe_allow_html=True,
-    )
-    try:
-        pdf = requests.get(pdf_url, timeout=120).content
-        st.download_button(
-            "Download tailored_resume.pdf",
-            data=pdf,
-            file_name="tailored_resume.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-        )
-    except Exception:
-        st.warning("PDF not ready yet or download failed.")
 
     try:
         tex_bytes = requests.get(tex_url, timeout=60).content
