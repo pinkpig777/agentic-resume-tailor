@@ -33,7 +33,8 @@ Notes:
 ### 3) Adjust defaults (Settings)
 
 - Open **Settings** to change default generation and ingest behavior.
-- Settings are saved to `config/user_settings.json` and loaded on startup.
+- Settings are saved to `config/user_settings.local.json` after your first save and loaded on
+  startup, with defaults in `config/user_settings.json`.
 - If you enable **Auto re-ingest on save**, the vector store refreshes after each edit.
 - Use **Advanced tuning** to adjust the quantitative bullet bonus (per-hit and cap).
 - The JD parser model is selected from a dropdown of current OpenAI models (or override in
@@ -60,6 +61,9 @@ Outputs:
 ## Need setup details?
 
 See `ARCHITECTURE.md` for deployment steps, system diagrams, DB schema, and API details.
+
+Template tip: create `templates/resume.local.tex` to override the default `templates/resume.tex`
+without committing your personal edits.
 
 ---
 
