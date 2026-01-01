@@ -71,10 +71,24 @@ streamlit run src/app.py
 ```mermaid
 flowchart LR
   UI[Streamlit UI] -->|CRUD + generate| API[FastAPI API]
-  API --> DB[(SQL DB)]
-  API -->|export| JSON[data/my_experience.json]
-  API -->|ingest| CHROMA[(ChromaDB)]
+  API -->|CRUD| DB[(SQL DB)]
+  DB -->|export| JSON[data/my_experience.json]
+  JSON -->|ingest| CHROMA[(ChromaDB)]
+  API -->|query| CHROMA
   API -->|render| OUT[output/*.pdf, *.tex, *_report.json]
+```
+
+---
+
+## Workflow diagram
+
+```mermaid
+flowchart TD
+  A[Resume Editor CRUD] --> B[FastAPI writes SQL DB]
+  B --> C[Export DB to data/my_experience.json]
+  C --> D[Ingest JSON into ChromaDB]
+  D --> E[Generate queries ChromaDB]
+  E --> F[Render PDF + report]
 ```
 
 ---
