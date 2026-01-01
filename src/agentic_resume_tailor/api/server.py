@@ -14,6 +14,7 @@ from chromadb.utils import embedding_functions
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from pypdf import PdfReader
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
@@ -510,6 +511,78 @@ def render_pdf(context: Dict[str, Any], run_id: str) -> Tuple[str, str]:
 
     pdf_path = os.path.join(OUTPUT_DIR, f"{run_id}.pdf")
     return pdf_path, tex_path
+
+
+def _pdf_page_count(path: str) -> int | None:
+    """Return the page count for a PDF path, if readable.
+
+    Args:
+        path: Filesystem path.
+
+    Returns:
+        Page count or None if unreadable.
+    """
+    try:
+        reader = PdfReader(path)
+        return len(reader.pages)
+    except Exception as exc:
+        logger.warning("Failed to read PDF page count: %s", exc)
+        return None
+
+
+def _trim_to_single_page(
+    run_id: str,
+    static_data: Dict[str, Any],
+    selected_ids: List[str],
+    selected_candidates: List[Any],
+    pdf_path: str,
+) -> Tuple[str, str, List[str], List[Any]]:
+    """Trim lowest-weight bullets until the PDF is single-page.
+
+    Args:
+        run_id: Run identifier.
+        static_data: Exported resume data snapshot.
+        selected_ids: Selected bullet identifiers.
+        selected_candidates: Selected candidate bullets.
+        pdf_path: Current PDF path.
+
+    Returns:
+        Tuple of PDF path, TeX path, selected ids, selected candidates.
+    """
+    if SKIP_PDF_RENDER:
+        tex_path = os.path.join(OUTPUT_DIR, f"{run_id}.tex")
+        return pdf_path, tex_path, selected_ids, selected_candidates
+
+    score_map: Dict[str, float] = {}
+    for c in selected_candidates:
+        score = getattr(c, "selection_score", None)
+        if score is None:
+            score = getattr(getattr(c, "best_hit", None), "weighted", 0.0)
+        score_map[getattr(c, "bullet_id", "")] = float(score or 0.0)
+
+    page_count = _pdf_page_count(pdf_path)
+    while page_count is not None and page_count > 1 and len(selected_ids) > 1:
+        ranked = [(score_map.get(bid, 0.0), bid) for bid in selected_ids]
+        ranked.sort(key=lambda item: (item[0], item[1]))
+        drop_id = ranked[0][1] if ranked else ""
+        if not drop_id:
+            break
+        logger.info("Trimming bullet %s to enforce single-page PDF", drop_id)
+        selected_ids = [bid for bid in selected_ids if bid != drop_id]
+        selected_candidates = [
+            c for c in selected_candidates if getattr(c, "bullet_id", "") != drop_id
+        ]
+        if os.path.exists(pdf_path):
+            os.remove(pdf_path)
+        tailored = select_and_rebuild(static_data, selected_ids, selected_candidates)
+        pdf_path, tex_path = render_pdf(tailored, run_id)
+        page_count = _pdf_page_count(pdf_path)
+
+    if page_count is not None and page_count > 1:
+        logger.warning("PDF still exceeds one page after trimming to %d bullets", len(selected_ids))
+
+    tex_path = os.path.join(OUTPUT_DIR, f"{run_id}.tex")
+    return pdf_path, tex_path, selected_ids, selected_candidates
 
 
 def _run_id() -> str:
@@ -1409,12 +1482,17 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
     )
 
     # Build final resume and render artifacts from best iteration
-    tailored_data = select_and_rebuild(
-        static_data,
-        loop.best_selected_ids,
-        loop.best_selected_candidates,
-    )
+    selected_ids = list(loop.best_selected_ids)
+    selected_candidates = list(loop.best_selected_candidates or [])
+    tailored_data = select_and_rebuild(static_data, selected_ids, selected_candidates)
     pdf_path, tex_path = render_pdf(tailored_data, run_id)
+    pdf_path, tex_path, selected_ids, selected_candidates = _trim_to_single_page(
+        run_id,
+        static_data,
+        selected_ids,
+        selected_candidates,
+        pdf_path,
+    )
 
     report = {
         "run_id": run_id,
@@ -1422,7 +1500,7 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
         "profile_used": profile is not None,
         "loop_config": cfg.__dict__,
         "best_iteration_index": loop.best_iteration_index,
-        "selected_ids": loop.best_selected_ids,
+        "selected_ids": selected_ids,
         "iterations": loop.iterations,
         "artifacts": {
             "pdf": os.path.basename(pdf_path),
