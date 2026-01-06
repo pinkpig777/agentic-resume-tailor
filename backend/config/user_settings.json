@@ -20,6 +20,7 @@
   "quant_bonus_cap": 0.2,
   "boost_weight": 1.6,
   "boost_top_n_missing": 6,
+  "experience_weight": 1.2,
   "cors_origins": "*",
   "skip_pdf": false,
   "run_id": null,

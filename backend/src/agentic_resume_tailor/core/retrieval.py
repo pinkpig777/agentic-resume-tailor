@@ -126,6 +126,18 @@ def _compute_quant_bonus(
     return min(per_hit * hits, cap)
 
 
+def _section_weight(meta: Dict[str, Any], experience_weight: float) -> float:
+    """Return a weighting multiplier based on the bullet section."""
+    section = str(meta.get("section") or "").lower()
+    if section == "experience":
+        try:
+            weight = float(experience_weight)
+        except (TypeError, ValueError):
+            return 1.0
+        return weight if weight > 0 else 1.0
+    return 1.0
+
+
 def _build_query_items(jd_parser_result: Any) -> List[QueryItem]:
     """Build QueryItem objects from a JD parser result.
 
@@ -281,12 +293,14 @@ def multi_query_retrieve(
     for _, v in merged.items():
         # sort hits desc for debugging/provenance
         v["hits"].sort(key=lambda h: h.weighted, reverse=True)
-        total_weighted = float(v["total_weighted"])
+        base_total_weighted = float(v["total_weighted"])
         quant_bonus = _compute_quant_bonus(
             v["text_latex"], per_hit=quant_per_hit, cap=quant_cap
         )
-        selection_score = float(v["best_hit"].weighted) + quant_bonus
-        effective_total_weighted = total_weighted + quant_bonus
+        section_weight = _section_weight(v["meta"], settings.experience_weight)
+        selection_score = (float(v["best_hit"].weighted) + quant_bonus) * section_weight
+        total_weighted = base_total_weighted * section_weight
+        effective_total_weighted = (base_total_weighted + quant_bonus) * section_weight
         candidates.append(
             Candidate(
                 bullet_id=v["bullet_id"],

@@ -39,6 +39,7 @@ const floatFields = [
   "quant_bonus_per_hit",
   "quant_bonus_cap",
   "boost_weight",
+  "experience_weight",
 ] as const;
 
 const numberFields = [...integerFields, ...floatFields] as const;
@@ -73,6 +74,7 @@ const tooltips: Record<string, string> = {
   quant_bonus_cap: "Maximum quant bonus.",
   boost_weight: "Boost weight for missing keywords.",
   boost_top_n_missing: "Number of missing keywords boosted.",
+  experience_weight: "Multiplier for experience bullets vs projects.",
   collection_name: "Chroma collection name used for retrieval.",
   embed_model: "Embedding model ID used to embed bullets.",
   jd_model: "OpenAI model used by the JD parser.",
@@ -638,6 +640,13 @@ export default function SettingsPage() {
               "1.6",
               "Multiplier for missing keywords.",
               tooltips.boost_weight,
+            )}
+            {renderNumberField(
+              "experience_weight",
+              "Experience weight",
+              "1.2",
+              "Prefer experience bullets over projects.",
+              tooltips.experience_weight,
             )}
             {renderNumberField(
               "boost_top_n_missing",

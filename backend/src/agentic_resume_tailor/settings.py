@@ -67,6 +67,7 @@ class Settings(BaseSettings):
 
     boost_weight: float = 1.6
     boost_top_n_missing: int = 6
+    experience_weight: float = 1.2
 
     cors_origins: str = "*"
 

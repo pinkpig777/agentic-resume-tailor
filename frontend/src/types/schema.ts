@@ -70,6 +70,7 @@ export interface SettingsData {
   quant_bonus_cap: number;
   boost_weight: number;
   boost_top_n_missing: number;
+  experience_weight: number;
   cors_origins: string;
   skip_pdf: boolean;
   run_id: string | null;
