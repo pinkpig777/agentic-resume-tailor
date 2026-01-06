@@ -48,6 +48,10 @@ Notes:
   auto-created on first start and used for saves:
   - `backend/config/user_settings.local.json` for local runs
   - `backend/config/user_settings.docker.json` for Docker/Compose runs
+- Changes auto-save on blur/toggle in the UI and write to the override file shown at the top of the
+  Settings page.
+- To reset to defaults, delete the override file and restart the API.
+- The OpenAI API key is read from environment variables only and cannot be updated from the UI.
 - If you enable **Auto re-ingest on save**, the vector store refreshes after each edit.
 - Use **Advanced tuning** to adjust the quantitative bullet bonus (per-hit and cap).
 - The JD parser model is selected from a dropdown of current OpenAI models (or override in
