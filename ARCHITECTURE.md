@@ -53,6 +53,9 @@ Verify:
 - API health: `http://localhost:8000/health`
 - React SPA: `http://localhost:5173`
 
+The Compose stack runs the FastAPI backend plus a Vite dev server for the frontend. The frontend
+service is configured with `VITE_API_URL=http://localhost:8000`.
+
 Then:
 
 1) Open **Resume Editor**, create your profile.

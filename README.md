@@ -90,6 +90,17 @@ without committing your personal edits.
 
 ---
 
+## Docker (full stack)
+
+```bash
+docker compose up --build
+```
+
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:8000/health`
+
+---
+
 ## Local development (uv)
 
 ```bash
