@@ -1,18 +1,18 @@
 services:
   api:
-    build: .
+    build: ./backend
     container_name: resume-agent-api
     env_file:
-      - .env
-    command: python /app/src/server.py
+      - ./backend/.env
+    command: python -m agentic_resume_tailor.api.server
     ports:
       - "8000:8000"
     volumes:
-      - ./data:/app/data
-      - ./output:/app/output
-      - ./src:/app/src
-      - ./templates:/app/templates
-      - ./config:/app/config
+      - ./backend/data:/app/data
+      - ./backend/output:/app/output
+      - ./backend/src:/app/src
+      - ./backend/templates:/app/templates
+      - ./backend/config:/app/config
       - ./.cache_docker:/root/.cache
     healthcheck:
       test:
@@ -25,20 +25,3 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-
-  ui:
-    build: .
-    container_name: resume-agent-ui
-    env_file:
-      - .env
-    environment:
-      USER_SETTINGS_FILE: /app/config/user_settings.docker.json
-    command: streamlit run /app/src/app.py --server.address=0.0.0.0 --server.port=8501
-    ports:
-      - "8501:8501"
-    volumes:
-      - ./src:/app/src
-      - ./config:/app/config
-    depends_on:
-      api:
-        condition: service_healthy
