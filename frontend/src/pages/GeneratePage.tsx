@@ -50,7 +50,7 @@ type SelectionItem = {
   text: string;
   originalText: string;
   label: string;
-  parentType?: "experience" | "project";
+  parentType?: "experience" | "project" | "unknown";
   parentId?: string;
   tempId?: string;
   isTemp: boolean;
@@ -71,17 +71,25 @@ type ParentOption = {
 type BulletOption = {
   id: string;
   text: string;
-  parentType: "experience" | "project";
+  parentType: "experience" | "project" | "unknown";
   parentId: string;
   parentLabel: string;
 };
 
-type BulletGroup = {
+type AvailableGroup = {
   key: string;
   label: string;
-  parentType: "experience" | "project";
+  parentType: "experience" | "project" | "unknown";
   parentId: string;
   items: BulletOption[];
+};
+
+type SelectedGroup = {
+  key: string;
+  label: string;
+  parentType: "experience" | "project" | "unknown";
+  parentId: string;
+  items: SelectionItem[];
 };
 
 type StoredGenerateState = {
@@ -170,8 +178,8 @@ const buildBulletLookup = (data: ResumeData) => {
 const buildAvailableGroups = (
   data: ResumeData,
   selectedIds: Set<string>,
-): BulletGroup[] => {
-  const groups: BulletGroup[] = [];
+): AvailableGroup[] => {
+  const groups: AvailableGroup[] = [];
 
   data.experiences.forEach((exp) => {
     const label = `${exp.role} · ${exp.company}`;
@@ -218,6 +226,41 @@ const buildAvailableGroups = (
   });
 
   return groups;
+};
+
+const buildSelectedGroups = (items: SelectionItem[]): SelectedGroup[] => {
+  const groups = new Map<string, SelectedGroup>();
+  const order: string[] = [];
+
+  items.forEach((item) => {
+    const parentType = item.parentType ?? "unknown";
+    const parentId = item.parentId ?? "";
+    const key =
+      parentType === "unknown" ? `unknown:${item.id}` : `${parentType}:${parentId}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        label: item.label || "Unlinked bullets",
+        parentType,
+        parentId,
+        items: [],
+      });
+      order.push(key);
+    }
+    groups.get(key)?.items.push(item);
+  });
+
+  return order.map((key) => groups.get(key)!).filter(Boolean);
+};
+
+const labelForSection = (type: "experience" | "project" | "unknown") => {
+  if (type === "project") {
+    return "Project";
+  }
+  if (type === "experience") {
+    return "Experience";
+  }
+  return "Bullet";
 };
 
 const mapTempAdditions = (report: RunReport) => {
@@ -319,7 +362,11 @@ function SortableSelectionRow({
       <div className="flex-1 space-y-2">
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span className="rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.2em]">
-            {item.parentType === "project" ? "Project" : "Experience"}
+            {item.parentType === "project"
+              ? "Project"
+              : item.parentType === "experience"
+                ? "Experience"
+                : "Bullet"}
           </span>
           <span className="font-medium text-foreground">{item.label}</span>
           {item.isTemp ? (
@@ -367,9 +414,12 @@ export default function GeneratePage() {
   const [newBulletType, setNewBulletType] = useState<"experience" | "project">(
     "experience",
   );
-  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(
-    {},
-  );
+  const [selectedCollapsedGroups, setSelectedCollapsedGroups] = useState<
+    Record<string, boolean>
+  >({});
+  const [availableCollapsedGroups, setAvailableCollapsedGroups] = useState<
+    Record<string, boolean>
+  >({});
   const [newBulletParentId, setNewBulletParentId] = useState("");
   const [newBulletText, setNewBulletText] = useState("");
   const tempCounter = useRef(0);
@@ -409,6 +459,11 @@ export default function GeneratePage() {
     }
     return buildAvailableGroups(resumeData, selectedIdSet);
   }, [resumeData, selectedIdSet]);
+
+  const selectedGroups = useMemo(
+    () => buildSelectedGroups(selection),
+    [selection],
+  );
 
   const experienceOptions = useMemo<ParentOption[]>(() => {
     if (!resumeData) {
@@ -503,21 +558,6 @@ export default function GeneratePage() {
     mutation.mutate(trimmed);
   };
 
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) {
-      return;
-    }
-    setSelection((items) => {
-      const oldIndex = items.findIndex((item) => item.id === active.id);
-      const newIndex = items.findIndex((item) => item.id === over.id);
-      if (oldIndex < 0 || newIndex < 0) {
-        return items;
-      }
-      return arrayMove(items, oldIndex, newIndex);
-    });
-  };
-
   const handleSelectionChange = (id: string, value: string) => {
     setSelection((items) =>
       items.map((item) => (item.id === id ? { ...item, text: value } : item)),
@@ -543,6 +583,37 @@ export default function GeneratePage() {
     setSelection((items) => items.filter((item) => item.id !== id));
   };
 
+  const handleGroupDragEnd = (group: SelectedGroup, event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) {
+      return;
+    }
+    const ids = group.items.map((item) => item.id);
+    const oldIndex = ids.indexOf(String(active.id));
+    const newIndex = ids.indexOf(String(over.id));
+    if (oldIndex < 0 || newIndex < 0) {
+      return;
+    }
+    const reordered = arrayMove(ids, oldIndex, newIndex);
+    const groupSet = new Set(ids);
+    setSelection((items) => {
+      const itemMap = new Map(
+        items
+          .filter((item) => groupSet.has(item.id))
+          .map((item) => [item.id, item]),
+      );
+      let cursor = 0;
+      return items.map((item) => {
+        if (!groupSet.has(item.id)) {
+          return item;
+        }
+        const nextId = reordered[cursor];
+        cursor += 1;
+        return itemMap.get(nextId) ?? item;
+      });
+    });
+  };
+
   const handleAddExistingBullet = (option: BulletOption) => {
     setSelection((items) => {
       if (items.some((item) => item.id === option.id)) {
@@ -563,8 +634,12 @@ export default function GeneratePage() {
     });
   };
 
-  const toggleGroup = (key: string) => {
-    setCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
+  const toggleSelectedGroup = (key: string) => {
+    setSelectedCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const toggleAvailableGroup = (key: string) => {
+    setAvailableCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   const nextTempId = () => {
@@ -801,28 +876,62 @@ export default function GeneratePage() {
                 Failed to load selection for this run.
               </div>
             ) : selection.length ? (
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleDragEnd}
-              >
-                <SortableContext
-                  items={selection.map((item) => item.id)}
-                  strategy={verticalListSortingStrategy}
-                >
-                  <div className="space-y-3">
-                    {selection.map((item) => (
-                      <SortableSelectionRow
-                        key={item.id}
-                        item={item}
-                        onChange={handleSelectionChange}
-                        onBlur={handleSelectionBlur}
-                        onDelete={handleSelectionDelete}
-                      />
-                    ))}
-                  </div>
-                </SortableContext>
-              </DndContext>
+              <div className="space-y-3">
+                {selectedGroups.map((group) => {
+                  const isCollapsed = selectedCollapsedGroups[group.key] ?? false;
+                  return (
+                    <div key={group.key} className="rounded-lg border">
+                      <button
+                        type="button"
+                        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
+                        onClick={() => toggleSelectedGroup(group.key)}
+                      >
+                        <div className="flex items-center gap-2">
+                          <ChevronDown
+                            className={cn(
+                              "h-4 w-4 transition-transform",
+                              isCollapsed && "-rotate-90",
+                            )}
+                          />
+                          <span className="text-sm font-medium">{group.label}</span>
+                          <span className="rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                            {labelForSection(group.parentType)}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {group.items.length} bullets
+                        </span>
+                      </button>
+                      {!isCollapsed ? (
+                        <div className="space-y-3 border-t px-3 py-3">
+                          <DndContext
+                            sensors={sensors}
+                            collisionDetection={closestCenter}
+                            onDragEnd={(event) => handleGroupDragEnd(group, event)}
+                          >
+                            <SortableContext
+                              items={group.items.map((item) => item.id)}
+                              strategy={verticalListSortingStrategy}
+                            >
+                              <div className="space-y-3">
+                                {group.items.map((item) => (
+                                  <SortableSelectionRow
+                                    key={item.id}
+                                    item={item}
+                                    onChange={handleSelectionChange}
+                                    onBlur={handleSelectionBlur}
+                                    onDelete={handleSelectionDelete}
+                                  />
+                                ))}
+                              </div>
+                            </SortableContext>
+                          </DndContext>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
               <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
                 No bullets selected yet.
@@ -846,13 +955,13 @@ export default function GeneratePage() {
               <div className="mt-4 space-y-3">
                 {availableGroups.length ? (
                   availableGroups.map((group) => {
-                    const isCollapsed = collapsedGroups[group.key] ?? false;
+                    const isCollapsed = availableCollapsedGroups[group.key] ?? false;
                     return (
                       <div key={group.key} className="rounded-lg border">
                         <button
                           type="button"
                           className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
-                          onClick={() => toggleGroup(group.key)}
+                          onClick={() => toggleAvailableGroup(group.key)}
                         >
                           <div className="flex items-center gap-2">
                             <ChevronDown
