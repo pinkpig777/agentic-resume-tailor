@@ -9,6 +9,7 @@ This document covers setup, deployment, architecture, and schemas.
 ### Prerequisites
 
 - Docker (recommended), or Python 3.10+ with `pip`
+- Node.js 18+
 - Internet access for the initial embedding model download (cached afterward)
 - Keep `data/*.json` and `.env` private (gitignored)
 
@@ -50,7 +51,7 @@ docker compose up --build
 Verify:
 
 - API health: `http://localhost:8000/health`
-- Streamlit UI: `http://localhost:8501`
+- React SPA: `http://localhost:5173`
 
 Then:
 
@@ -72,7 +73,13 @@ source .venv/bin/activate
 uv pip install -r requirements.txt
 
 uv run python src/server.py
-uv run streamlit run src/app.py
+```
+
+```bash
+# in another terminal
+cd frontend
+npm install
+npm run dev
 ```
 
 ---
@@ -81,7 +88,7 @@ uv run streamlit run src/app.py
 
 ```mermaid
 flowchart LR
-  UI[Streamlit UI] -->|CRUD + generate| API[FastAPI API]
+  UI[React SPA] -->|REST API (JSON)| API[FastAPI API]
   API -->|CRUD| DB[(SQL DB)]
   DB -->|export| JSON[data/my_experience.json]
   JSON -->|ingest| CHROMA[(ChromaDB)]
@@ -114,10 +121,10 @@ flowchart TD
 
 ```mermaid
 classDiagram
-  class StreamlitUI {
-    +render_resume_editor()
-    +render_settings_page()
-    +render_generate_page()
+  class ReactSPA {
+    +ResumeEditorPage()
+    +SettingsPage()
+    +GeneratePage()
   }
 
   class FastAPIService {
@@ -143,7 +150,7 @@ classDiagram
     +render_pdf()
   }
 
-  StreamlitUI --> FastAPIService
+  ReactSPA --> FastAPIService
   FastAPIService --> ResumeRepository
   FastAPIService --> RetrievalPipeline
   FastAPIService --> Renderer
@@ -277,6 +284,8 @@ Quantitative bullet bonus tuning lives in `quant_bonus_per_hit` and `quant_bonus
 
 ## Repo layout
 
+- `frontend/`
+  - `src/` - React SPA (Vite, Tailwind, shadcn/ui)
 - `data/`
   - `raw_experience_data_example.json` - legacy JSON sample (not used by default)
   - `my_experience.json` - JSON export artifact (written on saves and ingest)
@@ -295,7 +304,6 @@ Quantitative bullet bonus tuning lives in `quant_bonus_per_hit` and `quant_bonus
   - `agentic_resume_tailor/` - src-layout package
     - `api/server.py` - FastAPI backend (API-only, writes artifacts + report)
     - `db/` - SQLAlchemy models + export/seed helpers for CRUD
-    - `ui/app.py` - Streamlit UI (calls backend, visualizes report, downloads PDF)
     - `core/` - retrieval/selection/scoring pipeline
     - `ingest.py` - upserts bullets into Chroma using deterministic `bullet_id`
     - `jd_parser.py` - optional OpenAI JD parser (Target Profile v1)

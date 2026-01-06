@@ -5,7 +5,7 @@ Local, privacy-first resume tailoring agent. ART keeps your profile on disk, sto
 This repo has two runtimes:
 
 - FastAPI backend (`src/server.py`): API endpoints, agent loop, rendering, artifact/report generation.
-- Streamlit UI (`src/app.py`): Generate, Resume Editor, and Settings pages.
+- React SPA (`frontend/`): Vite + React UI for Generate, Resume Editor, and Settings pages.
 
 ---
 
@@ -25,7 +25,7 @@ This guide covers day-to-day usage. For setup and deployment, see `ARCHITECTURE.
 
 ### 1) Open the app
 
-- Streamlit UI: `http://localhost:8501`
+- React UI: `http://localhost:5173`
 - API health: `http://localhost:8000/health`
 
 ### 2) Build your profile (Resume Editor)
@@ -102,6 +102,8 @@ uv run pytest
 # run the API
 uv run python src/server.py
 
-# run the UI
-uv run streamlit run src/app.py
+# run the UI (separate terminal)
+cd frontend
+npm install
+npm run dev
 ```
