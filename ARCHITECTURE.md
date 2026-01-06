@@ -94,7 +94,7 @@ npm run dev
 
 ```mermaid
 flowchart LR
-  UI[React SPA] -->|REST API (JSON)| API[FastAPI API]
+  UI[React SPA] -->|REST API| API[FastAPI API]
   API -->|CRUD| DB[(SQL DB)]
   DB -->|export| JSON[backend/data/my_experience.json]
   JSON -->|ingest| CHROMA[(ChromaDB)]
