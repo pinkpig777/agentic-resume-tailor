@@ -117,6 +117,7 @@ PYTHONPATH=src uv run python -m agentic_resume_tailor.api.server
 
 # run the UI (separate terminal)
 cd frontend
+# requires Node.js 20.19+ or 22.12+ for Vite 7
 npm install
 npm run dev
 ```

@@ -9,14 +9,14 @@ This document covers setup, deployment, architecture, and schemas.
 ### Prerequisites
 
 - Docker (recommended), or Python 3.10+ with `pip`
-- Node.js 18+
+- Node.js 20.19+ or 22.12+
 - Internet access for the initial embedding model download (cached afterward)
 - Keep `backend/data/*.json` and `backend/.env` private (gitignored)
 
 ### Clone and configure
 
 ```bash
-git clone <your-fork-url>
+git clone https://github.com/pinkpig777/agentic-resume-tailor.git
 cd agentic-resume-tailor
 ```
 
@@ -32,12 +32,13 @@ Edit app settings (optional):
 - `backend/config/user_settings.docker.json` for Docker Compose
 
 ### Build the Docker Image
+
 ```bash
 docker build -t resume-agent ./backend
 ```
 
-
 ### Initial Chroma Ingestion
+
 ```bash
 docker compose run --rm api python -m agentic_resume_tailor.ingest
 ```
@@ -58,9 +59,9 @@ service is configured with `VITE_API_URL=http://localhost:8000`.
 
 Then:
 
-1) Open **Resume Editor**, create your profile.
-2) Click **Re-ingest ChromaDB**.
-3) Open **Generate**, paste a JD, and create a tailored resume.
+1. Open **Resume Editor**, create your profile.
+2. Click **Re-ingest ChromaDB**.
+3. Open **Generate**, paste a JD, and create a tailored resume.
 
 Stop:
 
