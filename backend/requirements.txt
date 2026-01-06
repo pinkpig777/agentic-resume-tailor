@@ -9,11 +9,8 @@ python-dotenv
 sentence_transformers
 pydantic
 pydantic-settings
-# UI & Utilities
-streamlit
+# Utilities
 tqdm
-requests
-pandas
 #server
 fastapi
 uvicorn

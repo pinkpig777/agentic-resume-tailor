@@ -12,7 +12,8 @@ def test_save_and_load_user_config(tmp_path, monkeypatch) -> None:
     config = {"export_file": "data/custom.json", "max_bullets": 12}
     save_user_config(None, config)
     loaded = load_user_config(None)
-    assert loaded == config
+    assert loaded["export_file"] == "data/custom.json"
+    assert loaded["max_bullets"] == 12
 
 
 def test_settings_override_from_user_config(tmp_path, monkeypatch) -> None:

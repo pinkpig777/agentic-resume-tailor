@@ -44,4 +44,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python", "src/server.py"]
+ENV PYTHONPATH=/app/src
+
+CMD ["python", "-m", "agentic_resume_tailor.api.server"]
