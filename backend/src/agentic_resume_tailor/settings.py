@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     auto_reingest_on_save: bool = False
     template_dir: str = "templates"
     output_dir: str = "output"
+    output_pdf_name: str | None = None
 
     collection_name: str = "resume_experience"
     embed_model: str = "BAAI/bge-small-en-v1.5"

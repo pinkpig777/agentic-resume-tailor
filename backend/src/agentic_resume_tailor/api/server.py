@@ -2,6 +2,7 @@ import copy
 import json
 import logging
 import os
+import shutil
 import subprocess
 import threading
 import time
@@ -65,6 +66,7 @@ EXPORT_FILE = USER_CONFIG.get("export_file", settings.export_file)
 TEMPLATE_DIR = settings.template_dir
 OUTPUT_DIR = settings.output_dir
 SKIP_PDF_RENDER = settings.skip_pdf
+OUTPUT_PDF_NAME = USER_CONFIG.get("output_pdf_name", settings.output_pdf_name)
 
 COLLECTION_NAME = settings.collection_name
 EMBED_MODEL = settings.embed_model
@@ -222,6 +224,39 @@ class EducationUpdate(BaseModel):
 def _ensure_dirs() -> None:
     """Ensure output directories exist."""
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
+def _normalize_output_pdf_name(name: str | None) -> str | None:
+    """Return a safe output PDF filename or None."""
+    if not name:
+        return None
+    name = os.path.basename(name.strip())
+    if not name:
+        return None
+    if not name.lower().endswith(".pdf"):
+        name = f"{name}.pdf"
+    return name
+
+
+def _output_pdf_alias_path() -> str | None:
+    """Return the full path for the output PDF alias, if configured."""
+    filename = _normalize_output_pdf_name(OUTPUT_PDF_NAME)
+    if not filename:
+        return None
+    return os.path.join(OUTPUT_DIR, filename)
+
+
+def _write_output_pdf_alias(pdf_path: str) -> None:
+    """Write a copy of the rendered PDF to the configured alias name."""
+    alias_path = _output_pdf_alias_path()
+    if not alias_path:
+        return
+    if os.path.abspath(alias_path) == os.path.abspath(pdf_path):
+        return
+    try:
+        shutil.copyfile(pdf_path, alias_path)
+    except Exception:
+        logger.exception("Failed to write output PDF alias")
 
 
 def _load_static_data() -> Dict[str, Any]:
@@ -683,6 +718,7 @@ def render_pdf(context: Dict[str, Any], run_id: str) -> Tuple[str, str]:
         pdf_path = os.path.join(OUTPUT_DIR, f"{run_id}.pdf")
         with open(pdf_path, "wb") as f:
             f.write(b"")
+        _write_output_pdf_alias(pdf_path)
         return pdf_path, tex_path
 
     try:
@@ -699,6 +735,7 @@ def render_pdf(context: Dict[str, Any], run_id: str) -> Tuple[str, str]:
         raise
 
     pdf_path = os.path.join(OUTPUT_DIR, f"{run_id}.pdf")
+    _write_output_pdf_alias(pdf_path)
     return pdf_path, tex_path
 
 
@@ -832,10 +869,12 @@ def update_user_settings(payload: Dict[str, Any]):
     if not updates:
         return get_user_settings()
 
-    global USER_CONFIG, EXPORT_FILE
+    global USER_CONFIG, EXPORT_FILE, OUTPUT_PDF_NAME
     USER_CONFIG = save_user_config(None, {**USER_CONFIG, **updates})
     if "export_file" in USER_CONFIG:
         EXPORT_FILE = USER_CONFIG["export_file"]
+    if "output_pdf_name" in USER_CONFIG:
+        OUTPUT_PDF_NAME = USER_CONFIG.get("output_pdf_name")
     return get_user_settings()
 
 
@@ -1829,7 +1868,8 @@ def get_pdf(run_id: str):
     path = os.path.join(OUTPUT_DIR, f"{run_id}.pdf")
     if not os.path.exists(path):
         return JSONResponse({"error": "pdf not found"}, status_code=404)
-    return FileResponse(path, media_type="application/pdf", filename="tailored_resume.pdf")
+    filename = _normalize_output_pdf_name(OUTPUT_PDF_NAME) or "tailored_resume.pdf"
+    return FileResponse(path, media_type="application/pdf", filename=filename)
 
 
 @app.get("/runs/{run_id}/tex")

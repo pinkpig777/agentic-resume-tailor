@@ -5,6 +5,7 @@
   "auto_reingest_on_save": false,
   "template_dir": "templates",
   "output_dir": "output",
+  "output_pdf_name": null,
   "collection_name": "resume_experience",
   "embed_model": "BAAI/bge-small-en-v1.5",
   "use_jd_parser": true,
