@@ -52,6 +52,7 @@ export interface SettingsData {
   db_path: string;
   sql_db_url: string;
   export_file: string;
+  output_pdf_name: string | null;
   auto_reingest_on_save: boolean;
   template_dir: string;
   output_dir: string;
