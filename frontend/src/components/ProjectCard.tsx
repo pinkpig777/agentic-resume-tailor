@@ -12,7 +12,7 @@ import {
   arrayMove,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { Plus, Trash2 } from "lucide-react";
+import { ChevronDown, Plus, Trash2 } from "lucide-react";
 
 import { SortableBullet } from "@/components/SortableBullet";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import type { Bullet, Project, ProjectUpdatePayload } from "@/types/schema";
 
 const REQUIRED_FIELDS: Array<keyof ProjectUpdatePayload> = ["name"];
@@ -35,6 +36,8 @@ type ProjectCardProps = {
   onBulletUpdate: (projectId: string, bullet: Bullet) => void | Promise<void>;
   onBulletDelete: (projectId: string, bulletId: string) => void | Promise<void>;
   onBulletsReorder?: (projectId: string, bullets: Bullet[]) => void | Promise<void>;
+  collapsed?: boolean;
+  onToggle?: () => void;
 };
 
 type ProjectDraft = {
@@ -55,10 +58,13 @@ export function ProjectCard({
   onBulletUpdate,
   onBulletDelete,
   onBulletsReorder,
+  collapsed = false,
+  onToggle,
 }: ProjectCardProps) {
   const [items, setItems] = useState<Bullet[]>(project.bullets);
   const [draft, setDraft] = useState<ProjectDraft>(() => buildDraft(project));
   const [newBullet, setNewBullet] = useState("");
+  const contentId = `project-${project.project_id}-content`;
 
   useEffect(() => {
     setItems(project.bullets);
@@ -136,101 +142,120 @@ export function ProjectCard({
               Project ID: {project.project_id}
             </div>
           </div>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={() => onProjectDelete(project.project_id)}
-          >
-            <Trash2 className="h-4 w-4" />
-            Delete
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor={`${project.project_id}-name`}>Name</Label>
-            <Input
-              id={`${project.project_id}-name`}
-              value={draft.name}
-              onChange={(event) =>
-                setDraft((prev) => ({ ...prev, name: event.target.value }))
-              }
-              onBlur={() => handleFieldBlur("name")}
-              placeholder="Project name"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={`${project.project_id}-tech`}>Technologies</Label>
-            <Input
-              id={`${project.project_id}-tech`}
-              value={draft.technologies}
-              onChange={(event) =>
-                setDraft((prev) => ({
-                  ...prev,
-                  technologies: event.target.value,
-                }))
-              }
-              onBlur={() => handleFieldBlur("technologies")}
-              placeholder="React, FastAPI, Postgres"
-            />
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label>Bullets</Label>
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext
-              items={items.map((bullet) => bullet.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              <div className="space-y-2">
-                {items.length ? (
-                  items.map((bullet) => (
-                    <SortableBullet
-                      key={bullet.id}
-                      bullet={bullet}
-                      onUpdate={(next) =>
-                        onBulletUpdate(project.project_id, next)
-                      }
-                      onDelete={(id) => onBulletDelete(project.project_id, id)}
-                    />
-                  ))
-                ) : (
-                  <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-                    No bullets yet. Add one below.
-                  </div>
-                )}
-              </div>
-            </SortableContext>
-          </DndContext>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor={`${project.project_id}-new-bullet`}>Add bullet</Label>
-          <Textarea
-            id={`${project.project_id}-new-bullet`}
-            value={newBullet}
-            onChange={(event) => setNewBullet(event.target.value)}
-            placeholder="Add a new project highlight..."
-          />
-          <div className="flex justify-end">
+          <div className="flex items-center gap-2">
             <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={handleAddBullet}
+              variant="ghost"
+              size="icon"
+              onClick={onToggle}
+              aria-label="Toggle project details"
+              aria-expanded={!collapsed}
+              aria-controls={contentId}
             >
-              <Plus className="h-4 w-4" />
-              Add bullet
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 transition-transform",
+                  collapsed && "-rotate-90",
+                )}
+              />
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => onProjectDelete(project.project_id)}
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete
             </Button>
           </div>
         </div>
-      </CardContent>
+      </CardHeader>
+      {collapsed ? null : (
+        <CardContent id={contentId} className="space-y-5">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor={`${project.project_id}-name`}>Name</Label>
+              <Input
+                id={`${project.project_id}-name`}
+                value={draft.name}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, name: event.target.value }))
+                }
+                onBlur={() => handleFieldBlur("name")}
+                placeholder="Project name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`${project.project_id}-tech`}>Technologies</Label>
+              <Input
+                id={`${project.project_id}-tech`}
+                value={draft.technologies}
+                onChange={(event) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    technologies: event.target.value,
+                  }))
+                }
+                onBlur={() => handleFieldBlur("technologies")}
+                placeholder="React, FastAPI, Postgres"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Bullets</Label>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={items.map((bullet) => bullet.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="space-y-2">
+                  {items.length ? (
+                    items.map((bullet) => (
+                      <SortableBullet
+                        key={bullet.id}
+                        bullet={bullet}
+                        onUpdate={(next) =>
+                          onBulletUpdate(project.project_id, next)
+                        }
+                        onDelete={(id) => onBulletDelete(project.project_id, id)}
+                      />
+                    ))
+                  ) : (
+                    <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+                      No bullets yet. Add one below.
+                    </div>
+                  )}
+                </div>
+              </SortableContext>
+            </DndContext>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor={`${project.project_id}-new-bullet`}>Add bullet</Label>
+            <Textarea
+              id={`${project.project_id}-new-bullet`}
+              value={newBullet}
+              onChange={(event) => setNewBullet(event.target.value)}
+              placeholder="Add a new project highlight..."
+            />
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={handleAddBullet}
+              >
+                <Plus className="h-4 w-4" />
+                Add bullet
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      )}
     </Card>
   );
 }

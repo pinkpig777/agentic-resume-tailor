@@ -12,7 +12,7 @@ import {
   arrayMove,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { Plus, Trash2 } from "lucide-react";
+import { ChevronDown, Plus, Trash2 } from "lucide-react";
 
 import { SortableBullet } from "@/components/SortableBullet";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import type { Bullet, Experience, ExperienceUpdatePayload } from "@/types/schema";
 
 const REQUIRED_FIELDS: Array<keyof ExperienceUpdatePayload> = ["company", "role"];
@@ -35,6 +36,8 @@ type ExperienceCardProps = {
   onBulletUpdate: (jobId: string, bullet: Bullet) => void | Promise<void>;
   onBulletDelete: (jobId: string, bulletId: string) => void | Promise<void>;
   onBulletsReorder?: (jobId: string, bullets: Bullet[]) => void | Promise<void>;
+  collapsed?: boolean;
+  onToggle?: () => void;
 };
 
 type ExperienceDraft = {
@@ -59,10 +62,13 @@ export function ExperienceCard({
   onBulletUpdate,
   onBulletDelete,
   onBulletsReorder,
+  collapsed = false,
+  onToggle,
 }: ExperienceCardProps) {
   const [items, setItems] = useState<Bullet[]>(experience.bullets);
   const [draft, setDraft] = useState<ExperienceDraft>(() => buildDraft(experience));
   const [newBullet, setNewBullet] = useState("");
+  const contentId = `experience-${experience.job_id}-content`;
 
   useEffect(() => {
     setItems(experience.bullets);
@@ -138,122 +144,141 @@ export function ExperienceCard({
               Job ID: {experience.job_id}
             </div>
           </div>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={() => onExperienceDelete(experience.job_id)}
-          >
-            <Trash2 className="h-4 w-4" />
-            Delete
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor={`${experience.job_id}-company`}>Company</Label>
-            <Input
-              id={`${experience.job_id}-company`}
-              value={draft.company}
-              onChange={(event) =>
-                setDraft((prev) => ({ ...prev, company: event.target.value }))
-              }
-              onBlur={() => handleFieldBlur("company")}
-              placeholder="Company name"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={`${experience.job_id}-role`}>Role</Label>
-            <Input
-              id={`${experience.job_id}-role`}
-              value={draft.role}
-              onChange={(event) =>
-                setDraft((prev) => ({ ...prev, role: event.target.value }))
-              }
-              onBlur={() => handleFieldBlur("role")}
-              placeholder="Role title"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={`${experience.job_id}-dates`}>Dates</Label>
-            <Input
-              id={`${experience.job_id}-dates`}
-              value={draft.dates}
-              onChange={(event) =>
-                setDraft((prev) => ({ ...prev, dates: event.target.value }))
-              }
-              onBlur={() => handleFieldBlur("dates")}
-              placeholder="2021 - Present"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={`${experience.job_id}-location`}>Location</Label>
-            <Input
-              id={`${experience.job_id}-location`}
-              value={draft.location}
-              onChange={(event) =>
-                setDraft((prev) => ({ ...prev, location: event.target.value }))
-              }
-              onBlur={() => handleFieldBlur("location")}
-              placeholder="City, Country"
-            />
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label>Bullets</Label>
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext
-              items={items.map((bullet) => bullet.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              <div className="space-y-2">
-                {items.length ? (
-                  items.map((bullet) => (
-                    <SortableBullet
-                      key={bullet.id}
-                      bullet={bullet}
-                      onUpdate={(next) =>
-                        onBulletUpdate(experience.job_id, next)
-                      }
-                      onDelete={(id) => onBulletDelete(experience.job_id, id)}
-                    />
-                  ))
-                ) : (
-                  <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-                    No bullets yet. Add one below.
-                  </div>
-                )}
-              </div>
-            </SortableContext>
-          </DndContext>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor={`${experience.job_id}-new-bullet`}>Add bullet</Label>
-          <Textarea
-            id={`${experience.job_id}-new-bullet`}
-            value={newBullet}
-            onChange={(event) => setNewBullet(event.target.value)}
-            placeholder="Add a new impact statement..."
-          />
-          <div className="flex justify-end">
+          <div className="flex items-center gap-2">
             <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={handleAddBullet}
+              variant="ghost"
+              size="icon"
+              onClick={onToggle}
+              aria-label="Toggle experience details"
+              aria-expanded={!collapsed}
+              aria-controls={contentId}
             >
-              <Plus className="h-4 w-4" />
-              Add bullet
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 transition-transform",
+                  collapsed && "-rotate-90",
+                )}
+              />
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => onExperienceDelete(experience.job_id)}
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete
             </Button>
           </div>
         </div>
-      </CardContent>
+      </CardHeader>
+      {collapsed ? null : (
+        <CardContent id={contentId} className="space-y-5">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor={`${experience.job_id}-company`}>Company</Label>
+              <Input
+                id={`${experience.job_id}-company`}
+                value={draft.company}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, company: event.target.value }))
+                }
+                onBlur={() => handleFieldBlur("company")}
+                placeholder="Company name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`${experience.job_id}-role`}>Role</Label>
+              <Input
+                id={`${experience.job_id}-role`}
+                value={draft.role}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, role: event.target.value }))
+                }
+                onBlur={() => handleFieldBlur("role")}
+                placeholder="Role title"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`${experience.job_id}-dates`}>Dates</Label>
+              <Input
+                id={`${experience.job_id}-dates`}
+                value={draft.dates}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, dates: event.target.value }))
+                }
+                onBlur={() => handleFieldBlur("dates")}
+                placeholder="2021 - Present"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`${experience.job_id}-location`}>Location</Label>
+              <Input
+                id={`${experience.job_id}-location`}
+                value={draft.location}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, location: event.target.value }))
+                }
+                onBlur={() => handleFieldBlur("location")}
+                placeholder="City, Country"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Bullets</Label>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={items.map((bullet) => bullet.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="space-y-2">
+                  {items.length ? (
+                    items.map((bullet) => (
+                      <SortableBullet
+                        key={bullet.id}
+                        bullet={bullet}
+                        onUpdate={(next) =>
+                          onBulletUpdate(experience.job_id, next)
+                        }
+                        onDelete={(id) => onBulletDelete(experience.job_id, id)}
+                      />
+                    ))
+                  ) : (
+                    <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+                      No bullets yet. Add one below.
+                    </div>
+                  )}
+                </div>
+              </SortableContext>
+            </DndContext>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor={`${experience.job_id}-new-bullet`}>Add bullet</Label>
+            <Textarea
+              id={`${experience.job_id}-new-bullet`}
+              value={newBullet}
+              onChange={(event) => setNewBullet(event.target.value)}
+              placeholder="Add a new impact statement..."
+            />
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={handleAddBullet}
+              >
+                <Plus className="h-4 w-4" />
+                Add bullet
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      )}
     </Card>
   );
 }

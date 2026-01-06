@@ -145,6 +145,15 @@ export default function EditorPage() {
     emptyPersonalInfo,
   );
   const [skillsDraft, setSkillsDraft] = useState<Skills>(emptySkills);
+  const [collapsedEducation, setCollapsedEducation] = useState<
+    Record<number, boolean>
+  >({});
+  const [collapsedExperiences, setCollapsedExperiences] = useState<
+    Record<string, boolean>
+  >({});
+  const [collapsedProjects, setCollapsedProjects] = useState<
+    Record<string, boolean>
+  >({});
   const [newEducation, setNewEducation] = useState<EducationDraft>(
     emptyEducationDraft,
   );
@@ -167,6 +176,58 @@ export default function EditorPage() {
     }
     setPersonalDraft(data.personal_info);
     setSkillsDraft(data.skills);
+  }, [data]);
+
+  useEffect(() => {
+    if (!data) {
+      return;
+    }
+    setCollapsedEducation((prev) => {
+      const next = { ...prev };
+      const activeIds = new Set(data.education.map((entry) => entry.id));
+      data.education.forEach((entry) => {
+        if (!(entry.id in next)) {
+          next[entry.id] = true;
+        }
+      });
+      Object.keys(next).forEach((key) => {
+        const id = Number(key);
+        if (!activeIds.has(id)) {
+          delete next[id];
+        }
+      });
+      return next;
+    });
+    setCollapsedExperiences((prev) => {
+      const next = { ...prev };
+      const activeIds = new Set(data.experiences.map((entry) => entry.job_id));
+      data.experiences.forEach((entry) => {
+        if (!(entry.job_id in next)) {
+          next[entry.job_id] = true;
+        }
+      });
+      Object.keys(next).forEach((key) => {
+        if (!activeIds.has(key)) {
+          delete next[key];
+        }
+      });
+      return next;
+    });
+    setCollapsedProjects((prev) => {
+      const next = { ...prev };
+      const activeIds = new Set(data.projects.map((entry) => entry.project_id));
+      data.projects.forEach((entry) => {
+        if (!(entry.project_id in next)) {
+          next[entry.project_id] = true;
+        }
+      });
+      Object.keys(next).forEach((key) => {
+        if (!activeIds.has(key)) {
+          delete next[key];
+        }
+      });
+      return next;
+    });
   }, [data]);
 
   const updateResumeData = (updater: (current: ResumeData) => ResumeData) => {
@@ -1000,6 +1061,13 @@ export default function EditorPage() {
               <EducationCard
                 key={entry.id}
                 education={entry}
+                collapsed={collapsedEducation[entry.id] ?? true}
+                onToggle={() =>
+                  setCollapsedEducation((prev) => {
+                    const current = prev[entry.id] ?? true;
+                    return { ...prev, [entry.id]: !current };
+                  })
+                }
                 onUpdate={(educationId, payload) =>
                   updateEducationMutation.mutate({ id: educationId, payload })
                 }
@@ -1131,6 +1199,13 @@ export default function EditorPage() {
               <ExperienceCard
                 key={entry.job_id}
                 experience={entry}
+                collapsed={collapsedExperiences[entry.job_id] ?? true}
+                onToggle={() =>
+                  setCollapsedExperiences((prev) => {
+                    const current = prev[entry.job_id] ?? true;
+                    return { ...prev, [entry.job_id]: !current };
+                  })
+                }
                 onExperienceUpdate={(jobId, payload) =>
                   updateExperienceMutation.mutate({ jobId, payload })
                 }
@@ -1244,6 +1319,13 @@ export default function EditorPage() {
               <ProjectCard
                 key={entry.project_id}
                 project={entry}
+                collapsed={collapsedProjects[entry.project_id] ?? true}
+                onToggle={() =>
+                  setCollapsedProjects((prev) => {
+                    const current = prev[entry.project_id] ?? true;
+                    return { ...prev, [entry.project_id]: !current };
+                  })
+                }
                 onProjectUpdate={(projectId, payload) =>
                   updateProjectMutation.mutate({ projectId, payload })
                 }

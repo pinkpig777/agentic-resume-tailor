@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { ChevronDown, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import type { Education, EducationUpdatePayload } from "@/types/schema";
 
 const parseBullets = (value: string) =>
@@ -21,6 +22,8 @@ type EducationCardProps = {
     payload: EducationUpdatePayload,
   ) => void | Promise<void>;
   onDelete: (educationId: number) => void | Promise<void>;
+  collapsed?: boolean;
+  onToggle?: () => void;
 };
 
 type EducationDraft = {
@@ -39,8 +42,15 @@ const buildDraft = (education: Education): EducationDraft => ({
   bulletsText: education.bullets.join("\n"),
 });
 
-export function EducationCard({ education, onUpdate, onDelete }: EducationCardProps) {
+export function EducationCard({
+  education,
+  onUpdate,
+  onDelete,
+  collapsed = false,
+  onToggle,
+}: EducationCardProps) {
   const [draft, setDraft] = useState<EducationDraft>(() => buildDraft(education));
+  const contentId = `education-${education.id}-content`;
 
   useEffect(() => {
     setDraft(buildDraft(education));
@@ -84,80 +94,103 @@ export function EducationCard({ education, onUpdate, onDelete }: EducationCardPr
             </CardTitle>
             <div className="text-xs text-muted-foreground">ID: {education.id}</div>
           </div>
-          <Button variant="destructive" size="sm" onClick={() => onDelete(education.id)}>
-            <Trash2 className="h-4 w-4" />
-            Delete
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onToggle}
+              aria-label="Toggle education details"
+              aria-expanded={!collapsed}
+              aria-controls={contentId}
+            >
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 transition-transform",
+                  collapsed && "-rotate-90",
+                )}
+              />
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => onDelete(education.id)}
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </Button>
+          </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-5">
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor={`edu-${education.id}-school`}>School</Label>
-            <Input
-              id={`edu-${education.id}-school`}
-              value={draft.school}
-              onChange={(event) =>
-                setDraft((prev) => ({ ...prev, school: event.target.value }))
-              }
-              onBlur={() => handleFieldBlur("school")}
-              placeholder="University name"
-            />
+      {collapsed ? null : (
+        <CardContent id={contentId} className="space-y-5">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor={`edu-${education.id}-school`}>School</Label>
+              <Input
+                id={`edu-${education.id}-school`}
+                value={draft.school}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, school: event.target.value }))
+                }
+                onBlur={() => handleFieldBlur("school")}
+                placeholder="University name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`edu-${education.id}-degree`}>Degree</Label>
+              <Input
+                id={`edu-${education.id}-degree`}
+                value={draft.degree}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, degree: event.target.value }))
+                }
+                onBlur={() => handleFieldBlur("degree")}
+                placeholder="B.S. Computer Science"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`edu-${education.id}-dates`}>Dates</Label>
+              <Input
+                id={`edu-${education.id}-dates`}
+                value={draft.dates}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, dates: event.target.value }))
+                }
+                onBlur={() => handleFieldBlur("dates")}
+                placeholder="2016 - 2020"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`edu-${education.id}-location`}>Location</Label>
+              <Input
+                id={`edu-${education.id}-location`}
+                value={draft.location}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, location: event.target.value }))
+                }
+                onBlur={() => handleFieldBlur("location")}
+                placeholder="City, Country"
+              />
+            </div>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor={`edu-${education.id}-degree`}>Degree</Label>
-            <Input
-              id={`edu-${education.id}-degree`}
-              value={draft.degree}
-              onChange={(event) =>
-                setDraft((prev) => ({ ...prev, degree: event.target.value }))
-              }
-              onBlur={() => handleFieldBlur("degree")}
-              placeholder="B.S. Computer Science"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={`edu-${education.id}-dates`}>Dates</Label>
-            <Input
-              id={`edu-${education.id}-dates`}
-              value={draft.dates}
-              onChange={(event) =>
-                setDraft((prev) => ({ ...prev, dates: event.target.value }))
-              }
-              onBlur={() => handleFieldBlur("dates")}
-              placeholder="2016 - 2020"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={`edu-${education.id}-location`}>Location</Label>
-            <Input
-              id={`edu-${education.id}-location`}
-              value={draft.location}
-              onChange={(event) =>
-                setDraft((prev) => ({ ...prev, location: event.target.value }))
-              }
-              onBlur={() => handleFieldBlur("location")}
-              placeholder="City, Country"
-            />
-          </div>
-        </div>
 
-        <div className="space-y-2">
-          <Label htmlFor={`edu-${education.id}-bullets`}>Highlights</Label>
-          <Textarea
-            id={`edu-${education.id}-bullets`}
-            value={draft.bulletsText}
-            onChange={(event) =>
-              setDraft((prev) => ({ ...prev, bulletsText: event.target.value }))
-            }
-            onBlur={() => handleFieldBlur("bulletsText")}
-            placeholder="One highlight per line"
-          />
-          <p className="text-xs text-muted-foreground">
-            One bullet per line. Changes save on blur.
-          </p>
-        </div>
-      </CardContent>
+          <div className="space-y-2">
+            <Label htmlFor={`edu-${education.id}-bullets`}>Highlights</Label>
+            <Textarea
+              id={`edu-${education.id}-bullets`}
+              value={draft.bulletsText}
+              onChange={(event) =>
+                setDraft((prev) => ({ ...prev, bulletsText: event.target.value }))
+              }
+              onBlur={() => handleFieldBlur("bulletsText")}
+              placeholder="One highlight per line"
+            />
+            <p className="text-xs text-muted-foreground">
+              One bullet per line. Changes save on blur.
+            </p>
+          </div>
+        </CardContent>
+      )}
     </Card>
   );
 }
