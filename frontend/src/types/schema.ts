@@ -48,6 +48,40 @@ export interface Education {
   bullets: string[];
 }
 
+export interface SettingsData {
+  db_path: string;
+  sql_db_url: string;
+  export_file: string;
+  auto_reingest_on_save: boolean;
+  template_dir: string;
+  output_dir: string;
+  collection_name: string;
+  embed_model: string;
+  use_jd_parser: boolean;
+  max_bullets: number;
+  per_query_k: number;
+  final_k: number;
+  max_iters: number;
+  threshold: number;
+  alpha: number;
+  must_weight: number;
+  quant_bonus_per_hit: number;
+  quant_bonus_cap: number;
+  boost_weight: number;
+  boost_top_n_missing: number;
+  cors_origins: string;
+  skip_pdf: boolean;
+  run_id: string | null;
+  jd_model: string;
+  canon_config: string;
+  family_config: string;
+  api_url: string;
+  log_level: string;
+  log_json: boolean;
+  port: number;
+  config_path: string;
+}
+
 export interface ExperienceCreatePayload {
   company: string;
   role: string;

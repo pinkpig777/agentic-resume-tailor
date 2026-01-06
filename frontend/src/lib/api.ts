@@ -16,6 +16,7 @@ import type {
   ProjectCreatePayload,
   ProjectUpdatePayload,
   ResumeData,
+  SettingsData,
   Skills,
   SkillsUpdatePayload,
 } from "../types/schema";
@@ -213,5 +214,17 @@ export async function triggerIngest(): Promise<{
 
 export async function generateResume(jdText: string): Promise<GenerateResponse> {
   const { data } = await api.post("/generate", { jd_text: jdText });
+  return data;
+}
+
+export async function fetchSettings(): Promise<SettingsData> {
+  const { data } = await api.get("/settings");
+  return data;
+}
+
+export async function updateSettings(
+  payload: Partial<Omit<SettingsData, "config_path">>,
+): Promise<SettingsData> {
+  const { data } = await api.put("/settings", payload);
   return data;
 }
