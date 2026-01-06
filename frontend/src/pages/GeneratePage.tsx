@@ -16,6 +16,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  ChevronDown,
   Download,
   GripVertical,
   Loader2,
@@ -65,6 +66,22 @@ type StatusMessage = {
 type ParentOption = {
   id: string;
   label: string;
+};
+
+type BulletOption = {
+  id: string;
+  text: string;
+  parentType: "experience" | "project";
+  parentId: string;
+  parentLabel: string;
+};
+
+type BulletGroup = {
+  key: string;
+  label: string;
+  parentType: "experience" | "project";
+  parentId: string;
+  items: BulletOption[];
 };
 
 type StoredGenerateState = {
@@ -148,6 +165,59 @@ const buildBulletLookup = (data: ResumeData) => {
   });
 
   return map;
+};
+
+const buildAvailableGroups = (
+  data: ResumeData,
+  selectedIds: Set<string>,
+): BulletGroup[] => {
+  const groups: BulletGroup[] = [];
+
+  data.experiences.forEach((exp) => {
+    const label = `${exp.role} · ${exp.company}`;
+    const items = exp.bullets
+      .map((bullet) => ({
+        id: `exp:${exp.job_id}:${bullet.id}`,
+        text: bullet.text_latex,
+        parentType: "experience" as const,
+        parentId: exp.job_id,
+        parentLabel: label,
+      }))
+      .filter((item) => !selectedIds.has(item.id));
+    if (items.length) {
+      groups.push({
+        key: `exp:${exp.job_id}`,
+        label,
+        parentType: "experience",
+        parentId: exp.job_id,
+        items,
+      });
+    }
+  });
+
+  data.projects.forEach((proj) => {
+    const label = proj.name;
+    const items = proj.bullets
+      .map((bullet) => ({
+        id: `proj:${proj.project_id}:${bullet.id}`,
+        text: bullet.text_latex,
+        parentType: "project" as const,
+        parentId: proj.project_id,
+        parentLabel: label,
+      }))
+      .filter((item) => !selectedIds.has(item.id));
+    if (items.length) {
+      groups.push({
+        key: `proj:${proj.project_id}`,
+        label,
+        parentType: "project",
+        parentId: proj.project_id,
+        items,
+      });
+    }
+  });
+
+  return groups;
 };
 
 const mapTempAdditions = (report: RunReport) => {
@@ -297,6 +367,9 @@ export default function GeneratePage() {
   const [newBulletType, setNewBulletType] = useState<"experience" | "project">(
     "experience",
   );
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(
+    {},
+  );
   const [newBulletParentId, setNewBulletParentId] = useState("");
   const [newBulletText, setNewBulletText] = useState("");
   const tempCounter = useRef(0);
@@ -324,6 +397,18 @@ export default function GeneratePage() {
     }
     return buildBulletLookup(resumeData);
   }, [resumeData]);
+
+  const selectedIdSet = useMemo(
+    () => new Set(selection.map((item) => item.id)),
+    [selection],
+  );
+
+  const availableGroups = useMemo(() => {
+    if (!resumeData) {
+      return [];
+    }
+    return buildAvailableGroups(resumeData, selectedIdSet);
+  }, [resumeData, selectedIdSet]);
 
   const experienceOptions = useMemo<ParentOption[]>(() => {
     if (!resumeData) {
@@ -456,6 +541,30 @@ export default function GeneratePage() {
 
   const handleSelectionDelete = (id: string) => {
     setSelection((items) => items.filter((item) => item.id !== id));
+  };
+
+  const handleAddExistingBullet = (option: BulletOption) => {
+    setSelection((items) => {
+      if (items.some((item) => item.id === option.id)) {
+        return items;
+      }
+      return [
+        ...items,
+        {
+          id: option.id,
+          text: option.text,
+          originalText: option.text,
+          label: option.parentLabel,
+          parentType: option.parentType,
+          parentId: option.parentId,
+          isTemp: false,
+        },
+      ];
+    });
+  };
+
+  const toggleGroup = (key: string) => {
+    setCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   const nextTempId = () => {
@@ -719,6 +828,80 @@ export default function GeneratePage() {
                 No bullets selected yet.
               </div>
             )}
+
+            <div className="rounded-lg border bg-background p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold">Bullet picker</div>
+                <span className="text-xs text-muted-foreground">
+                  {availableGroups.reduce(
+                    (count, group) => count + group.items.length,
+                    0,
+                  )}{" "}
+                  available
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Add existing bullets that are not in the current selection.
+              </p>
+              <div className="mt-4 space-y-3">
+                {availableGroups.length ? (
+                  availableGroups.map((group) => {
+                    const isCollapsed = collapsedGroups[group.key] ?? false;
+                    return (
+                      <div key={group.key} className="rounded-lg border">
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
+                          onClick={() => toggleGroup(group.key)}
+                        >
+                          <div className="flex items-center gap-2">
+                            <ChevronDown
+                              className={cn(
+                                "h-4 w-4 transition-transform",
+                                isCollapsed && "-rotate-90",
+                              )}
+                            />
+                            <span className="text-sm font-medium">
+                              {group.label}
+                            </span>
+                          </div>
+                          <span className="text-xs text-muted-foreground">
+                            {group.items.length} bullets
+                          </span>
+                        </button>
+                        {!isCollapsed ? (
+                          <div className="space-y-3 border-t px-3 py-3">
+                            {group.items.map((item) => (
+                              <div
+                                key={item.id}
+                                className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-3 md:flex-row md:items-start md:justify-between"
+                              >
+                                <div className="text-sm text-muted-foreground">
+                                  {item.text}
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => handleAddExistingBullet(item)}
+                                >
+                                  <Plus className="h-4 w-4" />
+                                  Add
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+                    All bullets are already selected.
+                  </div>
+                )}
+              </div>
+            </div>
 
             <div className="rounded-lg border bg-muted/30 p-4">
               <div className="text-sm font-semibold">Add a temporary bullet</div>
