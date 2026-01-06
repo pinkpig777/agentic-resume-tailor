@@ -30,7 +30,24 @@ def _show_editor_message() -> None:
         st.info(text)
 
 
-def _render_bullet_controls(api_url: str, section: str, parent_id: str, bullet: dict) -> None:
+def _set_open_expander(expander_key: str) -> None:
+    """Persist the currently active expander for the resume editor."""
+    st.session_state["resume_editor_open_expander"] = expander_key
+
+
+def _is_expander_open(expander_key: str) -> bool:
+    """Check whether an expander should render open on rerun."""
+    return st.session_state.get("resume_editor_open_expander") == expander_key
+
+
+def _render_bullet_controls(
+    api_url: str,
+    section: str,
+    parent_id: str,
+    bullet: dict,
+    expander_key: str,
+    add_spacer: bool = True,
+) -> None:
     """Render edit/delete controls for a bullet.
 
     Args:
@@ -38,6 +55,8 @@ def _render_bullet_controls(api_url: str, section: str, parent_id: str, bullet: 
         section: The section value.
         parent_id: Parent identifier.
         bullet: The bullet value.
+        expander_key: The expander identifier.
+        add_spacer: Whether to add a spacer after the bullet row.
     """
     bullet_id = bullet.get("id", "")
     text = bullet.get("text_latex", "")
@@ -47,8 +66,10 @@ def _render_bullet_controls(api_url: str, section: str, parent_id: str, bullet: 
     col_text, col_edit, col_del = st.columns([8, 1, 1])
     col_text.markdown(f"<div class='bullet-card'>{text}</div>", unsafe_allow_html=True)
     if col_edit.button("Edit", key=f"edit_btn_{edit_key}"):
+        _set_open_expander(expander_key)
         st.session_state[edit_key] = not st.session_state.get(edit_key, False)
     if col_del.button("Delete", key=f"del_btn_{edit_key}"):
+        _set_open_expander(expander_key)
         ok, _, err = api_request("DELETE", api_url, f"/{section}/{parent_id}/bullets/{bullet_id}")
         if ok:
             _set_editor_message("success", f"Deleted {section} bullet.")
@@ -59,6 +80,7 @@ def _render_bullet_controls(api_url: str, section: str, parent_id: str, bullet: 
     if st.session_state.get(edit_key, False):
         new_text = st.text_area("Bullet text", value=text, key=text_key, height=90)
         if st.button("Save", key=f"save_{edit_key}"):
+            _set_open_expander(expander_key)
             if not new_text.strip():
                 st.error("Bullet text cannot be empty.")
             else:
@@ -74,6 +96,8 @@ def _render_bullet_controls(api_url: str, section: str, parent_id: str, bullet: 
                     st.rerun()
                 else:
                     st.error(err)
+    if add_spacer:
+        st.markdown("<div class='bullet-row-spacer'></div>", unsafe_allow_html=True)
 
 
 def render_resume_editor(api_url: str) -> None:
@@ -229,11 +253,13 @@ def render_resume_editor(api_url: str) -> None:
         edu_id = edu.get("id")
         title = f"{edu.get('school', '')} — {edu.get('degree', '')}"
         meta = f"{edu.get('dates', '')} · {edu.get('location', '')}"
-        with st.expander(title, expanded=False):
+        expander_key = f"edu_{edu_id}"
+        with st.expander(title, expanded=_is_expander_open(expander_key)):
             st.caption(meta)
             col_edit, col_delete = st.columns([1, 1])
             edit_key = f"edit_edu_{edu_id}"
             if col_edit.button("Edit education", key=f"toggle_{edit_key}"):
+                _set_open_expander(expander_key)
                 st.session_state[edit_key] = not st.session_state.get(edit_key, False)
             if col_delete.button("Delete education", key=f"delete_edu_{edu_id}"):
                 ok, _, err = api_request("DELETE", api_url, f"/education/{edu_id}")
@@ -274,6 +300,7 @@ def render_resume_editor(api_url: str) -> None:
                     submitted = st.form_submit_button("Save education")
 
                 if submitted:
+                    _set_open_expander(expander_key)
                     if not school.strip():
                         st.error("School is required.")
                     else:
@@ -356,11 +383,13 @@ def render_resume_editor(api_url: str) -> None:
         job_id = exp.get("job_id")
         header = f"{exp.get('company', '')} — {exp.get('role', '')}"
         meta = f"{exp.get('dates', '')} · {exp.get('location', '')}"
-        with st.expander(header, expanded=False):
+        expander_key = f"exp_{job_id}"
+        with st.expander(header, expanded=_is_expander_open(expander_key)):
             st.caption(meta)
             cols = st.columns([1, 1])
             edit_key = f"edit_exp_{job_id}"
             if cols[0].button("Edit", key=f"toggle_{edit_key}"):
+                _set_open_expander(expander_key)
                 st.session_state[edit_key] = not st.session_state.get(edit_key, False)
             if cols[1].button("Delete", key=f"delete_{edit_key}"):
                 ok, _, err = api_request("DELETE", api_url, f"/experiences/{job_id}")
@@ -385,6 +414,7 @@ def render_resume_editor(api_url: str) -> None:
                     submitted = st.form_submit_button("Save experience")
 
                 if submitted:
+                    _set_open_expander(expander_key)
                     if not company.strip():
                         st.error("Company is required.")
                     else:
@@ -409,12 +439,22 @@ def render_resume_editor(api_url: str) -> None:
             bullets = exp.get("bullets", []) or []
             if not bullets:
                 st.info("No bullets yet.")
-            for bullet in bullets:
-                _render_bullet_controls(api_url, "experiences", job_id, bullet)
+            for index, bullet in enumerate(bullets):
+                _render_bullet_controls(
+                    api_url,
+                    "experiences",
+                    job_id,
+                    bullet,
+                    expander_key,
+                    add_spacer=index < len(bullets) - 1,
+                )
 
             new_key = f"new_exp_{job_id}"
-            new_text = st.text_area("New bullet", key=new_key, height=90)
-            if st.button("Add bullet", key=f"add_exp_{job_id}"):
+            with st.form(f"add_exp_bullet_form_{job_id}", clear_on_submit=True):
+                new_text = st.text_area("New bullet", key=new_key, height=90)
+                submitted_bullet = st.form_submit_button("Add bullet")
+            if submitted_bullet:
+                _set_open_expander(expander_key)
                 if not new_text.strip():
                     st.error("Bullet text cannot be empty.")
                 else:
@@ -425,7 +465,6 @@ def render_resume_editor(api_url: str) -> None:
                         json={"text_latex": new_text},
                     )
                     if ok:
-                        st.session_state[new_key] = ""
                         _set_editor_message("success", "Added bullet to experience.")
                         st.rerun()
                     else:
@@ -455,11 +494,13 @@ def render_resume_editor(api_url: str) -> None:
         project_id = proj.get("project_id")
         title = proj.get("name", "")
         meta = proj.get("technologies", "")
-        with st.expander(title, expanded=False):
+        expander_key = f"proj_{project_id}"
+        with st.expander(title, expanded=_is_expander_open(expander_key)):
             st.caption(meta)
             cols = st.columns([1, 1])
             edit_key = f"edit_proj_{project_id}"
             if cols[0].button("Edit", key=f"toggle_{edit_key}"):
+                _set_open_expander(expander_key)
                 st.session_state[edit_key] = not st.session_state.get(edit_key, False)
             if cols[1].button("Delete", key=f"delete_proj_{project_id}"):
                 ok, _, err = api_request("DELETE", api_url, f"/projects/{project_id}")
@@ -482,6 +523,7 @@ def render_resume_editor(api_url: str) -> None:
                     submitted = st.form_submit_button("Save project")
 
                 if submitted:
+                    _set_open_expander(expander_key)
                     if not name.strip():
                         st.error("Project name is required.")
                     else:
@@ -501,12 +543,22 @@ def render_resume_editor(api_url: str) -> None:
             bullets = proj.get("bullets", []) or []
             if not bullets:
                 st.info("No bullets yet.")
-            for bullet in bullets:
-                _render_bullet_controls(api_url, "projects", project_id, bullet)
+            for index, bullet in enumerate(bullets):
+                _render_bullet_controls(
+                    api_url,
+                    "projects",
+                    project_id,
+                    bullet,
+                    expander_key,
+                    add_spacer=index < len(bullets) - 1,
+                )
 
             new_key = f"new_proj_{project_id}"
-            new_text = st.text_area("New bullet", key=new_key, height=90)
-            if st.button("Add bullet", key=f"add_proj_{project_id}"):
+            with st.form(f"add_proj_bullet_form_{project_id}", clear_on_submit=True):
+                new_text = st.text_area("New bullet", key=new_key, height=90)
+                submitted_bullet = st.form_submit_button("Add bullet")
+            if submitted_bullet:
+                _set_open_expander(expander_key)
                 if not new_text.strip():
                     st.error("Bullet text cannot be empty.")
                 else:
@@ -517,7 +569,6 @@ def render_resume_editor(api_url: str) -> None:
                         json={"text_latex": new_text},
                     )
                     if ok:
-                        st.session_state[new_key] = ""
                         _set_editor_message("success", "Added bullet to project.")
                         st.rerun()
                     else:

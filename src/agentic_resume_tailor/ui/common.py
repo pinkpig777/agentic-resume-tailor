@@ -355,6 +355,14 @@ def _inject_app_styles() -> None:
           border-radius: var(--art-radius-md);
           padding: 10px 12px;
         }
+        .bullet-card--muted {
+          background: #f9fafb;
+          border-color: #e5e7eb;
+          color: #6b7280;
+        }
+        .bullet-row-spacer {
+          height: 12px;
+        }
         .bullet-meta {
           color: var(--art-muted);
           font-size: 0.8rem;

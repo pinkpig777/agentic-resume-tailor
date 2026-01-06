@@ -444,12 +444,11 @@ def render_generate_page(api_url: str) -> None:
     )
     _add_temp_bullets_to_lookup(lookup, temp_additions)
     selected_ids = report.get("selected_ids") or []
-    temp_ids = [_temp_bullet_id(addition) for addition in temp_additions]
-    display_ids = list(dict.fromkeys(selected_ids + [bid for bid in temp_ids if bid]))
+    display_ids = list(lookup.keys())
     exp_groups, proj_groups = _group_selected_bullets(display_ids, lookup, exp_meta, proj_meta)
 
     st.subheader("Selected bullets")
-    st.caption("Uncheck bullets to exclude them from re-render.")
+    st.caption("Check Keep to include a bullet. Edit controls appear once kept.")
     kept_ids: List[str] = []
     selected_set = set(selected_ids)
     pending_edits: Dict[str, str] = {}
@@ -503,13 +502,20 @@ def render_generate_page(api_url: str) -> None:
                     )
                 else:
                     st.info("No projects available.")
-            text_latex = st.text_area(
-                "Bullet text (LaTeX-ready)",
-                height=100,
-                placeholder="Write a LaTeX-ready bullet...",
-                key="temp_text_latex",
-            )
-            if st.button("Add temporary bullet", key="temp_add_submit"):
+            has_parent = bool(parent_id)
+            with st.form("temp_bullet_form", clear_on_submit=True):
+                text_latex = st.text_area(
+                    "Bullet text (LaTeX-ready)",
+                    height=100,
+                    placeholder="Write a LaTeX-ready bullet...",
+                    key="temp_text_latex",
+                    disabled=not has_parent,
+                )
+                submitted_temp = st.form_submit_button(
+                    "Add temporary bullet",
+                    disabled=not has_parent,
+                )
+            if submitted_temp:
                 if not parent_id:
                     st.error("Select a target experience or project.")
                 elif not text_latex.strip():
@@ -526,7 +532,6 @@ def render_generate_page(api_url: str) -> None:
                         }
                     )
                     st.session_state["temp_additions"] = temp_additions
-                    st.session_state["temp_text_latex"] = ""
                     st.rerun()
 
     if exp_groups:
@@ -555,71 +560,75 @@ def render_generate_page(api_url: str) -> None:
                 else:
                     display_text = temp_edits.get(bullet_id, display_text)
                 badge = " <span class='art-badge art-badge--tag'>TEMP</span>" if is_temp else ""
+                card_class = "bullet-card" if keep else "bullet-card bullet-card--muted"
                 col_body.markdown(
-                    f"<div class='bullet-card'>{display_text}{badge}</div>",
+                    f"<div class='{card_class}'>{display_text}{badge}</div>",
                     unsafe_allow_html=True,
                 )
-                if not is_temp and bullet_id in temp_edits:
-                    col_body.markdown(
-                        "<div class='art-subtle'>Edited for this render</div>",
-                        unsafe_allow_html=True,
-                    )
+                if keep:
+                    if not is_temp and bullet_id in temp_edits:
+                        col_body.markdown(
+                            "<div class='art-subtle'>Edited for this render</div>",
+                            unsafe_allow_html=True,
+                        )
 
-                if is_temp:
-                    edit_toggle = col_body.checkbox(
-                        "Edit temporary bullet",
-                        key=f"temp_edit_toggle_{safe_id}",
-                    )
-                    if edit_toggle:
-                        new_text = col_body.text_area(
-                            "Temporary bullet text",
-                            value=display_text,
-                            key=f"temp_edit_text_{safe_id}",
-                            height=90,
+                    if is_temp:
+                        edit_toggle = col_body.checkbox(
+                            "Edit temporary bullet",
+                            key=f"temp_edit_toggle_{safe_id}",
                         )
-                        pending_temp_edits[bullet_id] = new_text
-                        btn_cols = col_body.columns([1, 1])
-                        if btn_cols[0].button("Save temp edit", key=f"save_temp_{safe_id}"):
-                            if not new_text.strip():
-                                st.error("Bullet text cannot be empty.")
-                            else:
-                                temp_add = temp_additions_by_id.get(bullet_id)
-                                if temp_add:
-                                    temp_add["text_latex"] = new_text
-                                    st.session_state["temp_additions"] = temp_additions
+                        if edit_toggle:
+                            new_text = col_body.text_area(
+                                "Temporary bullet text",
+                                value=display_text,
+                                key=f"temp_edit_text_{safe_id}",
+                                height=90,
+                            )
+                            pending_temp_edits[bullet_id] = new_text
+                            btn_cols = col_body.columns([1, 1])
+                            if btn_cols[0].button("Save temp edit", key=f"save_temp_{safe_id}"):
+                                if not new_text.strip():
+                                    st.error("Bullet text cannot be empty.")
+                                else:
+                                    temp_add = temp_additions_by_id.get(bullet_id)
+                                    if temp_add:
+                                        temp_add["text_latex"] = new_text
+                                        st.session_state["temp_additions"] = temp_additions
+                                        st.rerun()
+                            if btn_cols[1].button("Delete temp bullet", key=f"del_temp_{safe_id}"):
+                                temp_additions = [
+                                    add
+                                    for add in temp_additions
+                                    if _temp_bullet_id(add) != bullet_id
+                                ]
+                                st.session_state["temp_additions"] = temp_additions
+                                st.rerun()
+                    else:
+                        edit_toggle = col_body.checkbox(
+                            "Edit for this render",
+                            key=f"edit_toggle_{safe_id}",
+                        )
+                        if edit_toggle:
+                            current_text = temp_edits.get(bullet_id, display_text)
+                            new_text = col_body.text_area(
+                                "Edited text",
+                                value=current_text,
+                                key=f"edit_text_{safe_id}",
+                                height=90,
+                            )
+                            pending_edits[bullet_id] = new_text
+                            btn_cols = col_body.columns([1, 1])
+                            if btn_cols[0].button("Save edit", key=f"save_edit_{safe_id}"):
+                                if not new_text.strip():
+                                    st.error("Bullet text cannot be empty.")
+                                else:
+                                    temp_edits[bullet_id] = new_text
+                                    st.session_state["temp_edits"] = temp_edits
                                     st.rerun()
-                        if btn_cols[1].button("Delete temp bullet", key=f"del_temp_{safe_id}"):
-                            temp_additions = [
-                                add for add in temp_additions if _temp_bullet_id(add) != bullet_id
-                            ]
-                            st.session_state["temp_additions"] = temp_additions
-                            st.rerun()
-                else:
-                    edit_toggle = col_body.checkbox(
-                        "Edit for this render",
-                        key=f"edit_toggle_{safe_id}",
-                    )
-                    if edit_toggle:
-                        current_text = temp_edits.get(bullet_id, display_text)
-                        new_text = col_body.text_area(
-                            "Edited text",
-                            value=current_text,
-                            key=f"edit_text_{safe_id}",
-                            height=90,
-                        )
-                        pending_edits[bullet_id] = new_text
-                        btn_cols = col_body.columns([1, 1])
-                        if btn_cols[0].button("Save edit", key=f"save_edit_{safe_id}"):
-                            if not new_text.strip():
-                                st.error("Bullet text cannot be empty.")
-                            else:
-                                temp_edits[bullet_id] = new_text
+                            if btn_cols[1].button("Clear edit", key=f"clear_edit_{safe_id}"):
+                                temp_edits.pop(bullet_id, None)
                                 st.session_state["temp_edits"] = temp_edits
                                 st.rerun()
-                        if btn_cols[1].button("Clear edit", key=f"clear_edit_{safe_id}"):
-                            temp_edits.pop(bullet_id, None)
-                            st.session_state["temp_edits"] = temp_edits
-                            st.rerun()
 
                 if keep:
                     kept_ids.append(bullet_id)
@@ -645,71 +654,75 @@ def render_generate_page(api_url: str) -> None:
                 else:
                     display_text = temp_edits.get(bullet_id, display_text)
                 badge = " <span class='art-badge art-badge--tag'>TEMP</span>" if is_temp else ""
+                card_class = "bullet-card" if keep else "bullet-card bullet-card--muted"
                 col_body.markdown(
-                    f"<div class='bullet-card'>{display_text}{badge}</div>",
+                    f"<div class='{card_class}'>{display_text}{badge}</div>",
                     unsafe_allow_html=True,
                 )
-                if not is_temp and bullet_id in temp_edits:
-                    col_body.markdown(
-                        "<div class='art-subtle'>Edited for this render</div>",
-                        unsafe_allow_html=True,
-                    )
+                if keep:
+                    if not is_temp and bullet_id in temp_edits:
+                        col_body.markdown(
+                            "<div class='art-subtle'>Edited for this render</div>",
+                            unsafe_allow_html=True,
+                        )
 
-                if is_temp:
-                    edit_toggle = col_body.checkbox(
-                        "Edit temporary bullet",
-                        key=f"temp_edit_toggle_{safe_id}",
-                    )
-                    if edit_toggle:
-                        new_text = col_body.text_area(
-                            "Temporary bullet text",
-                            value=display_text,
-                            key=f"temp_edit_text_{safe_id}",
-                            height=90,
+                    if is_temp:
+                        edit_toggle = col_body.checkbox(
+                            "Edit temporary bullet",
+                            key=f"temp_edit_toggle_{safe_id}",
                         )
-                        pending_temp_edits[bullet_id] = new_text
-                        btn_cols = col_body.columns([1, 1])
-                        if btn_cols[0].button("Save temp edit", key=f"save_temp_{safe_id}"):
-                            if not new_text.strip():
-                                st.error("Bullet text cannot be empty.")
-                            else:
-                                temp_add = temp_additions_by_id.get(bullet_id)
-                                if temp_add:
-                                    temp_add["text_latex"] = new_text
-                                    st.session_state["temp_additions"] = temp_additions
+                        if edit_toggle:
+                            new_text = col_body.text_area(
+                                "Temporary bullet text",
+                                value=display_text,
+                                key=f"temp_edit_text_{safe_id}",
+                                height=90,
+                            )
+                            pending_temp_edits[bullet_id] = new_text
+                            btn_cols = col_body.columns([1, 1])
+                            if btn_cols[0].button("Save temp edit", key=f"save_temp_{safe_id}"):
+                                if not new_text.strip():
+                                    st.error("Bullet text cannot be empty.")
+                                else:
+                                    temp_add = temp_additions_by_id.get(bullet_id)
+                                    if temp_add:
+                                        temp_add["text_latex"] = new_text
+                                        st.session_state["temp_additions"] = temp_additions
+                                        st.rerun()
+                            if btn_cols[1].button("Delete temp bullet", key=f"del_temp_{safe_id}"):
+                                temp_additions = [
+                                    add
+                                    for add in temp_additions
+                                    if _temp_bullet_id(add) != bullet_id
+                                ]
+                                st.session_state["temp_additions"] = temp_additions
+                                st.rerun()
+                    else:
+                        edit_toggle = col_body.checkbox(
+                            "Edit for this render",
+                            key=f"edit_toggle_{safe_id}",
+                        )
+                        if edit_toggle:
+                            current_text = temp_edits.get(bullet_id, display_text)
+                            new_text = col_body.text_area(
+                                "Edited text",
+                                value=current_text,
+                                key=f"edit_text_{safe_id}",
+                                height=90,
+                            )
+                            pending_edits[bullet_id] = new_text
+                            btn_cols = col_body.columns([1, 1])
+                            if btn_cols[0].button("Save edit", key=f"save_edit_{safe_id}"):
+                                if not new_text.strip():
+                                    st.error("Bullet text cannot be empty.")
+                                else:
+                                    temp_edits[bullet_id] = new_text
+                                    st.session_state["temp_edits"] = temp_edits
                                     st.rerun()
-                        if btn_cols[1].button("Delete temp bullet", key=f"del_temp_{safe_id}"):
-                            temp_additions = [
-                                add for add in temp_additions if _temp_bullet_id(add) != bullet_id
-                            ]
-                            st.session_state["temp_additions"] = temp_additions
-                            st.rerun()
-                else:
-                    edit_toggle = col_body.checkbox(
-                        "Edit for this render",
-                        key=f"edit_toggle_{safe_id}",
-                    )
-                    if edit_toggle:
-                        current_text = temp_edits.get(bullet_id, display_text)
-                        new_text = col_body.text_area(
-                            "Edited text",
-                            value=current_text,
-                            key=f"edit_text_{safe_id}",
-                            height=90,
-                        )
-                        pending_edits[bullet_id] = new_text
-                        btn_cols = col_body.columns([1, 1])
-                        if btn_cols[0].button("Save edit", key=f"save_edit_{safe_id}"):
-                            if not new_text.strip():
-                                st.error("Bullet text cannot be empty.")
-                            else:
-                                temp_edits[bullet_id] = new_text
+                            if btn_cols[1].button("Clear edit", key=f"clear_edit_{safe_id}"):
+                                temp_edits.pop(bullet_id, None)
                                 st.session_state["temp_edits"] = temp_edits
                                 st.rerun()
-                        if btn_cols[1].button("Clear edit", key=f"clear_edit_{safe_id}"):
-                            temp_edits.pop(bullet_id, None)
-                            st.session_state["temp_edits"] = temp_edits
-                            st.rerun()
 
                 if keep:
                     kept_ids.append(bullet_id)
