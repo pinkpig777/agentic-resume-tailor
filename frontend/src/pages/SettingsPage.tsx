@@ -180,11 +180,12 @@ export default function SettingsPage() {
     },
   });
 
-  const handleTextBlur = (field: TextField) => {
+  const handleTextBlur = (field: TextField, rawValue?: string) => {
     if (!settings || !draft) {
       return;
     }
-    const next = draft[field].trim();
+    const currentValue = rawValue ?? draft[field];
+    const next = currentValue.trim();
     const current = (settings[field] ?? "") as string | null;
     const normalizedCurrent = current ?? "";
     if (next === normalizedCurrent) {
@@ -195,11 +196,11 @@ export default function SettingsPage() {
     updateMutation.mutate({ [field]: payloadValue });
   };
 
-  const handleNumberBlur = (field: NumberField) => {
+  const handleNumberBlur = (field: NumberField, rawValue?: string) => {
     if (!settings || !draft) {
       return;
     }
-    const raw = draft[field].trim();
+    const raw = (rawValue ?? draft[field]).trim();
     if (!raw) {
       setDraft((prev) =>
         prev
@@ -264,7 +265,7 @@ export default function SettingsPage() {
               prev ? { ...prev, [field]: event.target.value } : prev,
             )
           }
-          onBlur={() => handleTextBlur(field)}
+          onBlur={(event) => handleTextBlur(field, event.currentTarget.value)}
           placeholder={placeholder}
           title={helpText}
         />
@@ -301,7 +302,7 @@ export default function SettingsPage() {
               prev ? { ...prev, [field]: event.target.value } : prev,
             )
           }
-          onBlur={() => handleNumberBlur(field)}
+          onBlur={(event) => handleNumberBlur(field, event.currentTarget.value)}
           placeholder={placeholder}
           title={helpText}
         />
@@ -699,7 +700,9 @@ export default function SettingsPage() {
                         prev ? { ...prev, jd_model: event.target.value } : prev,
                       )
                     }
-                    onBlur={() => handleTextBlur("jd_model")}
+                    onBlur={(event) =>
+                      handleTextBlur("jd_model", event.currentTarget.value)
+                    }
                     placeholder="Enter a model id"
                     title={tooltips.jd_model}
                   />
@@ -778,7 +781,9 @@ export default function SettingsPage() {
                     prev ? { ...prev, log_level: event.target.value } : prev,
                   )
                 }
-                onBlur={() => handleTextBlur("log_level")}
+                onBlur={(event) =>
+                  handleTextBlur("log_level", event.currentTarget.value)
+                }
                 placeholder="INFO"
                 title={tooltips.log_level}
               />
