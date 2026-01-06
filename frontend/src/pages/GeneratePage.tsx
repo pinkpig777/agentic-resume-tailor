@@ -14,6 +14,7 @@ export default function GeneratePage() {
 
   const mutation = useMutation({
     mutationFn: generateResume,
+    onMutate: () => setResult(null),
     onSuccess: (data) => setResult(data),
   });
 
@@ -25,9 +26,7 @@ export default function GeneratePage() {
     mutation.mutate(trimmed);
   };
 
-  const pdfUrl = result
-    ? `${API_BASE_URL}/output/${result.run_id}.pdf`
-    : "";
+  const pdfUrl = result ? new URL(result.pdf_url, API_BASE_URL).toString() : "";
 
   return (
     <div className="space-y-6">
