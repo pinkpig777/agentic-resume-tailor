@@ -228,6 +228,15 @@ const buildAvailableGroups = (
   return groups;
 };
 
+const sortGroupsByType = <T extends { parentType: "experience" | "project" | "unknown" }>(
+  groups: T[],
+): T[] => {
+  const experiences = groups.filter((group) => group.parentType === "experience");
+  const projects = groups.filter((group) => group.parentType === "project");
+  const unknown = groups.filter((group) => group.parentType === "unknown");
+  return [...experiences, ...projects, ...unknown];
+};
+
 const buildSelectedGroups = (items: SelectionItem[]): SelectedGroup[] => {
   const groups = new Map<string, SelectedGroup>();
   const order: string[] = [];
@@ -250,7 +259,8 @@ const buildSelectedGroups = (items: SelectionItem[]): SelectedGroup[] => {
     groups.get(key)?.items.push(item);
   });
 
-  return order.map((key) => groups.get(key)!).filter(Boolean);
+  const ordered = order.map((key) => groups.get(key)!).filter(Boolean);
+  return sortGroupsByType(ordered);
 };
 
 const labelForSection = (type: "experience" | "project" | "unknown") => {
@@ -457,12 +467,17 @@ export default function GeneratePage() {
     if (!resumeData) {
       return [];
     }
-    return buildAvailableGroups(resumeData, selectedIdSet);
+    return sortGroupsByType(buildAvailableGroups(resumeData, selectedIdSet));
   }, [resumeData, selectedIdSet]);
 
   const selectedGroups = useMemo(
     () => buildSelectedGroups(selection),
     [selection],
+  );
+
+  const orderedSelection = useMemo(
+    () => selectedGroups.flatMap((group) => group.items),
+    [selectedGroups],
   );
 
   const experienceOptions = useMemo<ParentOption[]>(() => {
@@ -635,11 +650,17 @@ export default function GeneratePage() {
   };
 
   const toggleSelectedGroup = (key: string) => {
-    setSelectedCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
+    setSelectedCollapsedGroups((prev) => {
+      const current = prev[key] ?? true;
+      return { ...prev, [key]: !current };
+    });
   };
 
   const toggleAvailableGroup = (key: string) => {
-    setAvailableCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
+    setAvailableCollapsedGroups((prev) => {
+      const current = prev[key] ?? true;
+      return { ...prev, [key]: !current };
+    });
   };
 
   const nextTempId = () => {
@@ -686,8 +707,8 @@ export default function GeneratePage() {
   };
 
   const buildRenderPayload = () => {
-    const selected_ids = selection.map((item) => item.id);
-    const additions = selection
+    const selected_ids = orderedSelection.map((item) => item.id);
+    const additions = orderedSelection
       .filter((item) => item.isTemp)
       .map((item) => ({
         temp_id: item.tempId,
@@ -698,7 +719,7 @@ export default function GeneratePage() {
       .filter((item) => item.text_latex);
 
     const edits: Record<string, string> = {};
-    selection.forEach((item) => {
+    orderedSelection.forEach((item) => {
       if (item.isTemp) {
         return;
       }
@@ -878,7 +899,7 @@ export default function GeneratePage() {
             ) : selection.length ? (
               <div className="space-y-3">
                 {selectedGroups.map((group) => {
-                  const isCollapsed = selectedCollapsedGroups[group.key] ?? false;
+                  const isCollapsed = selectedCollapsedGroups[group.key] ?? true;
                   return (
                     <div key={group.key} className="rounded-lg border">
                       <button
@@ -955,7 +976,7 @@ export default function GeneratePage() {
               <div className="mt-4 space-y-3">
                 {availableGroups.length ? (
                   availableGroups.map((group) => {
-                    const isCollapsed = availableCollapsedGroups[group.key] ?? false;
+                    const isCollapsed = availableCollapsedGroups[group.key] ?? true;
                     return (
                       <div key={group.key} className="rounded-lg border">
                         <button
