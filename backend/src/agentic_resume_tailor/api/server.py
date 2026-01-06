@@ -573,6 +573,8 @@ def select_and_rebuild(
         if score is None:
             score = getattr(getattr(c, "best_hit", None), "weighted", 0.0)
         score_map[getattr(c, "bullet_id", "")] = float(score or 0.0)
+    order_map = {bid: idx for idx, bid in enumerate(selected_ids)}
+    use_order = not score_map
 
     for addition in temp_additions:
         parent_type = addition.get("parent_type")
@@ -606,9 +608,13 @@ def select_and_rebuild(
                 score = score_map.get(bid, 0.0)
                 tie = local_id or f"idx:{idx:04d}"
                 text = temp_edits.get(bid, b.get("text_latex", ""))
-                kept_bullets.append((score, tie, text))
+                order = order_map.get(bid, len(order_map))
+                kept_bullets.append((order if use_order else score, tie, text))
         if kept_bullets:
-            kept_bullets.sort(key=lambda item: (-item[0], item[1]))
+            if use_order:
+                kept_bullets.sort(key=lambda item: (item[0], item[1]))
+            else:
+                kept_bullets.sort(key=lambda item: (-item[0], item[1]))
             exp["bullets"] = [text for _, _, text in kept_bullets]
             new_exps.append(exp)
 
@@ -626,9 +632,13 @@ def select_and_rebuild(
                 score = score_map.get(bid, 0.0)
                 tie = local_id or f"idx:{idx:04d}"
                 text = temp_edits.get(bid, b.get("text_latex", ""))
-                kept_bullets.append((score, tie, text))
+                order = order_map.get(bid, len(order_map))
+                kept_bullets.append((order if use_order else score, tie, text))
         if kept_bullets:
-            kept_bullets.sort(key=lambda item: (-item[0], item[1]))
+            if use_order:
+                kept_bullets.sort(key=lambda item: (item[0], item[1]))
+            else:
+                kept_bullets.sort(key=lambda item: (-item[0], item[1]))
             proj["bullets"] = [text for _, _, text in kept_bullets]
             new_projs.append(proj)
 
