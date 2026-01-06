@@ -67,6 +67,48 @@ type ParentOption = {
   label: string;
 };
 
+type StoredGenerateState = {
+  jdText: string;
+  result: GenerateResponse | null;
+  selection: SelectionItem[];
+};
+
+const STORAGE_KEY = "art.generate.state.v1";
+
+const loadStoredState = (): StoredGenerateState | null => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as StoredGenerateState;
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+    return {
+      jdText: parsed.jdText ?? "",
+      result: parsed.result ?? null,
+      selection: Array.isArray(parsed.selection) ? parsed.selection : [],
+    };
+  } catch {
+    return null;
+  }
+};
+
+const persistState = (state: StoredGenerateState) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // Ignore storage write failures (private mode, quota, etc.)
+  }
+};
+
 const buildBulletId = (
   parentType: "experience" | "project",
   parentId: string,
@@ -295,6 +337,32 @@ export default function GeneratePage() {
 
   const parentOptions =
     newBulletType === "experience" ? experienceOptions : projectOptions;
+
+  useEffect(() => {
+    const stored = loadStoredState();
+    if (!stored) {
+      return;
+    }
+    setJdText(stored.jdText ?? "");
+    if (stored.result) {
+      setResult(stored.result);
+      if (stored.selection.length) {
+        setSelection(stored.selection);
+        setSeededRunId(stored.result.run_id);
+      } else {
+        setSelection([]);
+        setSeededRunId(null);
+      }
+    } else {
+      setResult(null);
+      setSelection([]);
+      setSeededRunId(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    persistState({ jdText, result, selection });
+  }, [jdText, result, selection]);
 
   useEffect(() => {
     if (!parentOptions.length) {
