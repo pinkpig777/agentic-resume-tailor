@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical } from "lucide-react";
+import { GripVertical, Trash2 } from "lucide-react";
 
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -10,9 +10,14 @@ import type { Bullet } from "@/types/schema";
 type SortableBulletProps = {
   bullet: Bullet;
   onUpdate: (next: Bullet) => void | Promise<void>;
+  onDelete?: (id: string) => void | Promise<void>;
 };
 
-export function SortableBullet({ bullet, onUpdate }: SortableBulletProps) {
+export function SortableBullet({
+  bullet,
+  onUpdate,
+  onDelete,
+}: SortableBulletProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: bullet.id });
   const [value, setValue] = useState(bullet.text_latex);
@@ -35,6 +40,7 @@ export function SortableBullet({ bullet, onUpdate }: SortableBulletProps) {
     if (next === bullet.text_latex) {
       return;
     }
+    setValue(next);
     void onUpdate({ ...bullet, text_latex: next });
   };
 
@@ -60,8 +66,18 @@ export function SortableBullet({ bullet, onUpdate }: SortableBulletProps) {
         value={value}
         onChange={(event) => setValue(event.target.value)}
         onBlur={handleBlur}
-        className="min-h-[84px]"
+        className="min-h-[84px] flex-1"
       />
+      {onDelete ? (
+        <button
+          type="button"
+          className="mt-1 inline-flex h-9 w-9 items-center justify-center rounded-md border bg-muted text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
+          aria-label="Delete bullet"
+          onClick={() => onDelete(bullet.id)}
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      ) : null}
     </div>
   );
 }

@@ -20,57 +20,53 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import type { Bullet, Experience, ExperienceUpdatePayload } from "@/types/schema";
+import type { Bullet, Project, ProjectUpdatePayload } from "@/types/schema";
 
-const REQUIRED_FIELDS: Array<keyof ExperienceUpdatePayload> = ["company", "role"];
+const REQUIRED_FIELDS: Array<keyof ProjectUpdatePayload> = ["name"];
 
-type ExperienceCardProps = {
-  experience: Experience;
-  onExperienceUpdate: (
-    jobId: string,
-    payload: ExperienceUpdatePayload,
+type ProjectCardProps = {
+  project: Project;
+  onProjectUpdate: (
+    projectId: string,
+    payload: ProjectUpdatePayload,
   ) => void | Promise<void>;
-  onExperienceDelete: (jobId: string) => void | Promise<void>;
-  onBulletCreate: (jobId: string, text: string) => void | Promise<void>;
-  onBulletUpdate: (jobId: string, bullet: Bullet) => void | Promise<void>;
-  onBulletDelete: (jobId: string, bulletId: string) => void | Promise<void>;
-  onBulletsReorder?: (jobId: string, bullets: Bullet[]) => void | Promise<void>;
+  onProjectDelete: (projectId: string) => void | Promise<void>;
+  onBulletCreate: (projectId: string, text: string) => void | Promise<void>;
+  onBulletUpdate: (projectId: string, bullet: Bullet) => void | Promise<void>;
+  onBulletDelete: (projectId: string, bulletId: string) => void | Promise<void>;
+  onBulletsReorder?: (projectId: string, bullets: Bullet[]) => void | Promise<void>;
 };
 
-type ExperienceDraft = {
-  company: string;
-  role: string;
-  dates: string;
-  location: string;
+type ProjectDraft = {
+  name: string;
+  technologies: string;
 };
 
-const buildDraft = (experience: Experience): ExperienceDraft => ({
-  company: experience.company,
-  role: experience.role,
-  dates: experience.dates,
-  location: experience.location,
+const buildDraft = (project: Project): ProjectDraft => ({
+  name: project.name,
+  technologies: project.technologies,
 });
 
-export function ExperienceCard({
-  experience,
-  onExperienceUpdate,
-  onExperienceDelete,
+export function ProjectCard({
+  project,
+  onProjectUpdate,
+  onProjectDelete,
   onBulletCreate,
   onBulletUpdate,
   onBulletDelete,
   onBulletsReorder,
-}: ExperienceCardProps) {
-  const [items, setItems] = useState<Bullet[]>(experience.bullets);
-  const [draft, setDraft] = useState<ExperienceDraft>(() => buildDraft(experience));
+}: ProjectCardProps) {
+  const [items, setItems] = useState<Bullet[]>(project.bullets);
+  const [draft, setDraft] = useState<ProjectDraft>(() => buildDraft(project));
   const [newBullet, setNewBullet] = useState("");
 
   useEffect(() => {
-    setItems(experience.bullets);
-  }, [experience.bullets]);
+    setItems(project.bullets);
+  }, [project.bullets]);
 
   useEffect(() => {
-    setDraft(buildDraft(experience));
-  }, [experience.company, experience.role, experience.dates, experience.location]);
+    setDraft(buildDraft(project));
+  }, [project.name, project.technologies]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -98,15 +94,17 @@ export function ExperienceCard({
     setItems(reordered);
 
     if (onBulletsReorder) {
-      void onBulletsReorder(experience.job_id, reordered);
+      void onBulletsReorder(project.project_id, reordered);
     } else {
-      reordered.forEach((bullet) => void onBulletUpdate(experience.job_id, bullet));
+      reordered.forEach((bullet) =>
+        void onBulletUpdate(project.project_id, bullet),
+      );
     }
   };
 
-  const handleFieldBlur = (field: keyof ExperienceDraft) => {
+  const handleFieldBlur = (field: keyof ProjectDraft) => {
     const next = draft[field].trim();
-    const current = experience[field];
+    const current = project[field];
     if (REQUIRED_FIELDS.includes(field) && !next) {
       setDraft((prev) => ({ ...prev, [field]: current }));
       return;
@@ -114,7 +112,7 @@ export function ExperienceCard({
     if (next === current) {
       return;
     }
-    void onExperienceUpdate(experience.job_id, { [field]: next });
+    void onProjectUpdate(project.project_id, { [field]: next });
   };
 
   const handleAddBullet = () => {
@@ -122,7 +120,7 @@ export function ExperienceCard({
     if (!next) {
       return;
     }
-    void onBulletCreate(experience.job_id, next);
+    void onBulletCreate(project.project_id, next);
     setNewBullet("");
   };
 
@@ -132,16 +130,16 @@ export function ExperienceCard({
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             <CardTitle className="text-base">
-              {experience.role || "Role"} · {experience.company || "Company"}
+              {project.name || "Project"}
             </CardTitle>
             <div className="text-xs text-muted-foreground">
-              Job ID: {experience.job_id}
+              Project ID: {project.project_id}
             </div>
           </div>
           <Button
             variant="destructive"
             size="sm"
-            onClick={() => onExperienceDelete(experience.job_id)}
+            onClick={() => onProjectDelete(project.project_id)}
           >
             <Trash2 className="h-4 w-4" />
             Delete
@@ -151,51 +149,30 @@ export function ExperienceCard({
       <CardContent className="space-y-5">
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor={`${experience.job_id}-company`}>Company</Label>
+            <Label htmlFor={`${project.project_id}-name`}>Name</Label>
             <Input
-              id={`${experience.job_id}-company`}
-              value={draft.company}
+              id={`${project.project_id}-name`}
+              value={draft.name}
               onChange={(event) =>
-                setDraft((prev) => ({ ...prev, company: event.target.value }))
+                setDraft((prev) => ({ ...prev, name: event.target.value }))
               }
-              onBlur={() => handleFieldBlur("company")}
-              placeholder="Company name"
+              onBlur={() => handleFieldBlur("name")}
+              placeholder="Project name"
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor={`${experience.job_id}-role`}>Role</Label>
+            <Label htmlFor={`${project.project_id}-tech`}>Technologies</Label>
             <Input
-              id={`${experience.job_id}-role`}
-              value={draft.role}
+              id={`${project.project_id}-tech`}
+              value={draft.technologies}
               onChange={(event) =>
-                setDraft((prev) => ({ ...prev, role: event.target.value }))
+                setDraft((prev) => ({
+                  ...prev,
+                  technologies: event.target.value,
+                }))
               }
-              onBlur={() => handleFieldBlur("role")}
-              placeholder="Role title"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={`${experience.job_id}-dates`}>Dates</Label>
-            <Input
-              id={`${experience.job_id}-dates`}
-              value={draft.dates}
-              onChange={(event) =>
-                setDraft((prev) => ({ ...prev, dates: event.target.value }))
-              }
-              onBlur={() => handleFieldBlur("dates")}
-              placeholder="2021 - Present"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={`${experience.job_id}-location`}>Location</Label>
-            <Input
-              id={`${experience.job_id}-location`}
-              value={draft.location}
-              onChange={(event) =>
-                setDraft((prev) => ({ ...prev, location: event.target.value }))
-              }
-              onBlur={() => handleFieldBlur("location")}
-              placeholder="City, Country"
+              onBlur={() => handleFieldBlur("technologies")}
+              placeholder="React, FastAPI, Postgres"
             />
           </div>
         </div>
@@ -218,9 +195,9 @@ export function ExperienceCard({
                       key={bullet.id}
                       bullet={bullet}
                       onUpdate={(next) =>
-                        onBulletUpdate(experience.job_id, next)
+                        onBulletUpdate(project.project_id, next)
                       }
-                      onDelete={(id) => onBulletDelete(experience.job_id, id)}
+                      onDelete={(id) => onBulletDelete(project.project_id, id)}
                     />
                   ))
                 ) : (
@@ -234,12 +211,12 @@ export function ExperienceCard({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor={`${experience.job_id}-new-bullet`}>Add bullet</Label>
+          <Label htmlFor={`${project.project_id}-new-bullet`}>Add bullet</Label>
           <Textarea
-            id={`${experience.job_id}-new-bullet`}
+            id={`${project.project_id}-new-bullet`}
             value={newBullet}
             onChange={(event) => setNewBullet(event.target.value)}
-            placeholder="Add a new impact statement..."
+            placeholder="Add a new project highlight..."
           />
           <div className="flex justify-end">
             <Button
