@@ -44,6 +44,13 @@ const floatFields = [
 const numberFields = [...integerFields, ...floatFields] as const;
 
 const logLevelOptions = ["DEBUG", "INFO", "WARNING", "ERROR"];
+const jdModelOptions = [
+  "gpt-4.1-nano-2025-04-14",
+  "gpt-4.1-mini-2025-04-14",
+  "gpt-4.1-2025-04-14",
+  "gpt-4o-mini-2024-07-18",
+  "gpt-4o-2024-08-06",
+];
 
 type BooleanField = (typeof booleanFields)[number];
 type IntegerField = (typeof integerFields)[number];
@@ -289,6 +296,34 @@ export default function SettingsPage() {
   };
 
   const statusTone = status?.tone ?? "success";
+  const isCustomJdModel = draft
+    ? !jdModelOptions.includes(draft.jd_model)
+    : false;
+  const jdModelSelectValue = isCustomJdModel
+    ? "__custom__"
+    : draft?.jd_model ?? jdModelOptions[0];
+
+  const handleJdModelSelect = (value: string) => {
+    if (!draft) {
+      return;
+    }
+    if (value === "__custom__") {
+      setDraft((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        if (jdModelOptions.includes(prev.jd_model)) {
+          return { ...prev, jd_model: "" };
+        }
+        return prev;
+      });
+      return;
+    }
+    setDraft((prev) => (prev ? { ...prev, jd_model: value } : prev));
+    if (settings && value !== settings.jd_model) {
+      updateMutation.mutate({ jd_model: value });
+    }
+  };
 
   const summary = useMemo(
     () => ({
@@ -528,7 +563,34 @@ export default function SettingsPage() {
                 "Embedding model",
                 "BAAI/bge-small-en-v1.5",
               )}
-              {renderTextField("jd_model", "JD model", "gpt-4.1-nano-2025-04-14")}
+              <div className="space-y-2">
+                <Label htmlFor="settings-jd-model">JD model</Label>
+                <select
+                  id="settings-jd-model"
+                  value={jdModelSelectValue}
+                  onChange={(event) => handleJdModelSelect(event.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  {jdModelOptions.map((model) => (
+                    <option value={model} key={model}>
+                      {model}
+                    </option>
+                  ))}
+                  <option value="__custom__">Custom…</option>
+                </select>
+                {isCustomJdModel ? (
+                  <Input
+                    value={draft.jd_model}
+                    onChange={(event) =>
+                      setDraft((prev) =>
+                        prev ? { ...prev, jd_model: event.target.value } : prev,
+                      )
+                    }
+                    onBlur={() => handleTextBlur("jd_model")}
+                    placeholder="Enter a model id"
+                  />
+                ) : null}
+              </div>
               {renderTextField("api_url", "API URL", "http://localhost:8000")}
               {renderTextField(
                 "cors_origins",
