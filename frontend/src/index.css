@@ -40,3 +40,24 @@
     background-attachment: fixed;
   }
 }
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@layer utilities {
+  .animate-rise {
+    animation: rise 0.6s ease-out both;
+  }
+
+  .animate-rise-delay-1 {
+    animation-delay: 0.12s;
+  }
+}
