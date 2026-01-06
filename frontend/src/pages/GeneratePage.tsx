@@ -279,10 +279,20 @@ function SortableSelectionRow({
 }
 
 export default function GeneratePage() {
-  const [jdText, setJdText] = useState("");
-  const [result, setResult] = useState<GenerateResponse | null>(null);
-  const [selection, setSelection] = useState<SelectionItem[]>([]);
-  const [seededRunId, setSeededRunId] = useState<string | null>(null);
+  const initialState = useMemo(() => loadStoredState(), []);
+  const [jdText, setJdText] = useState(() => initialState?.jdText ?? "");
+  const [result, setResult] = useState<GenerateResponse | null>(
+    () => initialState?.result ?? null,
+  );
+  const [selection, setSelection] = useState<SelectionItem[]>(
+    () => initialState?.selection ?? [],
+  );
+  const [seededRunId, setSeededRunId] = useState<string | null>(() => {
+    if (initialState?.result?.run_id && initialState.selection?.length) {
+      return initialState.result.run_id;
+    }
+    return null;
+  });
   const [selectionStatus, setSelectionStatus] = useState<StatusMessage | null>(null);
   const [newBulletType, setNewBulletType] = useState<"experience" | "project">(
     "experience",
@@ -337,28 +347,6 @@ export default function GeneratePage() {
 
   const parentOptions =
     newBulletType === "experience" ? experienceOptions : projectOptions;
-
-  useEffect(() => {
-    const stored = loadStoredState();
-    if (!stored) {
-      return;
-    }
-    setJdText(stored.jdText ?? "");
-    if (stored.result) {
-      setResult(stored.result);
-      if (stored.selection.length) {
-        setSelection(stored.selection);
-        setSeededRunId(stored.result.run_id);
-      } else {
-        setSelection([]);
-        setSeededRunId(null);
-      }
-    } else {
-      setResult(null);
-      setSelection([]);
-      setSeededRunId(null);
-    }
-  }, []);
 
   useEffect(() => {
     persistState({ jdText, result, selection });
