@@ -11,7 +11,7 @@ This document covers setup, deployment, architecture, and schemas.
 - Docker (recommended), or Python 3.10+ with `pip`
 - Node.js 18+
 - Internet access for the initial embedding model download (cached afterward)
-- Keep `data/*.json` and `.env` private (gitignored)
+- Keep `backend/data/*.json` and `backend/.env` private (gitignored)
 
 ### Clone and configure
 
@@ -20,7 +20,7 @@ git clone <your-fork-url>
 cd agentic-resume-tailor
 ```
 
-Create a `.env` (optional, only for secrets):
+Create a `backend/.env` (optional, only for secrets):
 
 ```env
 OPENAI_API_KEY=YOUR_OPENAI_API_KEY
@@ -28,18 +28,18 @@ OPENAI_API_KEY=YOUR_OPENAI_API_KEY
 
 Edit app settings (optional):
 
-- `config/user_settings.json` for local runs
-- `config/user_settings.docker.json` for Docker Compose
+- `backend/config/user_settings.json` for local runs
+- `backend/config/user_settings.docker.json` for Docker Compose
 
 ### Build the Docker Image
 ```bash
-docker build -t resume-agent .  
+docker build -t resume-agent ./backend
 ```
 
 
 ### Initial Chroma Ingestion
 ```bash
-docker compose run --rm api python /app/src/ingest.py
+docker compose run --rm api python -m agentic_resume_tailor.ingest
 ```
 
 ### Deploy with Docker Compose (recommended)
@@ -70,9 +70,10 @@ docker compose down
 ```bash
 uv venv
 source .venv/bin/activate
+cd backend
 uv pip install -r requirements.txt
 
-uv run python src/server.py
+PYTHONPATH=src uv run python -m agentic_resume_tailor.api.server
 ```
 
 ```bash
@@ -90,10 +91,10 @@ npm run dev
 flowchart LR
   UI[React SPA] -->|REST API (JSON)| API[FastAPI API]
   API -->|CRUD| DB[(SQL DB)]
-  DB -->|export| JSON[data/my_experience.json]
+  DB -->|export| JSON[backend/data/my_experience.json]
   JSON -->|ingest| CHROMA[(ChromaDB)]
   API -->|query| CHROMA
-  API -->|render| OUT[output/*.pdf, *.tex, *_report.json]
+  API -->|render| OUT[backend/output/*.pdf, *.tex, *_report.json]
 ```
 
 ---
@@ -103,7 +104,7 @@ flowchart LR
 ```mermaid
 flowchart TD
   A[Resume Editor CRUD] --> B[FastAPI writes SQL DB]
-  B --> C[Export DB to data/my_experience.json]
+  B --> C[Export DB to backend/data/my_experience.json]
   C --> D[Ingest JSON into ChromaDB]
   D --> E[Build retrieval plan - multi queries]
   E --> F[Multi-query retrieve from ChromaDB]
@@ -241,8 +242,8 @@ erDiagram
 
 - The SQL database is the source of truth (created on first launch).
 - The Resume Editor writes directly to the DB via CRUD endpoints.
-- Re-ingest exports the DB to `data/my_experience.json`, then ingests Chroma.
-- `data/my_experience.json` is an exported artifact for inspection/backups, not the primary store.
+- Re-ingest exports the DB to `backend/data/my_experience.json`, then ingests Chroma.
+- `backend/data/my_experience.json` is an exported artifact for inspection/backups, not the primary store.
 
 ### `bullet_id` convention
 
@@ -259,9 +260,10 @@ Create a `.env` in the repo root (optional, for secrets only):
 OPENAI_API_KEY=YOUR_OPENAI_API_KEY
 ```
 
-All other app settings live in `config/user_settings.json`, and the app auto-creates a runtime
-override file on first start. Local runs write `config/user_settings.local.json`, while
-Docker/Compose writes `config/user_settings.docker.json`.
+All other app settings live in `backend/config/user_settings.json`, and the app auto-creates a
+runtime override file on first start. Local runs write
+`backend/config/user_settings.local.json`, while Docker/Compose writes
+`backend/config/user_settings.docker.json`.
 Quantitative bullet bonus tuning lives in `quant_bonus_per_hit` and `quant_bonus_cap`.
 
 ---
@@ -286,39 +288,14 @@ Quantitative bullet bonus tuning lives in `quant_bonus_per_hit` and `quant_bonus
 
 - `frontend/`
   - `src/` - React SPA (Vite, Tailwind, shadcn/ui)
-- `data/`
-  - `raw_experience_data_example.json` - legacy JSON sample (not used by default)
-  - `my_experience.json` - JSON export artifact (written on saves and ingest)
-  - `processed/chroma_db/` - local ChromaDB store
-  - `processed/resume.db` - SQLite CRUD store (default)
-- `config/user_settings.json` - user-editable app settings (local defaults)
-- `config/user_settings.docker.json` - Docker-friendly settings (api_url points to `http://api:8000`)
-- `script/`
-  - `convert_experience_json.py` - normalize raw data and assign stable IDs
-  - `test_query.py` - manual retrieval/loop debug runner
-  - `test_render.py` - render a PDF from template using sample JSON
-- `config/`
-  - `canonicalization.json` - alias/canonical rules
-  - `families.json` - family taxonomy (generic -> satisfied_by)
-- `src/`
-  - `agentic_resume_tailor/` - src-layout package
-    - `api/server.py` - FastAPI backend (API-only, writes artifacts + report)
-    - `db/` - SQLAlchemy models + export/seed helpers for CRUD
-    - `core/` - retrieval/selection/scoring pipeline
-    - `ingest.py` - upserts bullets into Chroma using deterministic `bullet_id`
-    - `jd_parser.py` - optional OpenAI JD parser (Target Profile v1)
-    - `core/jd_utils.py` - shared JD parsing + fallback query helpers
-    - `settings.py` - pydantic-settings config loader
-    - `utils/logging.py` - log configuration helpers
-  - `server.py`, `app.py`, `ingest.py` - thin wrappers for backward-compatible entrypoints
-- `tests/`
-  - `characterization/run_generate_characterization.py` - black-box generate test runner
-  - `characterization/test_generate_characterization.py` - pytest wrapper (optional)
-  - `fixtures/` - characterization fixtures and expected output
-  - `unit/` - fast unit tests for core modules
-- `templates/resume.tex` - Jinja2 LaTeX template with `<< >>` and `((% %))` delimiters
-- `output/` - generated artifacts (`<run_id>.pdf`, `<run_id>.tex`, `<run_id>_report.json`,
-  `my_experience.json`)
+- `backend/`
+  - `src/agentic_resume_tailor/` - FastAPI backend (API-only, writes artifacts + report)
+  - `tests/` - characterization + unit tests
+  - `config/` - app settings + taxonomy configs
+  - `data/` - exported JSON and local DB artifacts
+  - `output/` - generated artifacts (`<run_id>.pdf`, `<run_id>.tex`, `<run_id>_report.json`)
+  - `templates/` - LaTeX templates
+  - `script/` - debug + utility scripts
 
 ---
 
@@ -327,6 +304,7 @@ Quantitative bullet bonus tuning lives in `quant_bonus_per_hit` and `quant_bonus
 Format + lint:
 
 ```bash
+cd backend
 ruff format .
 ruff check --fix .
 ```
