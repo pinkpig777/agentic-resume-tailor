@@ -25,3 +25,21 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  frontend:
+    build: ./frontend
+    container_name: resume-agent-frontend
+    environment:
+      VITE_API_URL: http://localhost:8000
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  frontend_node_modules:
