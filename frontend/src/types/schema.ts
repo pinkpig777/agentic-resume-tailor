@@ -48,6 +48,48 @@ export interface Education {
   bullets: string[];
 }
 
+export interface ExperienceCreatePayload {
+  company: string;
+  role: string;
+  dates: string;
+  location: string;
+  sort_order?: number;
+  bullets: string[];
+}
+
+export interface ProjectCreatePayload {
+  name: string;
+  technologies: string;
+  sort_order?: number;
+  bullets: string[];
+}
+
+export interface EducationCreatePayload {
+  school: string;
+  dates: string;
+  degree: string;
+  location: string;
+  sort_order?: number;
+  bullets: string[];
+}
+
+export type PersonalInfoUpdatePayload = Partial<PersonalInfo>;
+export type SkillsUpdatePayload = Partial<Skills>;
+export type ExperienceUpdatePayload = Partial<
+  Pick<Experience, "company" | "role" | "dates" | "location" | "sort_order">
+>;
+export type ProjectUpdatePayload = Partial<
+  Pick<Project, "name" | "technologies" | "sort_order">
+>;
+export type EducationUpdatePayload = Partial<
+  Pick<Education, "school" | "dates" | "degree" | "location" | "sort_order" | "bullets">
+>;
+export type BulletCreatePayload = {
+  text_latex: string;
+  sort_order?: number;
+};
+export type BulletUpdatePayload = Partial<BulletCreatePayload>;
+
 export interface ResumeData {
   personal_info: PersonalInfo;
   skills: Skills;
