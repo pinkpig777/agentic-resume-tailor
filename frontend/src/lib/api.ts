@@ -15,10 +15,13 @@ import type {
   Project,
   ProjectCreatePayload,
   ProjectUpdatePayload,
+  RenderSelectionResponse,
   ResumeData,
+  RunReport,
   SettingsData,
   Skills,
   SkillsUpdatePayload,
+  TempOverrides,
 } from "../types/schema";
 
 export const API_BASE_URL =
@@ -214,6 +217,19 @@ export async function triggerIngest(): Promise<{
 
 export async function generateResume(jdText: string): Promise<GenerateResponse> {
   const { data } = await api.post("/generate", { jd_text: jdText });
+  return data;
+}
+
+export async function fetchRunReport(runId: string): Promise<RunReport> {
+  const { data } = await api.get(`/runs/${runId}/report`);
+  return data;
+}
+
+export async function renderSelection(
+  runId: string,
+  payload: { selected_ids: string[]; temp_overrides?: TempOverrides },
+): Promise<RenderSelectionResponse> {
+  const { data } = await api.post(`/runs/${runId}/render`, payload);
   return data;
 }
 

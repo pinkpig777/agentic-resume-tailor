@@ -140,3 +140,37 @@ export interface GenerateResponse {
   tex_url: string;
   report_url: string;
 }
+
+export interface TempAddition {
+  temp_id?: string;
+  parent_type: "experience" | "project";
+  parent_id: string;
+  text_latex: string;
+  bullet_id?: string;
+}
+
+export interface TempOverrides {
+  additions?: TempAddition[];
+  edits?: Record<string, string>;
+  removals?: string[];
+}
+
+export interface RunReport {
+  run_id: string;
+  selected_ids: string[];
+  temp_additions?: TempAddition[];
+  temp_edits?: Record<string, string>;
+  temp_removals?: string[];
+  artifacts?: {
+    pdf?: string;
+    tex?: string;
+  };
+}
+
+export interface RenderSelectionResponse {
+  status: string;
+  run_id: string;
+  pdf_url: string;
+  tex_url: string;
+  report_url: string;
+}
