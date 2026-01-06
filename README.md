@@ -16,6 +16,7 @@ This repo has two runtimes:
 - 🚀 Generate a single-page PDF and LaTeX source from any JD.
 - 🗃️ Edit your profile end-to-end with DB-backed CRUD (personal info, education, experiences, projects).
 - 🔁 Agentic loop boosts missing must-have keywords and blends retrieval + coverage scores.
+- ✍️ Curate the final selection: edit, reorder, and add bullets before re-rendering the PDF.
 - 🧾 Explainability reports show selected IDs, scores, and keyword evidence.
 - 🔄 One-click export and re-ingest keeps Chroma in sync.
 
@@ -56,6 +57,8 @@ Notes:
 - Use **Advanced tuning** to adjust the quantitative bullet bonus (per-hit and cap).
 - The JD parser model is selected from a dropdown of current OpenAI models (or override in
   `backend/config/user_settings.json`).
+- **Experience weight** lets you prefer experience bullets over projects in retrieval ranking.
+- **Output PDF name** sets the download filename (the run-id artifact still exists on disk).
 
 ### 4) Generate a tailored resume (Generate)
 
@@ -72,10 +75,17 @@ Outputs:
 
 Temporary edits (Generate):
 
-- Use **Selected bullets** to add/edit/remove bullets for this run only.
-- Temporary bullets are LaTeX-ready and can attach to existing experiences/projects.
+- **Selected bullets** are grouped by experience/project and start collapsed.
+- Reorder bullets by drag-and-drop, edit text inline, or remove items before rendering.
+- **Bullet picker** adds existing bullets that are not in the current selection.
+- **Temporary bullets** are LaTeX-ready and can attach to existing experiences/projects.
+- Re-rendering updates the PDF with your edited selection.
 - Temporary edits do not touch the SQL DB, exported JSON, or Chroma ingest.
 - The report captures `temp_additions`, `temp_edits`, and `temp_removals` for the run.
+
+State persistence (Generate):
+
+- The JD and current selection are cached in local storage so they survive navigation.
 
 ### 5) Exported JSON artifact
 

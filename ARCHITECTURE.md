@@ -28,7 +28,8 @@ OPENAI_API_KEY=YOUR_OPENAI_API_KEY
 
 Edit app settings (optional):
 
-- `backend/config/user_settings.json` for local runs
+- `backend/config/user_settings.json` for defaults
+- `backend/config/user_settings.local.json` for local runs
 - `backend/config/user_settings.docker.json` for Docker Compose
 
 ### Build the Docker Image
@@ -118,6 +119,8 @@ flowchart TD
   I -- No --> J[Boost missing must-have terms]
   J -->|feedback loop| E
   I -- Yes --> K[Render PDF + report]
+  K --> L[Optional UI edits to selection]
+  L --> M[Re-render PDF + report]
 ```
 
 ---
@@ -269,20 +272,28 @@ runtime override file on first start. Local runs write
 `backend/config/user_settings.local.json`, while Docker/Compose writes
 `backend/config/user_settings.docker.json`.
 Quantitative bullet bonus tuning lives in `quant_bonus_per_hit` and `quant_bonus_cap`.
+`experience_weight` biases experience bullets above projects during retrieval ranking.
+`output_pdf_name` controls the download filename for PDFs (run-id artifacts remain on disk).
+Set `USER_SETTINGS_FILE` to point at a custom settings file path.
 
 ---
 
 ## API reference (summary)
 
 - `GET /health`
+- `GET/PUT /settings`
 - `POST /generate`
+- `POST /runs/{run_id}/render`
+- `GET /runs/{run_id}/pdf`
+- `GET /runs/{run_id}/tex`
+- `GET /runs/{run_id}/report`
 - `GET/PUT /personal_info`
 - `GET/PUT /skills`
 - `GET/POST/PUT/DELETE /education`
 - `GET/POST/PUT/DELETE /experiences`
+- `GET/POST/PUT/DELETE /experiences/{job_id}/bullets`
 - `GET/POST/PUT/DELETE /projects`
-- `POST/PUT/DELETE /experiences/{job_id}/bullets`
-- `POST/PUT/DELETE /projects/{project_id}/bullets`
+- `GET/POST/PUT/DELETE /projects/{project_id}/bullets`
 - `POST /admin/export`
 - `POST /admin/ingest`
 
