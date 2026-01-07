@@ -1,6 +1,6 @@
 # Agentic Resume Tailor (ART)
 
-Local, privacy-first resume tailoring agent. ART keeps your profile on disk, stores bullets in a local ChromaDB vector store, retrieves the most relevant bullets for a job description (JD), and renders a single-page LaTeX PDF via Tectonic.
+Local-first resume tailoring agent. ART keeps your profile in a local SQLite DB, stores bullets in a local ChromaDB vector store, optionally parses JDs with OpenAI to build retrieval queries, and renders a single-page LaTeX PDF via Tectonic.
 
 This repo has two runtimes:
 
@@ -13,11 +13,11 @@ This repo has two runtimes:
 
 ## Highlights
 
-- 🚀 Generate a single-page PDF and LaTeX source from any JD.
+- 🚀 Generate a single-page PDF and LaTeX source from any JD (auto-trims lowest-scoring bullets if needed).
 - 🗃️ Edit your profile end-to-end with DB-backed CRUD (personal info, education, experiences, projects).
 - 🔁 Agentic loop boosts missing must-have keywords and blends retrieval + coverage scores.
 - ✍️ Curate the final selection: edit, reorder, and add bullets before re-rendering the PDF.
-- 🧾 Explainability reports show selected IDs, scores, and keyword evidence.
+- 🧾 Reports capture run config, loop iterations, and score/missing-keyword summaries when the JD parser is used.
 - 🔄 One-click export and re-ingest keeps Chroma in sync.
 
 ## User Guide
@@ -39,7 +39,7 @@ This guide covers day-to-day usage. For setup and deployment, see `ARCHITECTURE.
 
 Notes:
 
-- Bullet IDs are stable (e.g., `b01`, `b02`) and never renumbered.
+- Bullet local IDs are stable per experience/project (e.g., `b01`, `b02`) and never renumbered; retrieval uses `exp:<job_id>:<local_id>` and `proj:<project_id>:<local_id>`.
 - Bullet text is LaTeX-ready; the system does not rewrite it.
 
 ### 3) Adjust defaults (Settings)
@@ -52,13 +52,14 @@ Notes:
 - Changes auto-save on blur/toggle in the UI and write to the override file shown at the top of the
   Settings page.
 - To reset to defaults, delete the override file and restart the API.
-- The OpenAI API key is read from environment variables only and cannot be updated from the UI.
+- The OpenAI API key is read from environment variables only and cannot be updated from the UI. Set `OPENAI_API_KEY` in `backend/.env` (Docker/local) or your shell.
 - If you enable **Auto re-ingest on save**, the vector store refreshes after each edit.
 - Use **Advanced tuning** to adjust the quantitative bullet bonus (per-hit and cap).
-- The JD parser model is selected from a dropdown of current OpenAI models (or override in
-  `backend/config/user_settings.json`).
+- Disable **Use JD parser** to skip OpenAI parsing; the backend falls back to heuristic queries from the JD.
+- The JD parser model is selected from a dropdown of current OpenAI models (or override in `backend/config/user_settings.json`).
 - **Experience weight** lets you prefer experience bullets over projects in retrieval ranking.
-- **Output PDF name** sets the download filename (the run-id artifact still exists on disk).
+- Enable **Skip PDF** to avoid Tectonic; the backend writes TeX plus an empty PDF placeholder.
+- **Output PDF name** sets the download filename and writes a copy in `backend/output/` (the run-id artifact still exists on disk).
 
 ### 4) Generate a tailored resume (Generate)
 
@@ -66,6 +67,10 @@ Notes:
 2. Paste a JD and click **Generate**.
 3. Review the report, adjust selection, and re-render if needed.
 4. Download the PDF, TeX, and report JSON.
+
+Rendering note:
+
+- The backend trims lowest-scoring bullets until the PDF is single-page (unless **Skip PDF** is enabled).
 
 Outputs:
 
@@ -128,6 +133,8 @@ uv run pytest
 
 # run the API
 PYTHONPATH=src uv run python -m agentic_resume_tailor.api.server
+
+# for PDF output, install Tectonic or set skip_pdf=true in settings
 
 # run the UI (separate terminal)
 cd frontend
