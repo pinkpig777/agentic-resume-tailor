@@ -9,36 +9,44 @@ This document covers setup, deployment, architecture, and schemas.
 ### Prerequisites
 
 - Docker (recommended), or Python 3.10+ with `pip`
+- Node.js 20.19+ or 22.12+
+- Tectonic for PDF rendering in local runs, or set `skip_pdf=true` to output TeX only
 - Internet access for the initial embedding model download (cached afterward)
-- Keep `data/*.json` and `.env` private (gitignored)
+- OpenAI API key if `use_jd_parser` is enabled (default)
+- Keep `backend/data/processed`, `backend/data/*.json`, and `backend/.env` private (gitignored)
 
 ### Clone and configure
 
 ```bash
-git clone <your-fork-url>
+git clone https://github.com/pinkpig777/agentic-resume-tailor.git
 cd agentic-resume-tailor
 ```
 
-Create a `.env` (optional, only for secrets):
+Create a `backend/.env` (optional, only for secrets):
 
 ```env
 OPENAI_API_KEY=YOUR_OPENAI_API_KEY
 ```
 
+Docker Compose loads `backend/.env` into container env vars; local runs read `.env` from the
+working directory or your shell environment.
+
 Edit app settings (optional):
 
-- `config/user_settings.json` for local runs
-- `config/user_settings.docker.json` for Docker Compose
+- `backend/config/user_settings.json` for defaults
+- `backend/config/user_settings.local.json` for local runs
+- `backend/config/user_settings.docker.json` for Docker Compose
 
 ### Build the Docker Image
+
 ```bash
-docker build -t resume-agent .  
+docker build -t resume-agent ./backend
 ```
 
-
 ### Initial Chroma Ingestion
+
 ```bash
-docker compose run --rm api python /app/src/ingest.py
+docker compose run --rm api python -m agentic_resume_tailor.ingest
 ```
 
 ### Deploy with Docker Compose (recommended)
@@ -50,13 +58,16 @@ docker compose up --build
 Verify:
 
 - API health: `http://localhost:8000/health`
-- Streamlit UI: `http://localhost:8501`
+- React SPA: `http://localhost:5173`
+
+The Compose stack runs the FastAPI backend plus a Vite dev server for the frontend. The frontend
+service is configured with `VITE_API_URL=http://localhost:8000`.
 
 Then:
 
-1) Open **Resume Editor**, create your profile.
-2) Click **Re-ingest ChromaDB**.
-3) Open **Generate**, paste a JD, and create a tailored resume.
+1. Open **Resume Editor**, create your profile.
+2. Click **Re-ingest ChromaDB**.
+3. Open **Generate**, paste a JD, and create a tailored resume.
 
 Stop:
 
@@ -69,10 +80,19 @@ docker compose down
 ```bash
 uv venv
 source .venv/bin/activate
+cd backend
 uv pip install -r requirements.txt
 
-uv run python src/server.py
-uv run streamlit run src/app.py
+PYTHONPATH=src uv run python -m agentic_resume_tailor.api.server
+
+# install Tectonic for PDF output, or set skip_pdf=true in settings
+```
+
+```bash
+# in another terminal
+cd frontend
+npm install
+npm run dev
 ```
 
 ---
@@ -81,12 +101,13 @@ uv run streamlit run src/app.py
 
 ```mermaid
 flowchart LR
-  UI[Streamlit UI] -->|CRUD + generate| API[FastAPI API]
+  UI[React SPA] -->|REST API| API[FastAPI API]
   API -->|CRUD| DB[(SQL DB)]
-  DB -->|export| JSON[data/my_experience.json]
+  DB -->|export| JSON[backend/data/my_experience.json]
   JSON -->|ingest| CHROMA[(ChromaDB)]
   API -->|query| CHROMA
-  API -->|render| OUT[output/*.pdf, *.tex, *_report.json]
+  API -->|render| OUT[backend/output/*.pdf, *.tex, *_report.json]
+  API -.->|JD parse| OPENAI[OpenAI API]
 ```
 
 ---
@@ -96,16 +117,23 @@ flowchart LR
 ```mermaid
 flowchart TD
   A[Resume Editor CRUD] --> B[FastAPI writes SQL DB]
-  B --> C[Export DB to data/my_experience.json]
+  B --> C[Export DB to backend/data/my_experience.json]
   C --> D[Ingest JSON into ChromaDB]
-  D --> E[Build retrieval plan - multi queries]
-  E --> F[Multi-query retrieve from ChromaDB]
-  F --> G[Select top-K bullets]
-  G --> H[Score coverage + retrieval]
-  H --> I{Meets threshold?}
-  I -- No --> J[Boost missing must-have terms]
-  J -->|feedback loop| E
-  I -- Yes --> K[Render PDF + report]
+  D --> E{JD parser enabled?}
+  E -- Yes --> F[OpenAI JD parser -> retrieval plan]
+  E -- No/Fail --> G[Fallback queries from JD text]
+  F --> H[Build retrieval plan - multi queries]
+  G --> H
+  H --> I[Multi-query retrieve from ChromaDB]
+  I --> J[Select top-K bullets]
+  J --> K[Score coverage + retrieval]
+  K --> L{Meets threshold?}
+  L -- No --> M[Boost missing must-have terms]
+  M -->|feedback loop| H
+  L -- Yes --> N[Render PDF + report]
+  N --> O[Trim to single page if needed]
+  O --> P[Optional UI edits to selection]
+  P --> Q[Re-render PDF + report]
 ```
 
 ---
@@ -114,10 +142,10 @@ flowchart TD
 
 ```mermaid
 classDiagram
-  class StreamlitUI {
-    +render_resume_editor()
-    +render_settings_page()
-    +render_generate_page()
+  class ReactSPA {
+    +ResumeEditorPage()
+    +SettingsPage()
+    +GeneratePage()
   }
 
   class FastAPIService {
@@ -143,7 +171,7 @@ classDiagram
     +render_pdf()
   }
 
-  StreamlitUI --> FastAPIService
+  ReactSPA --> FastAPIService
   FastAPIService --> ResumeRepository
   FastAPIService --> RetrievalPipeline
   FastAPIService --> Renderer
@@ -233,9 +261,12 @@ erDiagram
 ## Data workflow (DB-first)
 
 - The SQL database is the source of truth (created on first launch).
+- SQLite lives at `backend/data/processed/resume.db` and Chroma lives at
+  `backend/data/processed/chroma_db` by default (configurable in settings).
 - The Resume Editor writes directly to the DB via CRUD endpoints.
-- Re-ingest exports the DB to `data/my_experience.json`, then ingests Chroma.
-- `data/my_experience.json` is an exported artifact for inspection/backups, not the primary store.
+- Re-ingest exports the DB to `backend/data/my_experience.json`, then ingests Chroma.
+- Only experience/project bullets are ingested into Chroma; education bullets are rendered only.
+- `backend/data/my_experience.json` is an exported artifact for inspection/backups, not the primary store.
 
 ### `bullet_id` convention
 
@@ -246,71 +277,81 @@ erDiagram
 
 ## Settings and environment
 
-Create a `.env` in the repo root (optional, for secrets only):
+The API reads `OPENAI_API_KEY` from environment variables. For Docker Compose and local dev,
+place it in `backend/.env` (Compose loads it), or export it in your shell. If you run the API
+from the repo root, a root `.env` is also read.
 
 ```env
 OPENAI_API_KEY=YOUR_OPENAI_API_KEY
 ```
 
-All other app settings live in `config/user_settings.json`, and the app auto-creates a runtime
-override file on first start. Local runs write `config/user_settings.local.json`, while
-Docker/Compose writes `config/user_settings.docker.json`.
+All other app settings live in `backend/config/user_settings.json`, and the app auto-creates a
+runtime override file on first start. Local runs write
+`backend/config/user_settings.local.json`, while Docker/Compose writes
+`backend/config/user_settings.docker.json`.
+If `use_jd_parser` is false (or parsing fails), the system falls back to heuristic JD queries.
 Quantitative bullet bonus tuning lives in `quant_bonus_per_hit` and `quant_bonus_cap`.
+`experience_weight` biases experience bullets above projects during retrieval ranking.
+`output_pdf_name` controls the download filename and writes a copy in `backend/output/`.
+`skip_pdf` skips Tectonic and writes TeX plus a placeholder PDF.
+`run_id` fixes output filenames for repeatable runs.
+Set `USER_SETTINGS_FILE` to point at a custom settings file path.
 
 ---
 
 ## API reference (summary)
 
 - `GET /health`
-- `POST /generate`
-- `GET/PUT /personal_info`
-- `GET/PUT /skills`
-- `GET/POST/PUT/DELETE /education`
-- `GET/POST/PUT/DELETE /experiences`
-- `GET/POST/PUT/DELETE /projects`
-- `POST/PUT/DELETE /experiences/{job_id}/bullets`
-- `POST/PUT/DELETE /projects/{project_id}/bullets`
-- `POST /admin/export`
+- `GET /settings`
+- `PUT /settings`
+- `GET /personal_info`
+- `PUT /personal_info`
+- `GET /skills`
+- `PUT /skills`
+- `GET /education`
+- `POST /education`
+- `PUT /education/{education_id}`
+- `DELETE /education/{education_id}`
+- `GET /experiences`
+- `GET /experiences/{job_id}`
+- `POST /experiences`
+- `PUT /experiences/{job_id}`
+- `DELETE /experiences/{job_id}`
+- `GET /experiences/{job_id}/bullets`
+- `POST /experiences/{job_id}/bullets`
+- `PUT /experiences/{job_id}/bullets/{local_id}`
+- `DELETE /experiences/{job_id}/bullets/{local_id}`
+- `GET /projects`
+- `GET /projects/{project_id}`
+- `POST /projects`
+- `PUT /projects/{project_id}`
+- `DELETE /projects/{project_id}`
+- `GET /projects/{project_id}/bullets`
+- `POST /projects/{project_id}/bullets`
+- `PUT /projects/{project_id}/bullets/{local_id}`
+- `DELETE /projects/{project_id}/bullets/{local_id}`
+- `POST /admin/export` (optional `reingest=true`)
 - `POST /admin/ingest`
+- `POST /generate`
+- `POST /runs/{run_id}/render`
+- `GET /runs/{run_id}/pdf`
+- `GET /runs/{run_id}/tex`
+- `GET /runs/{run_id}/report`
 
 ---
 
 ## Repo layout
 
-- `data/`
-  - `raw_experience_data_example.json` - legacy JSON sample (not used by default)
-  - `my_experience.json` - JSON export artifact (written on saves and ingest)
-  - `processed/chroma_db/` - local ChromaDB store
-  - `processed/resume.db` - SQLite CRUD store (default)
-- `config/user_settings.json` - user-editable app settings (local defaults)
-- `config/user_settings.docker.json` - Docker-friendly settings (api_url points to `http://api:8000`)
-- `script/`
-  - `convert_experience_json.py` - normalize raw data and assign stable IDs
-  - `test_query.py` - manual retrieval/loop debug runner
-  - `test_render.py` - render a PDF from template using sample JSON
-- `config/`
-  - `canonicalization.json` - alias/canonical rules
-  - `families.json` - family taxonomy (generic -> satisfied_by)
-- `src/`
-  - `agentic_resume_tailor/` - src-layout package
-    - `api/server.py` - FastAPI backend (API-only, writes artifacts + report)
-    - `db/` - SQLAlchemy models + export/seed helpers for CRUD
-    - `ui/app.py` - Streamlit UI (calls backend, visualizes report, downloads PDF)
-    - `core/` - retrieval/selection/scoring pipeline
-    - `ingest.py` - upserts bullets into Chroma using deterministic `bullet_id`
-    - `jd_parser.py` - optional OpenAI JD parser (Target Profile v1)
-    - `core/jd_utils.py` - shared JD parsing + fallback query helpers
-    - `settings.py` - pydantic-settings config loader
-    - `utils/logging.py` - log configuration helpers
-  - `server.py`, `app.py`, `ingest.py` - thin wrappers for backward-compatible entrypoints
-- `tests/`
-  - `characterization/run_generate_characterization.py` - black-box generate test runner
-  - `characterization/test_generate_characterization.py` - pytest wrapper (optional)
-  - `fixtures/` - characterization fixtures and expected output
-  - `unit/` - fast unit tests for core modules
-- `templates/resume.tex` - Jinja2 LaTeX template with `<< >>` and `((% %))` delimiters
-- `output/` - generated artifacts (`<run_id>.pdf`, `<run_id>.tex`, `<run_id>_report.json`,
-  `my_experience.json`)
+- `frontend/`
+  - `src/` - React SPA (Vite, Tailwind, shadcn/ui)
+- `backend/`
+  - `src/agentic_resume_tailor/` - FastAPI backend (API-only, writes artifacts + report)
+  - `tests/` - characterization + unit tests
+  - `config/` - app settings + taxonomy configs
+  - `data/` - exported JSON and local DB artifacts
+  - `output/` - generated artifacts (`<run_id>.pdf`, `<run_id>.tex`, `<run_id>_report.json`)
+  - `templates/` - LaTeX templates
+  - `script/` - debug + utility scripts
 
 ---
 
@@ -319,6 +360,7 @@ Quantitative bullet bonus tuning lives in `quant_bonus_per_hit` and `quant_bonus
 Format + lint:
 
 ```bash
+cd backend
 ruff format .
 ruff check --fix .
 ```

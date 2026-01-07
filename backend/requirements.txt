@@ -1,0 +1,25 @@
+# AI & Agents
+openai
+
+# Data & Vector DB
+chromadb
+pypdf
+jinja2
+python-dotenv
+sentence_transformers
+pydantic
+pydantic-settings
+# Utilities
+tqdm
+#server
+fastapi
+uvicorn
+python-multipart
+
+# Dev tooling
+ruff
+pytest
+pytest-cov
+
+# Database
+sqlalchemy

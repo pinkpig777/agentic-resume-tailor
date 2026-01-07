@@ -1,0 +1,63 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 40 33% 97%;
+    --foreground: 224 18% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 224 18% 12%;
+    --primary: 164 56% 24%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 33 62% 90%;
+    --secondary-foreground: 224 18% 12%;
+    --muted: 33 40% 92%;
+    --muted-foreground: 224 12% 38%;
+    --accent: 24 86% 58%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 25 27% 84%;
+    --input: 25 27% 84%;
+    --ring: 164 56% 24%;
+    --radius: 0.85rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: "Space Grotesk", system-ui, sans-serif;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(900px circle at 10% 0%, rgba(255, 229, 180, 0.45), transparent 60%),
+      radial-gradient(800px circle at 90% -10%, rgba(180, 255, 229, 0.35), transparent 55%);
+    background-attachment: fixed;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@layer utilities {
+  .animate-rise {
+    animation: rise 0.6s ease-out both;
+  }
+
+  .animate-rise-delay-1 {
+    animation-delay: 0.12s;
+  }
+}
