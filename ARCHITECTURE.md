@@ -10,8 +10,10 @@ This document covers setup, deployment, architecture, and schemas.
 
 - Docker (recommended), or Python 3.10+ with `pip`
 - Node.js 20.19+ or 22.12+
+- Tectonic for PDF rendering in local runs, or set `skip_pdf=true` to output TeX only
 - Internet access for the initial embedding model download (cached afterward)
-- Keep `backend/data/*.json` and `backend/.env` private (gitignored)
+- OpenAI API key if `use_jd_parser` is enabled (default)
+- Keep `backend/data/processed`, `backend/data/*.json`, and `backend/.env` private (gitignored)
 
 ### Clone and configure
 
@@ -25,6 +27,9 @@ Create a `backend/.env` (optional, only for secrets):
 ```env
 OPENAI_API_KEY=YOUR_OPENAI_API_KEY
 ```
+
+Docker Compose loads `backend/.env` into container env vars; local runs read `.env` from the
+working directory or your shell environment.
 
 Edit app settings (optional):
 
@@ -79,6 +84,8 @@ cd backend
 uv pip install -r requirements.txt
 
 PYTHONPATH=src uv run python -m agentic_resume_tailor.api.server
+
+# install Tectonic for PDF output, or set skip_pdf=true in settings
 ```
 
 ```bash
@@ -100,6 +107,7 @@ flowchart LR
   JSON -->|ingest| CHROMA[(ChromaDB)]
   API -->|query| CHROMA
   API -->|render| OUT[backend/output/*.pdf, *.tex, *_report.json]
+  API -.->|JD parse| OPENAI[OpenAI API]
 ```
 
 ---
@@ -111,16 +119,21 @@ flowchart TD
   A[Resume Editor CRUD] --> B[FastAPI writes SQL DB]
   B --> C[Export DB to backend/data/my_experience.json]
   C --> D[Ingest JSON into ChromaDB]
-  D --> E[Build retrieval plan - multi queries]
-  E --> F[Multi-query retrieve from ChromaDB]
-  F --> G[Select top-K bullets]
-  G --> H[Score coverage + retrieval]
-  H --> I{Meets threshold?}
-  I -- No --> J[Boost missing must-have terms]
-  J -->|feedback loop| E
-  I -- Yes --> K[Render PDF + report]
-  K --> L[Optional UI edits to selection]
-  L --> M[Re-render PDF + report]
+  D --> E{JD parser enabled?}
+  E -- Yes --> F[OpenAI JD parser -> retrieval plan]
+  E -- No/Fail --> G[Fallback queries from JD text]
+  F --> H[Build retrieval plan - multi queries]
+  G --> H
+  H --> I[Multi-query retrieve from ChromaDB]
+  I --> J[Select top-K bullets]
+  J --> K[Score coverage + retrieval]
+  K --> L{Meets threshold?}
+  L -- No --> M[Boost missing must-have terms]
+  M -->|feedback loop| H
+  L -- Yes --> N[Render PDF + report]
+  N --> O[Trim to single page if needed]
+  O --> P[Optional UI edits to selection]
+  P --> Q[Re-render PDF + report]
 ```
 
 ---
@@ -248,8 +261,11 @@ erDiagram
 ## Data workflow (DB-first)
 
 - The SQL database is the source of truth (created on first launch).
+- SQLite lives at `backend/data/processed/resume.db` and Chroma lives at
+  `backend/data/processed/chroma_db` by default (configurable in settings).
 - The Resume Editor writes directly to the DB via CRUD endpoints.
 - Re-ingest exports the DB to `backend/data/my_experience.json`, then ingests Chroma.
+- Only experience/project bullets are ingested into Chroma; education bullets are rendered only.
 - `backend/data/my_experience.json` is an exported artifact for inspection/backups, not the primary store.
 
 ### `bullet_id` convention
@@ -261,7 +277,9 @@ erDiagram
 
 ## Settings and environment
 
-Create a `.env` in the repo root (optional, for secrets only):
+The API reads `OPENAI_API_KEY` from environment variables. For Docker Compose and local dev,
+place it in `backend/.env` (Compose loads it), or export it in your shell. If you run the API
+from the repo root, a root `.env` is also read.
 
 ```env
 OPENAI_API_KEY=YOUR_OPENAI_API_KEY
@@ -271,9 +289,12 @@ All other app settings live in `backend/config/user_settings.json`, and the app 
 runtime override file on first start. Local runs write
 `backend/config/user_settings.local.json`, while Docker/Compose writes
 `backend/config/user_settings.docker.json`.
+If `use_jd_parser` is false (or parsing fails), the system falls back to heuristic JD queries.
 Quantitative bullet bonus tuning lives in `quant_bonus_per_hit` and `quant_bonus_cap`.
 `experience_weight` biases experience bullets above projects during retrieval ranking.
-`output_pdf_name` controls the download filename for PDFs (run-id artifacts remain on disk).
+`output_pdf_name` controls the download filename and writes a copy in `backend/output/`.
+`skip_pdf` skips Tectonic and writes TeX plus a placeholder PDF.
+`run_id` fixes output filenames for repeatable runs.
 Set `USER_SETTINGS_FILE` to point at a custom settings file path.
 
 ---
@@ -281,21 +302,41 @@ Set `USER_SETTINGS_FILE` to point at a custom settings file path.
 ## API reference (summary)
 
 - `GET /health`
-- `GET/PUT /settings`
+- `GET /settings`
+- `PUT /settings`
+- `GET /personal_info`
+- `PUT /personal_info`
+- `GET /skills`
+- `PUT /skills`
+- `GET /education`
+- `POST /education`
+- `PUT /education/{education_id}`
+- `DELETE /education/{education_id}`
+- `GET /experiences`
+- `GET /experiences/{job_id}`
+- `POST /experiences`
+- `PUT /experiences/{job_id}`
+- `DELETE /experiences/{job_id}`
+- `GET /experiences/{job_id}/bullets`
+- `POST /experiences/{job_id}/bullets`
+- `PUT /experiences/{job_id}/bullets/{local_id}`
+- `DELETE /experiences/{job_id}/bullets/{local_id}`
+- `GET /projects`
+- `GET /projects/{project_id}`
+- `POST /projects`
+- `PUT /projects/{project_id}`
+- `DELETE /projects/{project_id}`
+- `GET /projects/{project_id}/bullets`
+- `POST /projects/{project_id}/bullets`
+- `PUT /projects/{project_id}/bullets/{local_id}`
+- `DELETE /projects/{project_id}/bullets/{local_id}`
+- `POST /admin/export` (optional `reingest=true`)
+- `POST /admin/ingest`
 - `POST /generate`
 - `POST /runs/{run_id}/render`
 - `GET /runs/{run_id}/pdf`
 - `GET /runs/{run_id}/tex`
 - `GET /runs/{run_id}/report`
-- `GET/PUT /personal_info`
-- `GET/PUT /skills`
-- `GET/POST/PUT/DELETE /education`
-- `GET/POST/PUT/DELETE /experiences`
-- `GET/POST/PUT/DELETE /experiences/{job_id}/bullets`
-- `GET/POST/PUT/DELETE /projects`
-- `GET/POST/PUT/DELETE /projects/{project_id}/bullets`
-- `POST /admin/export`
-- `POST /admin/ingest`
 
 ---
 
