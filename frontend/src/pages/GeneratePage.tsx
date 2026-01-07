@@ -799,7 +799,7 @@ export default function GeneratePage() {
         </h1>
         <p className="max-w-2xl text-sm text-muted-foreground">
           Paste a job description, run the agent loop, then adjust the selected
-          bullets before rendering a final PDF.
+          bullets before rendering a one-page PDF.
         </p>
       </header>
 
@@ -853,7 +853,7 @@ export default function GeneratePage() {
                 </a>
               </Button>
               <span className="text-xs text-muted-foreground">
-                Profile used: {result.profile_used ? "yes" : "no"}
+                JD parser used: {result.profile_used ? "yes" : "no"}
               </span>
             </div>
           </CardContent>

@@ -54,15 +54,16 @@ const jdModelOptions = [
 ];
 
 const tooltips: Record<string, string> = {
-  config_path: "Resolved user settings file (read-only).",
-  db_path: "Directory for the Chroma vector store.",
-  sql_db_url: "SQLAlchemy URL for the resume database.",
-  export_file: "Path to the exported resume JSON.",
-  output_pdf_name: "Optional filename for rendered PDF downloads.",
+  config_path: "Resolved settings file (read-only). Edits save here.",
+  db_path: "Chroma vector store directory (embeddings).",
+  sql_db_url: "SQLite database URL for your resume profile.",
+  export_file: "Exported resume JSON used for ingest/backups.",
+  output_pdf_name:
+    "Optional download filename; also saves a copy in the output folder.",
   template_dir: "Directory containing LaTeX templates.",
-  output_dir: "Directory where PDF/TeX/report artifacts are written.",
-  canon_config: "Canonicalization rules JSON.",
-  family_config: "Skill family mapping JSON.",
+  output_dir: "Output directory for run artifacts (PDF/TeX/report).",
+  canon_config: "Canonicalization rules JSON for keyword matching.",
+  family_config: "Skill family mapping JSON for keyword matching.",
   max_bullets: "Max bullets allowed in the final resume.",
   per_query_k: "Number of candidates retrieved per query.",
   final_k: "Number of candidates scored per run.",
@@ -77,14 +78,15 @@ const tooltips: Record<string, string> = {
   experience_weight: "Multiplier for experience bullets vs projects.",
   collection_name: "Chroma collection name used for retrieval.",
   embed_model: "Embedding model ID used to embed bullets.",
-  jd_model: "OpenAI model used by the JD parser.",
+  jd_model: "OpenAI model used when JD parsing is enabled.",
   api_url: "Backend API base URL.",
   cors_origins: "Allowed origins for CORS requests.",
   port: "Port for the FastAPI server.",
-  run_id: "Optional fixed run ID; overwrites output files.",
-  auto_reingest_on_save: "Automatically re-ingest after saving edits.",
-  use_jd_parser: "Parse job descriptions before retrieval.",
-  skip_pdf: "Skip PDF rendering and only produce TeX.",
+  run_id: "Fixed run ID; reruns overwrite the same output files.",
+  auto_reingest_on_save: "Re-ingest Chroma after each save.",
+  use_jd_parser:
+    "Use OpenAI to parse the JD (requires OPENAI_API_KEY); otherwise use fallback queries.",
+  skip_pdf: "Skip Tectonic; write TeX only (PDF placeholder).",
   log_level: "Logging verbosity.",
   log_json: "Emit JSON formatted logs.",
 };
@@ -529,7 +531,7 @@ export default function SettingsPage() {
               "output_pdf_name",
               "Output PDF name",
               "tailored_resume.pdf",
-              "Optional download filename for rendered PDFs.",
+              "Optional download filename. A copy is saved to the output folder.",
               tooltips.output_pdf_name,
             )}
             {renderTextField(
@@ -742,7 +744,7 @@ export default function SettingsPage() {
                 "run_id",
                 "Pinned run ID",
                 "Optional",
-                "Leave blank to auto-generate per run.",
+                "Leave blank to auto-generate; set to reuse filenames.",
                 tooltips.run_id,
               )}
             </div>
@@ -750,19 +752,19 @@ export default function SettingsPage() {
               {renderToggleField(
                 "auto_reingest_on_save",
                 "Auto re-ingest on save",
-                "Rebuild Chroma whenever profile data changes.",
+                "Re-ingest Chroma after each save.",
                 tooltips.auto_reingest_on_save,
               )}
               {renderToggleField(
                 "use_jd_parser",
                 "Use JD parser",
-                "Parse the job description before retrieval.",
+                "Use OpenAI to parse the JD (requires OPENAI_API_KEY). Turn off to use fallback queries.",
                 tooltips.use_jd_parser,
               )}
               {renderToggleField(
                 "skip_pdf",
                 "Skip PDF rendering",
-                "Generate LaTeX only.",
+                "Write TeX only (PDF placeholder).",
                 tooltips.skip_pdf,
               )}
             </div>
