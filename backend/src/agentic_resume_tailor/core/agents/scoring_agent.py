@@ -60,6 +60,10 @@ class ScoreResult:
     agent_model: str | None = None
 
 
+class ScoreResultV3(ScoreResult):
+    """Deprecated. Use ScoreResult."""
+
+
 SYSTEM_PROMPT = """You are the Scoring Agent for Agentic Resume Tailor.
 
 Evaluate the resume draft against the JD and target profile. Provide a strict JSON score breakdown.

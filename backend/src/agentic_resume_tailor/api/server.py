@@ -139,6 +139,14 @@ class GenerateResponse(BaseModel):
     report_url: str
 
 
+class GenerateV3Request(GenerateRequest):
+    """Deprecated. Use GenerateRequest."""
+
+
+class GenerateV3Response(GenerateResponse):
+    """Deprecated. Use GenerateResponse."""
+
+
 class RenderSelectionRequest(BaseModel):
     selected_ids: List[str] = Field(default_factory=list)
     temp_overrides: TempOverrides | None = None
@@ -1838,6 +1846,12 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
         tex_url=f"/runs/{artifacts.run_id}/tex",
         report_url=f"/runs/{artifacts.run_id}/report",
     )
+
+
+@app.post("/generate_v3", response_model=GenerateResponse)
+async def generate_v3(req: GenerateV3Request) -> GenerateResponse:
+    """Deprecated. Use /generate."""
+    return await generate(req)
 
 
 @app.post("/runs/{run_id}/render")
