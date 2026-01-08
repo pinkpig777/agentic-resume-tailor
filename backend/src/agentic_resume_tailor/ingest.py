@@ -3,12 +3,12 @@ import logging
 import re
 
 import chromadb
-from chromadb.utils import embedding_functions
 from tqdm import tqdm
 
 from agentic_resume_tailor.db.session import SessionLocal, init_db
 from agentic_resume_tailor.db.sync import export_resume_data, write_resume_json
 from agentic_resume_tailor.settings import get_settings
+from agentic_resume_tailor.utils.embeddings import build_sentence_transformer_ef
 from agentic_resume_tailor.utils.logging import configure_logging
 
 configure_logging()
@@ -51,7 +51,7 @@ def ingest(data: dict | None = None, json_path: str | None = None) -> int:
     client = chromadb.PersistentClient(path=DB_PATH)
 
     logger.info("Loading embedding model")
-    ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=settings.embed_model)
+    ef = build_sentence_transformer_ef(settings.embed_model, disable_progress=True)
     logger.info("Model loaded. Starting JSON processing.")
     try:
         client.delete_collection(COLLECTION_NAME)
@@ -78,7 +78,7 @@ def ingest(data: dict | None = None, json_path: str | None = None) -> int:
     total_items = len(data.get("experiences", [])) + len(data.get("projects", []))
 
     # 2. Initialize the main progress bar
-    pbar = tqdm(total=total_items, desc="Processing Experience & Projects")
+    pbar = tqdm(total=total_items, desc="Processing Experience & Projects", disable=True)
 
     # Experiences
     for exp in data.get("experiences", []):

@@ -13,7 +13,6 @@ import chromadb
 import jinja2
 import uvicorn
 from chromadb.errors import NotFoundError
-from chromadb.utils import embedding_functions
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -48,6 +47,7 @@ from agentic_resume_tailor.user_config import (
     load_user_config,
     save_user_config,
 )
+from agentic_resume_tailor.utils.embeddings import build_sentence_transformer_ef
 from agentic_resume_tailor.utils.logging import configure_logging
 
 configure_logging()
@@ -281,7 +281,7 @@ def _load_collection():
         logger.warning("ART_SKIP_CHROMA_LOAD set; skipping Chroma load.")
         return None, None
     client = chromadb.PersistentClient(path=DB_PATH)
-    ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=EMBED_MODEL)
+    ef = build_sentence_transformer_ef(EMBED_MODEL, disable_progress=True)
     try:
         collection = client.get_collection(name=COLLECTION_NAME, embedding_function=ef)
     except NotFoundError:
