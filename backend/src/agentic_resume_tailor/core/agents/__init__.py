@@ -1,1 +1,1 @@
-"""Agent adapters for the v3 loop."""
+"""Agent adapters for the loop."""

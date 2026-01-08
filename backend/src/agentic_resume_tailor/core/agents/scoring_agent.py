@@ -40,7 +40,7 @@ class ScoringAgentOutput(BaseModel):
 
 
 @dataclass
-class ScoreResultV3:
+class ScoreResult:
     final_score: int
     retrieval_score: float
     coverage_bullets_only: float
@@ -194,7 +194,7 @@ def _deterministic_score(
     agent_used: bool = False,
     agent_model: str | None = None,
     agent_fallback: bool | None = None,
-) -> ScoreResultV3:
+) -> ScoreResult:
     """Deterministic fallback scoring using existing hybrid logic."""
     fallback_flag = agent_fallback if agent_fallback is not None else bool(agent_used)
     retrieval_score = compute_retrieval_norm(selected_candidates, all_candidates)
@@ -229,7 +229,7 @@ def _deterministic_score(
 
     if target_profile is None:
         base = retrieval_score
-        return ScoreResultV3(
+        return ScoreResult(
             final_score=int(round(100 * clamp01(base))),
             retrieval_score=retrieval_score,
             coverage_bullets_only=base,
@@ -289,7 +289,7 @@ def _deterministic_score(
 
     boost_terms = _normalize_terms(must_missing_bullets)[: settings.boost_top_n_missing]
 
-    return ScoreResultV3(
+    return ScoreResult(
         final_score=int(round(100 * final)),
         retrieval_score=retrieval_score,
         coverage_bullets_only=coverage_bullets_only,
@@ -319,7 +319,7 @@ def score_resume(
     rewritten_bullets: Dict[str, str],
     skills_text: str,
     settings: Any,
-) -> ScoreResultV3:
+) -> ScoreResult:
     """Score a resume draft using retrieval, coverage, length, redundancy, and quality."""
     retrieval_score = compute_retrieval_norm(selected_candidates, all_candidates)
 
@@ -409,7 +409,7 @@ def score_resume(
 
         boost_terms = _filter_terms(output.boost_terms, must_missing_bullets_only)
 
-        return ScoreResultV3(
+        return ScoreResult(
             final_score=int(output.final_score),
             retrieval_score=retrieval_score,
             coverage_bullets_only=output.coverage_bullets_only,

@@ -22,7 +22,7 @@ from pypdf import PdfReader
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
-from agentic_resume_tailor.core.loop_controller_v3 import run_loop_v3
+from agentic_resume_tailor.core.loop_controller import run_loop
 from agentic_resume_tailor.db.models import (
     Education,
     EducationBullet,
@@ -111,7 +111,7 @@ class TempOverrides(BaseModel):
     additions: List[TempAddition] = Field(default_factory=list)
 
 
-class GenerateV3Request(BaseModel):
+class GenerateRequest(BaseModel):
     jd_text: str = Field(min_length=1)
 
     max_bullets: int = Field(default=DEFAULT_MAX_BULLETS, ge=4, le=32)
@@ -130,7 +130,7 @@ class GenerateV3Request(BaseModel):
     enable_bullet_rewrite: bool | None = None
 
 
-class GenerateV3Response(BaseModel):
+class GenerateResponse(BaseModel):
     run_id: str
     profile_used: bool
     best_iteration_index: int
@@ -1797,9 +1797,9 @@ def ingest_resume(db: Session = Depends(get_db)):
         INGEST_LOCK.release()
 
 
-@app.post("/generate_v3", response_model=GenerateV3Response)
-async def generate_v3(req: GenerateV3Request) -> GenerateV3Response:
-    """Run the resume generation pipeline (v3 loop)."""
+@app.post("/generate", response_model=GenerateResponse)
+async def generate(req: GenerateRequest) -> GenerateResponse:
+    """Run the resume generation pipeline."""
     jd_text = (req.jd_text or "").strip()
     if not jd_text:
         return JSONResponse({"error": "jd_text is empty"}, status_code=400)
@@ -1820,17 +1820,17 @@ async def generate_v3(req: GenerateV3Request) -> GenerateV3Response:
     if req.enable_bullet_rewrite is not None:
         overrides["enable_bullet_rewrite"] = req.enable_bullet_rewrite
 
-    v3_settings = settings.model_copy(update=overrides)
+    loop_settings = settings.model_copy(update=overrides)
     collection, embedding_fn = _require_collection()
-    artifacts = run_loop_v3(
+    artifacts = run_loop(
         jd_text=jd_text,
         collection=collection,
         embedding_fn=embedding_fn,
         static_export=static_data,
-        settings=v3_settings,
+        settings=loop_settings,
     )
 
-    return GenerateV3Response(
+    return GenerateResponse(
         run_id=artifacts.run_id,
         profile_used=artifacts.profile_used,
         best_iteration_index=artifacts.best_iteration_index,
