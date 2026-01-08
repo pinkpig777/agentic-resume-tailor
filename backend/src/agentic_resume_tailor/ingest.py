@@ -18,6 +18,7 @@ settings = get_settings()
 DB_PATH = settings.db_path
 COLLECTION_NAME = settings.collection_name
 
+
 def strip_latex(s: str) -> str:
     """Strip LaTeX markup for embedding-friendly text.
 
@@ -148,8 +149,7 @@ def ingest(data: dict | None = None, json_path: str | None = None) -> int:
 
 
 def main() -> None:
-    """Export current DB to JSON and ingest into Chroma.
-    """
+    """Export current DB to JSON and ingest into Chroma."""
     init_db()
     with SessionLocal() as db:
         write_resume_json(db, settings.export_file)

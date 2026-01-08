@@ -6,6 +6,7 @@ from agentic_resume_tailor.db.utils import (
     primary_role,
 )
 
+
 def test_make_job_id_uses_primary_role() -> None:
     """Test job id uses primary role segment."""
     job_id = make_job_id("Acme Inc", "Engineer$|$Platform")

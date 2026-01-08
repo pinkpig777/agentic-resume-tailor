@@ -12,18 +12,16 @@ from typing import Any, Dict, List, Literal, Tuple
 import chromadb
 import jinja2
 import uvicorn
+from chromadb.errors import NotFoundError
 from chromadb.utils import embedding_functions
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from pypdf import PdfReader
 from pydantic import BaseModel, Field
+from pypdf import PdfReader
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
-from agentic_resume_tailor.core.jd_utils import fallback_queries_from_jd, try_parse_jd
-from agentic_resume_tailor.core.keyword_matcher import extract_profile_keywords
-from agentic_resume_tailor.core.loop_controller import LoopConfig, run_loop
 from agentic_resume_tailor.core.loop_controller_v3 import run_loop_v3
 from agentic_resume_tailor.db.models import (
     Education,
@@ -44,12 +42,12 @@ from agentic_resume_tailor.db.utils import (
     next_bullet_id,
     next_sort_order,
 )
+from agentic_resume_tailor.settings import get_settings
 from agentic_resume_tailor.user_config import (
     get_user_config_path,
     load_user_config,
     save_user_config,
 )
-from agentic_resume_tailor.settings import get_settings
 from agentic_resume_tailor.utils.logging import configure_logging
 
 configure_logging()
@@ -81,7 +79,6 @@ DEFAULT_THRESHOLD = settings.threshold
 DEFAULT_ALPHA = settings.alpha
 DEFAULT_MUST_WEIGHT = settings.must_weight
 
-# set to "http://localhost:8501" if you want strict
 CORS_ORIGINS = settings.cors_origins
 
 
@@ -112,35 +109,6 @@ class TempOverrides(BaseModel):
     edits: Dict[str, str] = Field(default_factory=dict)
     removals: List[str] = Field(default_factory=list)
     additions: List[TempAddition] = Field(default_factory=list)
-
-
-class GenerateRequest(BaseModel):
-    jd_text: str = Field(min_length=1)
-
-    # Optional overrides
-    max_bullets: int = Field(default=DEFAULT_MAX_BULLETS, ge=4, le=32)
-    per_query_k: int = Field(default=DEFAULT_PER_QUERY_K, ge=1, le=50)
-    final_k: int = Field(default=DEFAULT_FINAL_K, ge=5, le=200)
-
-    max_iters: int = Field(default=DEFAULT_MAX_ITERS, ge=1, le=6)
-    threshold: int = Field(default=DEFAULT_THRESHOLD, ge=0, le=100)
-
-    alpha: float = Field(default=DEFAULT_ALPHA, ge=0.0, le=1.0)
-    must_weight: float = Field(default=DEFAULT_MUST_WEIGHT, ge=0.0, le=1.0)
-
-    # Boosting behavior
-    boost_weight: float = Field(default=settings.boost_weight, ge=0.1, le=3.0)
-    boost_top_n_missing: int = Field(default=settings.boost_top_n_missing, ge=1, le=20)
-    temp_overrides: TempOverrides | None = None
-
-
-class GenerateResponse(BaseModel):
-    run_id: str
-    profile_used: bool
-    best_iteration_index: int
-    pdf_url: str
-    tex_url: str
-    report_url: str
 
 
 class GenerateV3Request(BaseModel):
@@ -301,9 +269,18 @@ def _load_static_data() -> Dict[str, Any]:
 
 def _load_collection():
     """Load the Chroma collection and embedding function."""
+    if os.environ.get("ART_SKIP_CHROMA_LOAD"):
+        logger.warning("ART_SKIP_CHROMA_LOAD set; skipping Chroma load.")
+        return None, None
     client = chromadb.PersistentClient(path=DB_PATH)
     ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=EMBED_MODEL)
-    collection = client.get_collection(name=COLLECTION_NAME, embedding_function=ef)
+    try:
+        collection = client.get_collection(name=COLLECTION_NAME, embedding_function=ef)
+    except NotFoundError:
+        logger.warning(
+            "Chroma collection '%s' missing; creating empty collection.", COLLECTION_NAME
+        )
+        collection = client.create_collection(name=COLLECTION_NAME, embedding_function=ef)
     logger.info("Loaded Chroma collection '%s' (%s records)", COLLECTION_NAME, collection.count())
     return collection, ef
 
@@ -963,15 +940,35 @@ def _run_id() -> str:
     return time.strftime("%Y%m%d_%H%M%S") + "_" + str(int(time.time() * 1000))[-6:]
 
 
+def _require_collection() -> Tuple[Any, Any]:
+    """Ensure Chroma is loaded before running generation."""
+    if COLLECTION is None or EMB_FN is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Chroma collection is not loaded; run /admin/ingest first.",
+        )
+    return COLLECTION, EMB_FN
+
+
 # -----------------------------
 # Startup
 # -----------------------------
-logger.info("API Server starting: Initializing resume DB...")
-init_db()
-logger.info("API Server starting: Loading data + Chroma...")
-STATIC_DATA = _load_static_data()
-COLLECTION, EMB_FN = _load_collection()
-logger.info("API Server ready.")
+STATIC_DATA: Dict[str, Any] = {}
+COLLECTION: Any | None = None
+EMB_FN: Any | None = None
+
+
+@app.on_event("startup")
+def _startup() -> None:
+    logger.info("API Server starting: Initializing resume DB...")
+    init_db()
+    if os.environ.get("ART_SKIP_STARTUP_LOAD"):
+        logger.info("API Server startup load skipped.")
+        return
+    logger.info("API Server starting: Loading data + Chroma...")
+    _reload_static_data()
+    _reload_collection()
+    logger.info("API Server ready.")
 
 
 # -----------------------------
@@ -1824,10 +1821,11 @@ async def generate_v3(req: GenerateV3Request) -> GenerateV3Response:
         overrides["enable_bullet_rewrite"] = req.enable_bullet_rewrite
 
     v3_settings = settings.model_copy(update=overrides)
+    collection, embedding_fn = _require_collection()
     artifacts = run_loop_v3(
         jd_text=jd_text,
-        collection=COLLECTION,
-        embedding_fn=EMB_FN,
+        collection=collection,
+        embedding_fn=embedding_fn,
         static_export=static_data,
         settings=v3_settings,
     )
@@ -1839,131 +1837,6 @@ async def generate_v3(req: GenerateV3Request) -> GenerateV3Response:
         pdf_url=f"/runs/{artifacts.run_id}/pdf",
         tex_url=f"/runs/{artifacts.run_id}/tex",
         report_url=f"/runs/{artifacts.run_id}/report",
-    )
-
-
-@app.post("/generate", response_model=GenerateResponse)
-async def generate(req: GenerateRequest) -> GenerateResponse:
-    """Run the resume generation pipeline.
-
-    Args:
-        req: Request payload.
-
-    Returns:
-        Result value.
-    """
-    jd_text = (req.jd_text or "").strip()
-    if not jd_text:
-        return JSONResponse({"error": "jd_text is empty"}, status_code=400)
-
-    run_id = _run_id()
-    static_data = _load_static_data()
-
-    profile = try_parse_jd(jd_text)
-    base_profile_or_queries = profile if profile is not None else fallback_queries_from_jd(jd_text)
-    profile_keywords = None
-    if profile is not None:
-        try:
-            profile_keywords = extract_profile_keywords(profile)
-        except Exception:
-            logger.exception("Failed to extract profile keywords")
-            profile_keywords = None
-
-    cfg = LoopConfig(
-        max_iters=req.max_iters,
-        threshold=req.threshold,
-        per_query_k=req.per_query_k,
-        final_k=req.final_k,
-        max_bullets=req.max_bullets,
-        alpha=req.alpha,
-        must_weight=req.must_weight,
-        boost_weight=req.boost_weight,
-        boost_top_n_missing=req.boost_top_n_missing,
-    )
-
-    loop = run_loop(
-        jd_text=jd_text,
-        static_data=static_data,
-        collection=COLLECTION,
-        embedding_fn=EMB_FN,
-        base_profile_or_queries=base_profile_or_queries,
-        cfg=cfg,
-    )
-
-    # Build final resume and render artifacts from best iteration
-    selected_ids = list(loop.best_selected_ids)
-    selected_candidates = list(loop.best_selected_candidates or [])
-    selected_ids, selected_candidates, temp_overrides = _apply_temp_overrides(
-        run_id,
-        selected_ids,
-        selected_candidates,
-        req.temp_overrides,
-        auto_include_additions=True,
-    )
-    if not selected_ids:
-        return JSONResponse({"error": "selected_ids is empty after overrides"}, status_code=400)
-
-    tailored_data = select_and_rebuild(
-        static_data,
-        selected_ids,
-        selected_candidates,
-        temp_overrides=temp_overrides,
-    )
-    pdf_path, tex_path = render_pdf(tailored_data, run_id)
-    pdf_path, tex_path, selected_ids, selected_candidates = _trim_to_single_page(
-        run_id,
-        static_data,
-        selected_ids,
-        selected_candidates,
-        pdf_path,
-        temp_overrides=temp_overrides,
-    )
-    temp_overrides = _filter_temp_overrides_for_report(temp_overrides, selected_ids)
-
-    report = {
-        "run_id": run_id,
-        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "profile_used": profile is not None,
-        "loop_config": cfg.__dict__,
-        "best_iteration_index": loop.best_iteration_index,
-        "selected_ids": selected_ids,
-        "iterations": loop.iterations,
-        "artifacts": {
-            "pdf": os.path.basename(pdf_path),
-            "tex": os.path.basename(tex_path),
-        },
-    }
-    if profile_keywords:
-        report["profile_keywords"] = profile_keywords
-    if _has_temp_overrides(temp_overrides):
-        report["temp_additions"] = temp_overrides.get("additions", [])
-        report["temp_edits"] = temp_overrides.get("edits", {})
-        report["temp_removals"] = temp_overrides.get("removals", [])
-
-    # Attach best score summary if available
-    if loop.best_hybrid is not None:
-        report["best_score"] = {
-            "final_score": loop.best_hybrid.final_score,
-            "retrieval_score": loop.best_hybrid.retrieval_score,
-            "coverage_bullets_only": loop.best_hybrid.coverage_bullets_only,
-            "coverage_all": loop.best_hybrid.coverage_all,
-            "must_missing_bullets_only": loop.best_hybrid.must_missing_bullets_only,
-            "nice_missing_bullets_only": loop.best_hybrid.nice_missing_bullets_only,
-            "must_missing_all": loop.best_hybrid.must_missing_all,
-            "nice_missing_all": loop.best_hybrid.nice_missing_all,
-        }
-
-    report_path = os.path.join(OUTPUT_DIR, f"{run_id}_report.json")
-    with open(report_path, "w", encoding="utf-8") as f:
-        json.dump(report, f, indent=2, ensure_ascii=False)
-
-    return GenerateResponse(
-        run_id=run_id,
-        profile_used=profile is not None,
-        best_iteration_index=loop.best_iteration_index,
-        pdf_url=f"/runs/{run_id}/pdf",
-        tex_url=f"/runs/{run_id}/tex",
-        report_url=f"/runs/{run_id}/report",
     )
 
 

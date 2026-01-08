@@ -80,4 +80,4 @@ def test_v3_report_includes_rewrites(tmp_path, monkeypatch) -> None:
     report_path = Path(artifacts.report_path)
     assert report_path.exists()
     payload = report_path.read_text(encoding="utf-8")
-    assert "\"rewritten_bullets\"" in payload
+    assert '"rewritten_bullets"' in payload

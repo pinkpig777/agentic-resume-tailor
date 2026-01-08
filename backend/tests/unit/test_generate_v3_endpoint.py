@@ -2,20 +2,24 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from agentic_resume_tailor.api import server
 from agentic_resume_tailor.core.agents.scoring_agent import ScoreResultV3
 from agentic_resume_tailor.core.loop_controller_v3 import RunArtifactsV3
 
 
 def test_generate_v3_returns_urls_and_writes_artifacts(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("ART_SKIP_STARTUP_LOAD", "1")
+    monkeypatch.setenv("ART_SKIP_CHROMA_LOAD", "1")
+
+    from agentic_resume_tailor.api import server
+
     run_id = "test_v3_run"
     pdf_path = tmp_path / f"{run_id}.pdf"
     tex_path = tmp_path / f"{run_id}.tex"
     report_path = tmp_path / f"{run_id}_report.json"
 
-    pdf_path.write_bytes(b\"%PDF-1.4\\n\")
-    tex_path.write_text(\"% tex\", encoding=\"utf-8\")
-    report_path.write_text(\"{}\", encoding=\"utf-8\")
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    tex_path.write_text("% tex", encoding="utf-8")
+    report_path.write_text("{}", encoding="utf-8")
 
     score = ScoreResultV3(
         final_score=90,
@@ -31,6 +35,10 @@ def test_generate_v3_returns_urls_and_writes_artifacts(tmp_path, monkeypatch) ->
         nice_missing_all=[],
         length_by_bullet={},
         redundancy_pairs=[],
+        boost_terms=[],
+        agent_used=False,
+        agent_fallback=False,
+        agent_model=None,
     )
 
     artifacts = RunArtifactsV3(
@@ -49,16 +57,18 @@ def test_generate_v3_returns_urls_and_writes_artifacts(tmp_path, monkeypatch) ->
     def fake_run_loop_v3(*_args, **_kwargs):
         return artifacts
 
-    monkeypatch.setattr(server, \"run_loop_v3\", fake_run_loop_v3)
+    server.COLLECTION = object()
+    server.EMB_FN = object()
+    monkeypatch.setattr(server, "run_loop_v3", fake_run_loop_v3)
 
     client = TestClient(server.app)
-    response = client.post(\"/generate_v3\", json={\"jd_text\": \"test jd\"})
+    response = client.post("/generate_v3", json={"jd_text": "test jd"})
     assert response.status_code == 200
     payload = response.json()
-    assert payload[\"run_id\"] == run_id
-    assert payload[\"pdf_url\"] == f\"/runs/{run_id}/pdf\"
-    assert payload[\"tex_url\"] == f\"/runs/{run_id}/tex\"
-    assert payload[\"report_url\"] == f\"/runs/{run_id}/report\"
+    assert payload["run_id"] == run_id
+    assert payload["pdf_url"] == f"/runs/{run_id}/pdf"
+    assert payload["tex_url"] == f"/runs/{run_id}/tex"
+    assert payload["report_url"] == f"/runs/{run_id}/report"
     assert Path(pdf_path).exists()
     assert Path(tex_path).exists()
     assert Path(report_path).exists()

@@ -15,7 +15,7 @@ This repo has two runtimes:
 
 - 🚀 Generate a single-page PDF and LaTeX source from any JD (auto-trims lowest-scoring bullets if needed).
 - 🗃️ Edit your profile end-to-end with DB-backed CRUD (personal info, education, experiences, projects).
-- 🔁 Agentic loop boosts missing must-have keywords and blends retrieval + coverage scores.
+- 🔁 LLM-backed agent loop builds retrieval plans, rewrites bullets safely, and scores iterations end-to-end.
 - ✍️ Curate the final selection: edit, reorder, and add bullets before re-rendering the PDF.
 - 🧾 Reports capture run config, loop iterations, and score/missing-keyword summaries when the JD parser is used.
 - 🔄 One-click export and re-ingest keeps Chroma in sync.
@@ -40,7 +40,7 @@ This guide covers day-to-day usage. For setup and deployment, see `ARCHITECTURE.
 Notes:
 
 - Bullet local IDs are stable per experience/project (e.g., `b01`, `b02`) and never renumbered; retrieval uses `exp:<job_id>:<local_id>` and `proj:<project_id>:<local_id>`.
-- Bullet text is LaTeX-ready; the system does not rewrite it.
+- Bullet text is LaTeX-ready; optional agent rewrites are temporary for the run and validated to avoid new claims.
 
 ### 3) Adjust defaults (Settings)
 

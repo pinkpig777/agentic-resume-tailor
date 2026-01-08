@@ -120,20 +120,21 @@ flowchart TD
   B --> C[Export DB to backend/data/my_experience.json]
   C --> D[Ingest JSON into ChromaDB]
   D --> E{JD parser enabled?}
-  E -- Yes --> F[OpenAI JD parser -> retrieval plan]
+  E -- Yes --> F[LLM query agent -> target profile + retrieval plan]
   E -- No/Fail --> G[Fallback queries from JD text]
   F --> H[Build retrieval plan - multi queries]
   G --> H
   H --> I[Multi-query retrieve from ChromaDB]
   I --> J[Select top-K bullets]
-  J --> K[Score coverage + retrieval]
-  K --> L{Meets threshold?}
-  L -- No --> M[Boost missing must-have terms]
-  M -->|feedback loop| H
-  L -- Yes --> N[Render PDF + report]
-  N --> O[Trim to single page if needed]
-  O --> P[Optional UI edits to selection]
-  P --> Q[Re-render PDF + report]
+  J --> K[LLM rewrite agent + validation]
+  K --> L[LLM scoring agent]
+  L --> M{Meets threshold?}
+  M -- No --> N[Boost missing must-haves]
+  N -->|feedback loop| H
+  M -- Yes --> O[Render PDF + report]
+  O --> P[Trim to single page if needed]
+  P --> Q[Optional UI edits to selection]
+  Q --> R[Re-render PDF + report]
 ```
 
 ---
@@ -332,7 +333,7 @@ Set `USER_SETTINGS_FILE` to point at a custom settings file path.
 - `DELETE /projects/{project_id}/bullets/{local_id}`
 - `POST /admin/export` (optional `reingest=true`)
 - `POST /admin/ingest`
-- `POST /generate`
+- `POST /generate_v3`
 - `POST /runs/{run_id}/render`
 - `GET /runs/{run_id}/pdf`
 - `GET /runs/{run_id}/tex`
@@ -351,7 +352,6 @@ Set `USER_SETTINGS_FILE` to point at a custom settings file path.
   - `data/` - exported JSON and local DB artifacts
   - `output/` - generated artifacts (`<run_id>.pdf`, `<run_id>.tex`, `<run_id>_report.json`)
   - `templates/` - LaTeX templates
-  - `script/` - debug + utility scripts
 
 ---
 

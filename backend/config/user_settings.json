@@ -21,7 +21,6 @@
   "boost_weight": 1.6,
   "boost_top_n_missing": 6,
   "experience_weight": 1.2,
-  "use_v3_loop": false,
   "enable_bullet_rewrite": true,
   "rewrite_min_chars": 100,
   "rewrite_max_chars": 200,
