@@ -19,7 +19,6 @@ import type { SettingsData } from "@/types/schema";
 const booleanFields = [
   "auto_reingest_on_save",
   "use_jd_parser",
-  "use_v3_loop",
   "enable_bullet_rewrite",
   "skip_pdf",
   "log_json",
@@ -84,8 +83,7 @@ const tooltips: Record<string, string> = {
   boost_weight: "Boost weight for missing keywords.",
   boost_top_n_missing: "Number of missing keywords boosted.",
   experience_weight: "Multiplier for experience bullets vs projects.",
-  use_v3_loop: "Use the v3 agent loop for generation.",
-  enable_bullet_rewrite: "Rewrite bullets locally for clarity and length.",
+  enable_bullet_rewrite: "Rewrite bullets via the agent under strict constraints.",
   rewrite_min_chars: "Minimum target length for rewritten bullets.",
   rewrite_max_chars: "Maximum target length for rewritten bullets.",
   length_weight: "Weight for length efficiency in scoring.",
@@ -678,7 +676,7 @@ export default function SettingsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>V3 rewrite & scoring</CardTitle>
+            <CardTitle>Rewrite & scoring</CardTitle>
             <CardDescription>
               Advanced tuning for rewrite length and redundancy scoring.
             </CardDescription>
@@ -831,15 +829,9 @@ export default function SettingsPage() {
                 tooltips.use_jd_parser,
               )}
               {renderToggleField(
-                "use_v3_loop",
-                "Use v3 loop",
-                "Switch Generate to the v3 agent loop.",
-                tooltips.use_v3_loop,
-              )}
-              {renderToggleField(
                 "enable_bullet_rewrite",
                 "Enable bullet rewrite",
-                "Rewrite bullets locally for length and clarity.",
+                "Rewrite bullets via the agent with strict validation.",
                 tooltips.enable_bullet_rewrite,
               )}
               {renderToggleField(

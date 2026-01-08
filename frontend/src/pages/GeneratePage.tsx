@@ -12,7 +12,6 @@ import {
   fetchRunReport,
   fetchSettings,
   generateResume,
-  generateResumeV3,
   renderSelection,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -117,11 +116,7 @@ export default function GeneratePage() {
   const [showOriginal, setShowOriginal] = useState<Record<string, boolean>>({});
   const [status, setStatus] = useState<StatusMessage | null>(null);
 
-  const {
-    data: settings,
-    isError: settingsError,
-    refetch: refetchSettings,
-  } = useQuery({
+  const { isError: settingsError, refetch: refetchSettings } = useQuery({
     queryKey: ["settings"],
     queryFn: fetchSettings,
   });
@@ -134,8 +129,6 @@ export default function GeneratePage() {
     queryKey: ["resumeData"],
     queryFn: fetchData,
   });
-
-  const useV3 = settings?.use_v3_loop ?? false;
 
   const runId = result?.run_id;
   const reportUrl = result ? `${API_BASE_URL}${result.report_url}` : "#";
@@ -198,8 +191,7 @@ export default function GeneratePage() {
   }, [report?.selected_ids, selectedIds]);
 
   const mutation = useMutation({
-    mutationFn: (text: string) =>
-      useV3 ? generateResumeV3(text) : generateResume(text),
+    mutationFn: (text: string) => generateResume(text),
     onMutate: () => {
       setResult(null);
       setSelectionOrder([]);
@@ -328,9 +320,6 @@ export default function GeneratePage() {
                 "Generate"
               )}
             </Button>
-            <span className="text-xs text-muted-foreground">
-              Mode: {useV3 ? "v3" : "v2"}
-            </span>
           </div>
         </CardContent>
       </Card>

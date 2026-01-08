@@ -216,11 +216,6 @@ export async function triggerIngest(): Promise<{
 }
 
 export async function generateResume(jdText: string): Promise<GenerateResponse> {
-  const { data } = await api.post("/generate", { jd_text: jdText });
-  return data;
-}
-
-export async function generateResumeV3(jdText: string): Promise<GenerateResponse> {
   const { data } = await api.post("/generate_v3", { jd_text: jdText });
   return data;
 }

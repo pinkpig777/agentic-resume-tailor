@@ -71,7 +71,6 @@ export interface SettingsData {
   boost_weight: number;
   boost_top_n_missing: number;
   experience_weight: number;
-  use_v3_loop: boolean;
   enable_bullet_rewrite: boolean;
   rewrite_min_chars: number;
   rewrite_max_chars: number;
