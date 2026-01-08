@@ -15,3 +15,11 @@ def test_validate_rewrite_blocks_new_tools() -> None:
     result = validate_rewrite(original, rewritten, {"python"})
     assert not result.ok
     assert "new_tools" in result.violations
+
+
+def test_validate_rewrite_blocks_new_multiplier_numbers() -> None:
+    original = "Reduced latency 2x using caching."
+    rewritten = "Reduced latency 3x using caching."
+    result = validate_rewrite(original, rewritten, {"caching"})
+    assert not result.ok
+    assert "new_numbers" in result.violations

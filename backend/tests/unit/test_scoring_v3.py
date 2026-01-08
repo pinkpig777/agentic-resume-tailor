@@ -28,6 +28,7 @@ def test_length_score_penalizes_short_bullets() -> None:
     rewrites = {"exp:job:b01": "Short"}
 
     result = score_resume(
+        "JD",
         target_profile=None,
         selected_candidates=candidates,
         all_candidates=candidates,
@@ -59,6 +60,7 @@ def test_length_score_rewards_in_range_bullets() -> None:
     rewrites = {"exp:job:b01": "Lengthy text here"}
 
     result = score_resume(
+        "JD",
         target_profile=None,
         selected_candidates=candidates,
         all_candidates=candidates,

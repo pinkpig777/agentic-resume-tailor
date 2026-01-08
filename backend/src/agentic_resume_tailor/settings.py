@@ -5,10 +5,9 @@ from functools import lru_cache
 from typing import Any, Dict
 
 from dotenv import dotenv_values
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from agentic_resume_tailor.user_config import get_user_config_path, load_user_config
+from agentic_resume_tailor.user_config import load_user_config
 
 
 def _json_settings_source() -> Dict[str, Any]:
@@ -68,10 +67,10 @@ class Settings(BaseSettings):
     boost_weight: float = 1.6
     boost_top_n_missing: int = 6
     experience_weight: float = 1.2
-    use_v3_loop: bool = False
     enable_bullet_rewrite: bool = True
     rewrite_min_chars: int = 100
     rewrite_max_chars: int = 200
+    rewrite_similarity_threshold: float = 0.55
     length_weight: float = 0.10
     redundancy_weight: float = 0.10
     redundancy_threshold: float = 0.88
@@ -82,6 +81,9 @@ class Settings(BaseSettings):
     skip_pdf: bool = False
     run_id: str | None = None
     jd_model: str = "gpt-4.1-nano-2025-04-14"
+    agent_model: str | None = None
+    agent_temperature: float = 0.2
+    agent_timeout_s: float = 60.0
 
     canon_config: str = "config/canonicalization.json"
     family_config: str = "config/families.json"

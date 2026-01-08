@@ -7,7 +7,6 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import jinja2
@@ -17,7 +16,7 @@ from agentic_resume_tailor.core.agents.query_agent import QueryPlanItem, build_q
 from agentic_resume_tailor.core.agents.rewrite_agent import (
     RewriteConstraints,
     RewriteResult,
-    build_rewrite_allowlist,
+    build_rewrite_allowlist_by_bullet,
     rewrite_bullets,
 )
 from agentic_resume_tailor.core.agents.scoring_agent import ScoreResultV3, score_resume
@@ -380,9 +379,7 @@ def run_loop_v3(
         selected_candidates = [c for c in candidates if c.bullet_id in set(selected_ids)]
         selected_bullets = _collect_selected_bullets(candidates, selected_ids)
 
-        allowlist = build_rewrite_allowlist(
-            [b["text_latex"] for b in selected_bullets], settings=settings
-        )
+        allowlist = build_rewrite_allowlist_by_bullet(selected_bullets, settings=settings)
         constraints = RewriteConstraints(
             enabled=settings.enable_bullet_rewrite,
             min_chars=settings.rewrite_min_chars,
@@ -396,6 +393,7 @@ def run_loop_v3(
         )
 
         score = score_resume(
+            jd_text,
             target_profile=base_profile,
             selected_candidates=selected_candidates,
             all_candidates=candidates,
@@ -430,15 +428,26 @@ def run_loop_v3(
                 "nice_all": score.nice_missing_all,
             },
             "rewrites": _rewrite_report_entries(rewrite_result.bullet_info, selected_ids),
+            "boost_terms": score.boost_terms,
             "length": {
                 "by_bullet": score.length_by_bullet,
                 "violations": length_violations,
             },
             "redundancy": {
                 "penalty": score.redundancy_penalty,
-                "pairs": [
-                    {"a": a, "b": b, "score": s} for a, b, s in score.redundancy_pairs
-                ],
+                "pairs": [{"a": a, "b": b, "score": s} for a, b, s in score.redundancy_pairs],
+            },
+            "agents": {
+                "rewrite": {
+                    "model": rewrite_result.agent_model,
+                    "used": rewrite_result.agent_used,
+                    "fallback": rewrite_result.agent_fallback,
+                },
+                "scoring": {
+                    "model": score.agent_model,
+                    "used": score.agent_used,
+                    "fallback": score.agent_fallback,
+                },
             },
         }
         iterations.append(iteration_entry)
@@ -457,9 +466,7 @@ def run_loop_v3(
         if score.final_score >= settings.threshold:
             break
 
-        boost_terms = _dedupe_keep_order(score.must_missing_bullets_only)[
-            : settings.boost_top_n_missing
-        ]
+        boost_terms = _dedupe_keep_order(score.boost_terms)[: settings.boost_top_n_missing]
 
     if best_score is None:
         raise ValueError("No candidates selected; cannot build v3 artifacts.")
@@ -480,6 +487,14 @@ def run_loop_v3(
         "run_id": run_id,
         "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "profile_used": query_plan.profile_used,
+        "target_profile_summary": query_plan.profile_summary,
+        "agents": {
+            "query": {
+                "model": query_plan.agent_model,
+                "used": query_plan.agent_used,
+                "fallback": query_plan.agent_fallback,
+            }
+        },
         "best_iteration_index": best_idx,
         "selected_ids": best_selected_ids,
         "best_score": {
@@ -494,6 +509,7 @@ def run_loop_v3(
             "nice_missing_bullets_only": best_score.nice_missing_bullets_only,
             "must_missing_all": best_score.must_missing_all,
             "nice_missing_all": best_score.nice_missing_all,
+            "boost_terms": best_score.boost_terms,
         },
         "iterations": iterations,
         "rewritten_bullets": [

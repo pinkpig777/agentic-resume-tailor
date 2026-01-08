@@ -5,8 +5,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Iterable, List, Set
 
-
-_NUMBER_RE = re.compile(r"\b\d+(?:\.\d+)?%?\b")
+_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 _TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9+./#-]*")
 
 
@@ -20,6 +19,7 @@ class ValidationResult:
 
 def _normalize_number(token: str) -> str | None:
     raw = token.strip().rstrip("%")
+    raw = re.sub(r"(?<=\d),(?=\d)", "", raw)
     if not raw:
         return None
     try:
@@ -30,7 +30,8 @@ def _normalize_number(token: str) -> str | None:
 
 def _extract_numbers(text: str) -> Set[str]:
     values: Set[str] = set()
-    for token in _NUMBER_RE.findall(text or ""):
+    cleaned = re.sub(r"(?<=\d),(?=\d)", "", text or "")
+    for token in _NUMBER_RE.findall(cleaned):
         norm = _normalize_number(token)
         if norm is not None:
             values.add(norm)
