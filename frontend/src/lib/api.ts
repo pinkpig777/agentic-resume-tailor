@@ -220,6 +220,11 @@ export async function generateResume(jdText: string): Promise<GenerateResponse> 
   return data;
 }
 
+export async function generateResumeV3(jdText: string): Promise<GenerateResponse> {
+  const { data } = await api.post("/generate_v3", { jd_text: jdText });
+  return data;
+}
+
 export async function fetchRunReport(runId: string): Promise<RunReport> {
   const { data } = await api.get(`/runs/${runId}/report`);
   return data;
@@ -227,7 +232,11 @@ export async function fetchRunReport(runId: string): Promise<RunReport> {
 
 export async function renderSelection(
   runId: string,
-  payload: { selected_ids: string[]; temp_overrides?: TempOverrides },
+  payload: {
+    selected_ids: string[];
+    temp_overrides?: TempOverrides;
+    rewritten_bullets?: Record<string, string>;
+  },
 ): Promise<RenderSelectionResponse> {
   const { data } = await api.post(`/runs/${runId}/render`, payload);
   return data;
