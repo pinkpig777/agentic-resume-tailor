@@ -68,6 +68,14 @@ class Settings(BaseSettings):
     boost_weight: float = 1.6
     boost_top_n_missing: int = 6
     experience_weight: float = 1.2
+    use_v3_loop: bool = False
+    enable_bullet_rewrite: bool = True
+    rewrite_min_chars: int = 100
+    rewrite_max_chars: int = 200
+    length_weight: float = 0.10
+    redundancy_weight: float = 0.10
+    redundancy_threshold: float = 0.88
+    quality_weight: float = 0.05
 
     cors_origins: str = "*"
 
