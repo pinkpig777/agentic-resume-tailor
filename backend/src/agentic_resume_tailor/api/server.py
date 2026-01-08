@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session, selectinload
 from agentic_resume_tailor.core.jd_utils import fallback_queries_from_jd, try_parse_jd
 from agentic_resume_tailor.core.keyword_matcher import extract_profile_keywords
 from agentic_resume_tailor.core.loop_controller import LoopConfig, run_loop
+from agentic_resume_tailor.core.loop_controller_v3 import run_loop_v3
 from agentic_resume_tailor.db.models import (
     Education,
     EducationBullet,
@@ -142,9 +143,38 @@ class GenerateResponse(BaseModel):
     report_url: str
 
 
+class GenerateV3Request(BaseModel):
+    jd_text: str = Field(min_length=1)
+
+    max_bullets: int = Field(default=DEFAULT_MAX_BULLETS, ge=4, le=32)
+    per_query_k: int = Field(default=DEFAULT_PER_QUERY_K, ge=1, le=50)
+    final_k: int = Field(default=DEFAULT_FINAL_K, ge=5, le=200)
+
+    max_iters: int = Field(default=DEFAULT_MAX_ITERS, ge=1, le=6)
+    threshold: int = Field(default=DEFAULT_THRESHOLD, ge=0, le=100)
+
+    alpha: float = Field(default=DEFAULT_ALPHA, ge=0.0, le=1.0)
+    must_weight: float = Field(default=DEFAULT_MUST_WEIGHT, ge=0.0, le=1.0)
+
+    boost_weight: float = Field(default=settings.boost_weight, ge=0.1, le=3.0)
+    boost_top_n_missing: int = Field(default=settings.boost_top_n_missing, ge=1, le=20)
+
+    enable_bullet_rewrite: bool | None = None
+
+
+class GenerateV3Response(BaseModel):
+    run_id: str
+    profile_used: bool
+    best_iteration_index: int
+    pdf_url: str
+    tex_url: str
+    report_url: str
+
+
 class RenderSelectionRequest(BaseModel):
     selected_ids: List[str] = Field(default_factory=list)
     temp_overrides: TempOverrides | None = None
+    rewritten_bullets: Dict[str, str] | None = None
 
 
 class PersonalInfoUpdate(BaseModel):
@@ -682,6 +712,99 @@ def select_and_rebuild(
     return tailored
 
 
+def select_and_rebuild_with_rewrites(
+    static_data: Dict[str, Any],
+    selected_ids: List[str],
+    rewritten_bullets: Dict[str, str],
+    selected_candidates: List[Any] | None = None,
+    temp_overrides: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """Build a tailored resume snapshot with selected bullets and rewrites."""
+    selected_set = set(selected_ids)
+    temp_overrides = temp_overrides or {}
+    temp_edits: Dict[str, str] = temp_overrides.get("edits", {}) or {}
+    temp_additions: List[Dict[str, Any]] = temp_overrides.get("additions", []) or []
+    tailored = copy.deepcopy(static_data)
+    score_map: Dict[str, float] = {}
+    for c in selected_candidates or []:
+        score = getattr(c, "selection_score", None)
+        if score is None:
+            score = getattr(getattr(c, "best_hit", None), "weighted", 0.0)
+        score_map[getattr(c, "bullet_id", "")] = float(score or 0.0)
+    order_map = {bid: idx for idx, bid in enumerate(selected_ids)}
+    use_order = not score_map
+
+    for addition in temp_additions:
+        parent_type = addition.get("parent_type")
+        parent_id = addition.get("parent_id")
+        temp_id = addition.get("temp_id")
+        text_latex = addition.get("text_latex")
+        if not parent_type or not parent_id or not temp_id or not text_latex:
+            continue
+        if parent_type == "experience":
+            for exp in tailored.get("experiences", []) or []:
+                if exp.get("job_id") == parent_id:
+                    exp.setdefault("bullets", []).append({"id": temp_id, "text_latex": text_latex})
+                    break
+        elif parent_type == "project":
+            for proj in tailored.get("projects", []) or []:
+                if proj.get("project_id") == parent_id:
+                    proj.setdefault("bullets", []).append({"id": temp_id, "text_latex": text_latex})
+                    break
+
+    new_exps = []
+    for exp in tailored.get("experiences", []) or []:
+        job_id = exp.get("job_id")
+        kept_bullets: List[tuple[float, str, str]] = []
+        for idx, b in enumerate(exp.get("bullets", []) or []):
+            local_id = b.get("id")
+            if not job_id or not local_id:
+                continue
+            bid = f"exp:{job_id}:{local_id}"
+            if bid in selected_set:
+                score = score_map.get(bid, 0.0)
+                tie = local_id or f"idx:{idx:04d}"
+                base_text = rewritten_bullets.get(bid, b.get("text_latex", ""))
+                text = temp_edits.get(bid, base_text)
+                order = order_map.get(bid, len(order_map))
+                kept_bullets.append((order if use_order else score, tie, text))
+        if kept_bullets:
+            if use_order:
+                kept_bullets.sort(key=lambda item: (item[0], item[1]))
+            else:
+                kept_bullets.sort(key=lambda item: (-item[0], item[1]))
+            exp["bullets"] = [text for _, _, text in kept_bullets]
+            new_exps.append(exp)
+
+    new_projs = []
+    for proj in tailored.get("projects", []) or []:
+        project_id = proj.get("project_id")
+        kept_bullets: List[tuple[float, str, str]] = []
+        for idx, b in enumerate(proj.get("bullets", []) or []):
+            local_id = b.get("id")
+            if not project_id or not local_id:
+                continue
+            bid = f"proj:{project_id}:{local_id}"
+            if bid in selected_set:
+                score = score_map.get(bid, 0.0)
+                tie = local_id or f"idx:{idx:04d}"
+                base_text = rewritten_bullets.get(bid, b.get("text_latex", ""))
+                text = temp_edits.get(bid, base_text)
+                order = order_map.get(bid, len(order_map))
+                kept_bullets.append((order if use_order else score, tie, text))
+        if kept_bullets:
+            if use_order:
+                kept_bullets.sort(key=lambda item: (item[0], item[1]))
+            else:
+                kept_bullets.sort(key=lambda item: (-item[0], item[1]))
+            proj["bullets"] = [text for _, _, text in kept_bullets]
+            new_projs.append(proj)
+
+    tailored["experiences"] = new_exps
+    tailored["projects"] = new_projs
+    return tailored
+
+
 def render_pdf(context: Dict[str, Any], run_id: str) -> Tuple[str, str]:
     """Render a resume context to LaTeX/PDF artifacts.
 
@@ -763,6 +886,7 @@ def _trim_to_single_page(
     selected_candidates: List[Any],
     pdf_path: str,
     temp_overrides: Dict[str, Any] | None = None,
+    rewritten_bullets: Dict[str, str] | None = None,
 ) -> Tuple[str, str, List[str], List[Any]]:
     """Trim lowest-weight bullets until the PDF is single-page.
 
@@ -801,9 +925,21 @@ def _trim_to_single_page(
         ]
         if os.path.exists(pdf_path):
             os.remove(pdf_path)
-        tailored = select_and_rebuild(
-            static_data, selected_ids, selected_candidates, temp_overrides=temp_overrides
-        )
+        if rewritten_bullets:
+            tailored = select_and_rebuild_with_rewrites(
+                static_data,
+                selected_ids,
+                rewritten_bullets,
+                selected_candidates,
+                temp_overrides=temp_overrides,
+            )
+        else:
+            tailored = select_and_rebuild(
+                static_data,
+                selected_ids,
+                selected_candidates,
+                temp_overrides=temp_overrides,
+            )
         pdf_path, tex_path = render_pdf(tailored, run_id)
         page_count = _pdf_page_count(pdf_path)
 
@@ -1664,6 +1800,48 @@ def ingest_resume(db: Session = Depends(get_db)):
         INGEST_LOCK.release()
 
 
+@app.post("/generate_v3", response_model=GenerateV3Response)
+async def generate_v3(req: GenerateV3Request) -> GenerateV3Response:
+    """Run the resume generation pipeline (v3 loop)."""
+    jd_text = (req.jd_text or "").strip()
+    if not jd_text:
+        return JSONResponse({"error": "jd_text is empty"}, status_code=400)
+
+    static_data = _load_static_data()
+
+    overrides = {
+        "max_bullets": req.max_bullets,
+        "per_query_k": req.per_query_k,
+        "final_k": req.final_k,
+        "max_iters": req.max_iters,
+        "threshold": req.threshold,
+        "alpha": req.alpha,
+        "must_weight": req.must_weight,
+        "boost_weight": req.boost_weight,
+        "boost_top_n_missing": req.boost_top_n_missing,
+    }
+    if req.enable_bullet_rewrite is not None:
+        overrides["enable_bullet_rewrite"] = req.enable_bullet_rewrite
+
+    v3_settings = settings.model_copy(update=overrides)
+    artifacts = run_loop_v3(
+        jd_text=jd_text,
+        collection=COLLECTION,
+        embedding_fn=EMB_FN,
+        static_export=static_data,
+        settings=v3_settings,
+    )
+
+    return GenerateV3Response(
+        run_id=artifacts.run_id,
+        profile_used=artifacts.profile_used,
+        best_iteration_index=artifacts.best_iteration_index,
+        pdf_url=f"/runs/{artifacts.run_id}/pdf",
+        tex_url=f"/runs/{artifacts.run_id}/tex",
+        report_url=f"/runs/{artifacts.run_id}/report",
+    )
+
+
 @app.post("/generate", response_model=GenerateResponse)
 async def generate(req: GenerateRequest) -> GenerateResponse:
     """Run the resume generation pipeline.
@@ -1809,12 +1987,22 @@ def render_selected(run_id: str, payload: RenderSelectionRequest):
         return JSONResponse({"error": "selected_ids is empty"}, status_code=400)
 
     static_data = _load_static_data()
-    tailored_data = select_and_rebuild(
-        static_data,
-        selected_ids,
-        [],
-        temp_overrides=temp_overrides,
-    )
+    rewritten_bullets = payload.rewritten_bullets or {}
+    if rewritten_bullets:
+        tailored_data = select_and_rebuild_with_rewrites(
+            static_data,
+            selected_ids,
+            rewritten_bullets,
+            [],
+            temp_overrides=temp_overrides,
+        )
+    else:
+        tailored_data = select_and_rebuild(
+            static_data,
+            selected_ids,
+            [],
+            temp_overrides=temp_overrides,
+        )
     pdf_path, tex_path = render_pdf(tailored_data, run_id)
     pdf_path, tex_path, selected_ids, _ = _trim_to_single_page(
         run_id,
@@ -1823,6 +2011,7 @@ def render_selected(run_id: str, payload: RenderSelectionRequest):
         [],
         pdf_path,
         temp_overrides=temp_overrides,
+        rewritten_bullets=rewritten_bullets if rewritten_bullets else None,
     )
     temp_overrides = _filter_temp_overrides_for_report(temp_overrides, selected_ids)
 
@@ -1837,6 +2026,12 @@ def render_selected(run_id: str, payload: RenderSelectionRequest):
         report.setdefault("artifacts", {})
         report["artifacts"]["pdf"] = os.path.basename(pdf_path)
         report["artifacts"]["tex"] = os.path.basename(tex_path)
+        if rewritten_bullets and isinstance(report.get("rewritten_bullets"), list):
+            report["rewritten_bullets"] = [
+                entry
+                for entry in report["rewritten_bullets"]
+                if entry.get("bullet_id") in set(selected_ids)
+            ]
         if _has_temp_overrides(temp_overrides):
             report["temp_additions"] = temp_overrides.get("additions", [])
             report["temp_edits"] = temp_overrides.get("edits", {})
