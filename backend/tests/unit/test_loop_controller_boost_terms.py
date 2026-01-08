@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from agentic_resume_tailor.core import loop_controller_v3
+from agentic_resume_tailor.core import loop_controller
 from agentic_resume_tailor.core.agents.query_agent import QueryPlan, QueryPlanItem
-from agentic_resume_tailor.core.agents.scoring_agent import ScoreResultV3
+from agentic_resume_tailor.core.agents.scoring_agent import ScoreResult
 from agentic_resume_tailor.settings import get_settings
 
 
@@ -16,8 +16,8 @@ class DummyCandidate:
         self.effective_total_weighted = 1.0
 
 
-def _score(final_score: int, boost_terms) -> ScoreResultV3:
-    return ScoreResultV3(
+def _score(final_score: int, boost_terms) -> ScoreResult:
+    return ScoreResult(
         final_score=final_score,
         retrieval_score=0.5,
         coverage_bullets_only=0.5,
@@ -38,7 +38,7 @@ def _score(final_score: int, boost_terms) -> ScoreResultV3:
     )
 
 
-def test_v3_loop_applies_boost_terms_to_next_iteration(tmp_path, monkeypatch) -> None:
+def test_loop_applies_boost_terms_to_next_iteration(tmp_path, monkeypatch) -> None:
     candidates = [DummyCandidate("exp:acme__engineer:b01", "Built APIs in Python.")]
 
     def fake_build_query_plan(_jd_text, _settings):
@@ -74,12 +74,12 @@ def test_v3_loop_applies_boost_terms_to_next_iteration(tmp_path, monkeypatch) ->
     def fake_score(*_args, **_kwargs):
         return scores.pop(0)
 
-    monkeypatch.setattr(loop_controller_v3, "build_query_plan", fake_build_query_plan)
-    monkeypatch.setattr(loop_controller_v3, "multi_query_retrieve", fake_retrieve)
-    monkeypatch.setattr(loop_controller_v3, "select_topk", fake_select_topk)
-    monkeypatch.setattr(loop_controller_v3, "_render_pdf", fake_render)
-    monkeypatch.setattr(loop_controller_v3, "_trim_to_single_page", fake_trim)
-    monkeypatch.setattr(loop_controller_v3, "score_resume", fake_score)
+    monkeypatch.setattr(loop_controller, "build_query_plan", fake_build_query_plan)
+    monkeypatch.setattr(loop_controller, "multi_query_retrieve", fake_retrieve)
+    monkeypatch.setattr(loop_controller, "select_topk", fake_select_topk)
+    monkeypatch.setattr(loop_controller, "_render_pdf", fake_render)
+    monkeypatch.setattr(loop_controller, "_trim_to_single_page", fake_trim)
+    monkeypatch.setattr(loop_controller, "score_resume", fake_score)
 
     base = Path(__file__).resolve().parents[2]
     settings = get_settings().model_copy(
@@ -109,7 +109,7 @@ def test_v3_loop_applies_boost_terms_to_next_iteration(tmp_path, monkeypatch) ->
         "projects": [],
     }
 
-    artifacts = loop_controller_v3.run_loop_v3(
+    artifacts = loop_controller.run_loop(
         jd_text="Sample JD",
         collection=None,
         embedding_fn=None,

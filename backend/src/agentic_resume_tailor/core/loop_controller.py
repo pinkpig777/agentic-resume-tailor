@@ -19,17 +19,17 @@ from agentic_resume_tailor.core.agents.rewrite_agent import (
     build_rewrite_allowlist_by_bullet,
     rewrite_bullets,
 )
-from agentic_resume_tailor.core.agents.scoring_agent import ScoreResultV3, score_resume
+from agentic_resume_tailor.core.agents.scoring_agent import ScoreResult, score_resume
 from agentic_resume_tailor.core.retrieval import multi_query_retrieve
 from agentic_resume_tailor.core.selection import select_topk
 
 
 @dataclass
-class RunArtifactsV3:
+class RunArtifacts:
     run_id: str
     selected_ids: List[str]
     rewritten_bullets: Dict[str, str]
-    best_score: ScoreResultV3
+    best_score: ScoreResult
     iteration_trace: List[Dict[str, Any]]
     pdf_path: str
     tex_path: str
@@ -341,20 +341,20 @@ def _build_tailored_snapshot(
     return tailored
 
 
-def run_loop_v3(
+def run_loop(
     jd_text: str,
     *,
     collection: Any,
     embedding_fn: Any,
     static_export: Dict[str, Any],
     settings: Any,
-) -> RunArtifactsV3:
+) -> RunArtifacts:
     run_id = _run_id(settings)
     query_plan = build_query_plan(jd_text, settings)
     base_profile = query_plan.profile
 
     iterations: List[Dict[str, Any]] = []
-    best_score: ScoreResultV3 | None = None
+    best_score: ScoreResult | None = None
     best_selected_ids: List[str] = []
     best_rewrites: Dict[str, str] = {}
     best_candidates: List[Any] = []
@@ -469,7 +469,7 @@ def run_loop_v3(
         boost_terms = _dedupe_keep_order(score.boost_terms)[: settings.boost_top_n_missing]
 
     if best_score is None:
-        raise ValueError("No candidates selected; cannot build v3 artifacts.")
+        raise ValueError("No candidates selected; cannot build artifacts.")
 
     tailored = _build_tailored_snapshot(static_export, best_selected_ids, best_rewrites)
     pdf_path, tex_path = _render_pdf(settings, tailored, run_id)
@@ -536,7 +536,7 @@ def run_loop_v3(
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
 
-    return RunArtifactsV3(
+    return RunArtifacts(
         run_id=run_id,
         selected_ids=best_selected_ids,
         rewritten_bullets=best_rewrites,

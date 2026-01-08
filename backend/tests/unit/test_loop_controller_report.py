@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from agentic_resume_tailor.core import loop_controller_v3
+from agentic_resume_tailor.core import loop_controller
 from agentic_resume_tailor.settings import get_settings
 
 
@@ -14,7 +14,7 @@ class DummyCandidate:
         self.effective_total_weighted = 1.0
 
 
-def test_v3_report_includes_rewrites(tmp_path, monkeypatch) -> None:
+def test_report_includes_rewrites(tmp_path, monkeypatch) -> None:
     candidates = [
         DummyCandidate("exp:acme__engineer:b01", "Built APIs in Python."),
         DummyCandidate("exp:acme__engineer:b02", "Improved latency by 20%."),
@@ -34,9 +34,9 @@ def test_v3_report_includes_rewrites(tmp_path, monkeypatch) -> None:
         tex_path = Path(pdf_path).with_suffix(".tex")
         return pdf_path, str(tex_path), selected_ids, rewrites
 
-    monkeypatch.setattr(loop_controller_v3, "multi_query_retrieve", fake_retrieve)
-    monkeypatch.setattr(loop_controller_v3, "_render_pdf", fake_render)
-    monkeypatch.setattr(loop_controller_v3, "_trim_to_single_page", fake_trim)
+    monkeypatch.setattr(loop_controller, "multi_query_retrieve", fake_retrieve)
+    monkeypatch.setattr(loop_controller, "_render_pdf", fake_render)
+    monkeypatch.setattr(loop_controller, "_trim_to_single_page", fake_trim)
 
     base = Path(__file__).resolve().parents[2]
     settings = get_settings().model_copy(
@@ -69,7 +69,7 @@ def test_v3_report_includes_rewrites(tmp_path, monkeypatch) -> None:
         "projects": [],
     }
 
-    artifacts = loop_controller_v3.run_loop_v3(
+    artifacts = loop_controller.run_loop(
         jd_text="Sample JD",
         collection=None,
         embedding_fn=None,
