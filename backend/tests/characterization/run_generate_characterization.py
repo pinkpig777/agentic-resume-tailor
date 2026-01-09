@@ -99,8 +99,7 @@ def _ensure_env(tmp_dir: str) -> None:
 
 
 def _seed_db_from_json() -> None:
-    """Seed database from JSON.
-    """
+    """Seed database from JSON."""
     from agentic_resume_tailor.db.models import (
         Education,
         EducationBullet,
@@ -243,8 +242,7 @@ def _run_generate(payload: dict, tmp_dir: str) -> dict:
 
 
 def main() -> None:
-    """Main.
-    """
+    """Main."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--update",

@@ -33,9 +33,13 @@ backend/output/
 # personal data
 backend/data/my_experience.json
 backend/data/raw_experience_data.json
-backend/config/user_settings.local.json
 backend/config/user_settings.docker.json
 backend/templates/resume.local.tex
+# local settings + data stores
+**/user_settings.local.json
+**/resume.db
+**/chroma.sqlite3
+data/processed/
 # OS & IDE
 .DS_Store
 .vscode/

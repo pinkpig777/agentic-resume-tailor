@@ -57,9 +57,7 @@ def export_resume_data(session: Session) -> Dict[str, Any]:
     }
 
     educations = (
-        session.query(Education)
-        .order_by(Education.sort_order.asc(), Education.id.asc())
-        .all()
+        session.query(Education).order_by(Education.sort_order.asc(), Education.id.asc()).all()
     )
     for edu in educations:
         bullets = (
@@ -79,9 +77,7 @@ def export_resume_data(session: Session) -> Dict[str, Any]:
         )
 
     experiences = (
-        session.query(Experience)
-        .order_by(Experience.sort_order.asc(), Experience.id.asc())
-        .all()
+        session.query(Experience).order_by(Experience.sort_order.asc(), Experience.id.asc()).all()
     )
     for exp in experiences:
         bullets = (
@@ -97,15 +93,11 @@ def export_resume_data(session: Session) -> Dict[str, Any]:
                 "dates": exp.dates or "",
                 "location": exp.location or "",
                 "job_id": exp.job_id,
-                "bullets": [
-                    {"id": b.local_id, "text_latex": b.text_latex or ""} for b in bullets
-                ],
+                "bullets": [{"id": b.local_id, "text_latex": b.text_latex or ""} for b in bullets],
             }
         )
 
-    projects = (
-        session.query(Project).order_by(Project.sort_order.asc(), Project.id.asc()).all()
-    )
+    projects = session.query(Project).order_by(Project.sort_order.asc(), Project.id.asc()).all()
     for proj in projects:
         bullets = (
             session.query(ProjectBullet)
@@ -118,9 +110,7 @@ def export_resume_data(session: Session) -> Dict[str, Any]:
                 "name": proj.name or "",
                 "technologies": proj.technologies or "",
                 "project_id": proj.project_id,
-                "bullets": [
-                    {"id": b.local_id, "text_latex": b.text_latex or ""} for b in bullets
-                ],
+                "bullets": [{"id": b.local_id, "text_latex": b.text_latex or ""} for b in bullets],
             }
         )
 

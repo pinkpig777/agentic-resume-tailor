@@ -294,9 +294,7 @@ def multi_query_retrieve(
         # sort hits desc for debugging/provenance
         v["hits"].sort(key=lambda h: h.weighted, reverse=True)
         base_total_weighted = float(v["total_weighted"])
-        quant_bonus = _compute_quant_bonus(
-            v["text_latex"], per_hit=quant_per_hit, cap=quant_cap
-        )
+        quant_bonus = _compute_quant_bonus(v["text_latex"], per_hit=quant_per_hit, cap=quant_cap)
         section_weight = _section_weight(v["meta"], settings.experience_weight)
         selection_score = (float(v["best_hit"].weighted) + quant_bonus) * section_weight
         total_weighted = base_total_weighted * section_weight

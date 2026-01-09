@@ -6,24 +6,24 @@ import shutil
 import subprocess
 import threading
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
+from queue import Empty, Queue
 from typing import Any, Dict, List, Literal, Tuple
 
 import chromadb
 import jinja2
 import uvicorn
-from chromadb.utils import embedding_functions
+from chromadb.errors import NotFoundError
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from pypdf import PdfReader
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
+from pypdf import PdfReader
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
-from agentic_resume_tailor.core.jd_utils import fallback_queries_from_jd, try_parse_jd
-from agentic_resume_tailor.core.keyword_matcher import extract_profile_keywords
-from agentic_resume_tailor.core.loop_controller import LoopConfig, run_loop
+from agentic_resume_tailor.core.loop_controller import generate_run_id, run_loop
 from agentic_resume_tailor.db.models import (
     Education,
     EducationBullet,
@@ -43,12 +43,13 @@ from agentic_resume_tailor.db.utils import (
     next_bullet_id,
     next_sort_order,
 )
+from agentic_resume_tailor.settings import get_settings
 from agentic_resume_tailor.user_config import (
     get_user_config_path,
     load_user_config,
     save_user_config,
 )
-from agentic_resume_tailor.settings import get_settings
+from agentic_resume_tailor.utils.embeddings import build_sentence_transformer_ef
 from agentic_resume_tailor.utils.logging import configure_logging
 
 configure_logging()
@@ -57,6 +58,65 @@ settings = get_settings()
 
 INGEST_LOCK = threading.Lock()
 USER_CONFIG = load_user_config()
+
+PROGRESS_TTL_S = 1800
+
+
+@dataclass
+class RunProgress:
+    queue: Queue[Dict[str, Any]] = field(default_factory=Queue)
+    state: Dict[str, Any] = field(default_factory=dict)
+
+
+RUN_PROGRESS: Dict[str, RunProgress] = {}
+RUN_PROGRESS_LOCK = threading.Lock()
+
+
+def _schedule_progress_cleanup(run_id: str) -> None:
+    def _cleanup() -> None:
+        with RUN_PROGRESS_LOCK:
+            RUN_PROGRESS.pop(run_id, None)
+
+    timer = threading.Timer(PROGRESS_TTL_S, _cleanup)
+    timer.daemon = True
+    timer.start()
+
+
+def _get_or_create_progress(run_id: str, max_iters: int | None = None) -> RunProgress:
+    with RUN_PROGRESS_LOCK:
+        progress = RUN_PROGRESS.get(run_id)
+        if progress is None:
+            progress = RunProgress(
+                state={
+                    "run_id": run_id,
+                    "status": "pending",
+                    "stage": None,
+                    "iteration": None,
+                    "max_iters": max_iters,
+                    "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                }
+            )
+            RUN_PROGRESS[run_id] = progress
+        elif max_iters is not None:
+            progress.state.setdefault("max_iters", max_iters)
+    return progress
+
+
+def _emit_progress(run_id: str, payload: Dict[str, Any]) -> None:
+    progress = _get_or_create_progress(run_id)
+    event = {"run_id": run_id, **payload}
+    if "status" not in event:
+        stage = event.get("stage")
+        event["status"] = "complete" if stage == "done" else "running"
+    event["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    progress.state.update(event)
+    progress.queue.put(event)
+    if event.get("status") in ("complete", "error"):
+        _schedule_progress_cleanup(run_id)
+
+
+def _format_sse(payload: Dict[str, Any]) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 # -----------------------------
 # Configuration (env-driven)
@@ -80,7 +140,6 @@ DEFAULT_THRESHOLD = settings.threshold
 DEFAULT_ALPHA = settings.alpha
 DEFAULT_MUST_WEIGHT = settings.must_weight
 
-# set to "http://localhost:8501" if you want strict
 CORS_ORIGINS = settings.cors_origins
 
 
@@ -115,8 +174,8 @@ class TempOverrides(BaseModel):
 
 class GenerateRequest(BaseModel):
     jd_text: str = Field(min_length=1)
+    run_id: str | None = Field(default=None, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
-    # Optional overrides
     max_bullets: int = Field(default=DEFAULT_MAX_BULLETS, ge=4, le=32)
     per_query_k: int = Field(default=DEFAULT_PER_QUERY_K, ge=1, le=50)
     final_k: int = Field(default=DEFAULT_FINAL_K, ge=5, le=200)
@@ -127,10 +186,10 @@ class GenerateRequest(BaseModel):
     alpha: float = Field(default=DEFAULT_ALPHA, ge=0.0, le=1.0)
     must_weight: float = Field(default=DEFAULT_MUST_WEIGHT, ge=0.0, le=1.0)
 
-    # Boosting behavior
     boost_weight: float = Field(default=settings.boost_weight, ge=0.1, le=3.0)
     boost_top_n_missing: int = Field(default=settings.boost_top_n_missing, ge=1, le=20)
-    temp_overrides: TempOverrides | None = None
+
+    enable_bullet_rewrite: bool | None = None
 
 
 class GenerateResponse(BaseModel):
@@ -142,9 +201,18 @@ class GenerateResponse(BaseModel):
     report_url: str
 
 
+class GenerateV3Request(GenerateRequest):
+    """Deprecated. Use GenerateRequest."""
+
+
+class GenerateV3Response(GenerateResponse):
+    """Deprecated. Use GenerateResponse."""
+
+
 class RenderSelectionRequest(BaseModel):
     selected_ids: List[str] = Field(default_factory=list)
     temp_overrides: TempOverrides | None = None
+    rewritten_bullets: Dict[str, str] | None = None
 
 
 class PersonalInfoUpdate(BaseModel):
@@ -271,9 +339,18 @@ def _load_static_data() -> Dict[str, Any]:
 
 def _load_collection():
     """Load the Chroma collection and embedding function."""
+    if os.environ.get("ART_SKIP_CHROMA_LOAD"):
+        logger.warning("ART_SKIP_CHROMA_LOAD set; skipping Chroma load.")
+        return None, None
     client = chromadb.PersistentClient(path=DB_PATH)
-    ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=EMBED_MODEL)
-    collection = client.get_collection(name=COLLECTION_NAME, embedding_function=ef)
+    ef = build_sentence_transformer_ef(EMBED_MODEL, disable_progress=True)
+    try:
+        collection = client.get_collection(name=COLLECTION_NAME, embedding_function=ef)
+    except NotFoundError:
+        logger.warning(
+            "Chroma collection '%s' missing; creating empty collection.", COLLECTION_NAME
+        )
+        collection = client.create_collection(name=COLLECTION_NAME, embedding_function=ef)
     logger.info("Loaded Chroma collection '%s' (%s records)", COLLECTION_NAME, collection.count())
     return collection, ef
 
@@ -682,6 +759,99 @@ def select_and_rebuild(
     return tailored
 
 
+def select_and_rebuild_with_rewrites(
+    static_data: Dict[str, Any],
+    selected_ids: List[str],
+    rewritten_bullets: Dict[str, str],
+    selected_candidates: List[Any] | None = None,
+    temp_overrides: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """Build a tailored resume snapshot with selected bullets and rewrites."""
+    selected_set = set(selected_ids)
+    temp_overrides = temp_overrides or {}
+    temp_edits: Dict[str, str] = temp_overrides.get("edits", {}) or {}
+    temp_additions: List[Dict[str, Any]] = temp_overrides.get("additions", []) or []
+    tailored = copy.deepcopy(static_data)
+    score_map: Dict[str, float] = {}
+    for c in selected_candidates or []:
+        score = getattr(c, "selection_score", None)
+        if score is None:
+            score = getattr(getattr(c, "best_hit", None), "weighted", 0.0)
+        score_map[getattr(c, "bullet_id", "")] = float(score or 0.0)
+    order_map = {bid: idx for idx, bid in enumerate(selected_ids)}
+    use_order = not score_map
+
+    for addition in temp_additions:
+        parent_type = addition.get("parent_type")
+        parent_id = addition.get("parent_id")
+        temp_id = addition.get("temp_id")
+        text_latex = addition.get("text_latex")
+        if not parent_type or not parent_id or not temp_id or not text_latex:
+            continue
+        if parent_type == "experience":
+            for exp in tailored.get("experiences", []) or []:
+                if exp.get("job_id") == parent_id:
+                    exp.setdefault("bullets", []).append({"id": temp_id, "text_latex": text_latex})
+                    break
+        elif parent_type == "project":
+            for proj in tailored.get("projects", []) or []:
+                if proj.get("project_id") == parent_id:
+                    proj.setdefault("bullets", []).append({"id": temp_id, "text_latex": text_latex})
+                    break
+
+    new_exps = []
+    for exp in tailored.get("experiences", []) or []:
+        job_id = exp.get("job_id")
+        kept_bullets: List[tuple[float, str, str]] = []
+        for idx, b in enumerate(exp.get("bullets", []) or []):
+            local_id = b.get("id")
+            if not job_id or not local_id:
+                continue
+            bid = f"exp:{job_id}:{local_id}"
+            if bid in selected_set:
+                score = score_map.get(bid, 0.0)
+                tie = local_id or f"idx:{idx:04d}"
+                base_text = rewritten_bullets.get(bid, b.get("text_latex", ""))
+                text = temp_edits.get(bid, base_text)
+                order = order_map.get(bid, len(order_map))
+                kept_bullets.append((order if use_order else score, tie, text))
+        if kept_bullets:
+            if use_order:
+                kept_bullets.sort(key=lambda item: (item[0], item[1]))
+            else:
+                kept_bullets.sort(key=lambda item: (-item[0], item[1]))
+            exp["bullets"] = [text for _, _, text in kept_bullets]
+            new_exps.append(exp)
+
+    new_projs = []
+    for proj in tailored.get("projects", []) or []:
+        project_id = proj.get("project_id")
+        kept_bullets: List[tuple[float, str, str]] = []
+        for idx, b in enumerate(proj.get("bullets", []) or []):
+            local_id = b.get("id")
+            if not project_id or not local_id:
+                continue
+            bid = f"proj:{project_id}:{local_id}"
+            if bid in selected_set:
+                score = score_map.get(bid, 0.0)
+                tie = local_id or f"idx:{idx:04d}"
+                base_text = rewritten_bullets.get(bid, b.get("text_latex", ""))
+                text = temp_edits.get(bid, base_text)
+                order = order_map.get(bid, len(order_map))
+                kept_bullets.append((order if use_order else score, tie, text))
+        if kept_bullets:
+            if use_order:
+                kept_bullets.sort(key=lambda item: (item[0], item[1]))
+            else:
+                kept_bullets.sort(key=lambda item: (-item[0], item[1]))
+            proj["bullets"] = [text for _, _, text in kept_bullets]
+            new_projs.append(proj)
+
+    tailored["experiences"] = new_exps
+    tailored["projects"] = new_projs
+    return tailored
+
+
 def render_pdf(context: Dict[str, Any], run_id: str) -> Tuple[str, str]:
     """Render a resume context to LaTeX/PDF artifacts.
 
@@ -763,6 +933,7 @@ def _trim_to_single_page(
     selected_candidates: List[Any],
     pdf_path: str,
     temp_overrides: Dict[str, Any] | None = None,
+    rewritten_bullets: Dict[str, str] | None = None,
 ) -> Tuple[str, str, List[str], List[Any]]:
     """Trim lowest-weight bullets until the PDF is single-page.
 
@@ -801,9 +972,21 @@ def _trim_to_single_page(
         ]
         if os.path.exists(pdf_path):
             os.remove(pdf_path)
-        tailored = select_and_rebuild(
-            static_data, selected_ids, selected_candidates, temp_overrides=temp_overrides
-        )
+        if rewritten_bullets:
+            tailored = select_and_rebuild_with_rewrites(
+                static_data,
+                selected_ids,
+                rewritten_bullets,
+                selected_candidates,
+                temp_overrides=temp_overrides,
+            )
+        else:
+            tailored = select_and_rebuild(
+                static_data,
+                selected_ids,
+                selected_candidates,
+                temp_overrides=temp_overrides,
+            )
         pdf_path, tex_path = render_pdf(tailored, run_id)
         page_count = _pdf_page_count(pdf_path)
 
@@ -827,15 +1010,35 @@ def _run_id() -> str:
     return time.strftime("%Y%m%d_%H%M%S") + "_" + str(int(time.time() * 1000))[-6:]
 
 
+def _require_collection() -> Tuple[Any, Any]:
+    """Ensure Chroma is loaded before running generation."""
+    if COLLECTION is None or EMB_FN is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Chroma collection is not loaded; run /admin/ingest first.",
+        )
+    return COLLECTION, EMB_FN
+
+
 # -----------------------------
 # Startup
 # -----------------------------
-logger.info("API Server starting: Initializing resume DB...")
-init_db()
-logger.info("API Server starting: Loading data + Chroma...")
-STATIC_DATA = _load_static_data()
-COLLECTION, EMB_FN = _load_collection()
-logger.info("API Server ready.")
+STATIC_DATA: Dict[str, Any] = {}
+COLLECTION: Any | None = None
+EMB_FN: Any | None = None
+
+
+@app.on_event("startup")
+def _startup() -> None:
+    logger.info("API Server starting: Initializing resume DB...")
+    init_db()
+    if os.environ.get("ART_SKIP_STARTUP_LOAD"):
+        logger.info("API Server startup load skipped.")
+        return
+    logger.info("API Server starting: Loading data + Chroma...")
+    _reload_static_data()
+    _reload_collection()
+    logger.info("API Server ready.")
 
 
 # -----------------------------
@@ -1666,127 +1869,59 @@ def ingest_resume(db: Session = Depends(get_db)):
 
 @app.post("/generate", response_model=GenerateResponse)
 async def generate(req: GenerateRequest) -> GenerateResponse:
-    """Run the resume generation pipeline.
-
-    Args:
-        req: Request payload.
-
-    Returns:
-        Result value.
-    """
+    """Run the resume generation pipeline."""
     jd_text = (req.jd_text or "").strip()
     if not jd_text:
         return JSONResponse({"error": "jd_text is empty"}, status_code=400)
 
-    run_id = _run_id()
     static_data = _load_static_data()
 
-    profile = try_parse_jd(jd_text)
-    base_profile_or_queries = profile if profile is not None else fallback_queries_from_jd(jd_text)
-    profile_keywords = None
-    if profile is not None:
-        try:
-            profile_keywords = extract_profile_keywords(profile)
-        except Exception:
-            logger.exception("Failed to extract profile keywords")
-            profile_keywords = None
-
-    cfg = LoopConfig(
-        max_iters=req.max_iters,
-        threshold=req.threshold,
-        per_query_k=req.per_query_k,
-        final_k=req.final_k,
-        max_bullets=req.max_bullets,
-        alpha=req.alpha,
-        must_weight=req.must_weight,
-        boost_weight=req.boost_weight,
-        boost_top_n_missing=req.boost_top_n_missing,
-    )
-
-    loop = run_loop(
-        jd_text=jd_text,
-        static_data=static_data,
-        collection=COLLECTION,
-        embedding_fn=EMB_FN,
-        base_profile_or_queries=base_profile_or_queries,
-        cfg=cfg,
-    )
-
-    # Build final resume and render artifacts from best iteration
-    selected_ids = list(loop.best_selected_ids)
-    selected_candidates = list(loop.best_selected_candidates or [])
-    selected_ids, selected_candidates, temp_overrides = _apply_temp_overrides(
-        run_id,
-        selected_ids,
-        selected_candidates,
-        req.temp_overrides,
-        auto_include_additions=True,
-    )
-    if not selected_ids:
-        return JSONResponse({"error": "selected_ids is empty after overrides"}, status_code=400)
-
-    tailored_data = select_and_rebuild(
-        static_data,
-        selected_ids,
-        selected_candidates,
-        temp_overrides=temp_overrides,
-    )
-    pdf_path, tex_path = render_pdf(tailored_data, run_id)
-    pdf_path, tex_path, selected_ids, selected_candidates = _trim_to_single_page(
-        run_id,
-        static_data,
-        selected_ids,
-        selected_candidates,
-        pdf_path,
-        temp_overrides=temp_overrides,
-    )
-    temp_overrides = _filter_temp_overrides_for_report(temp_overrides, selected_ids)
-
-    report = {
-        "run_id": run_id,
-        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "profile_used": profile is not None,
-        "loop_config": cfg.__dict__,
-        "best_iteration_index": loop.best_iteration_index,
-        "selected_ids": selected_ids,
-        "iterations": loop.iterations,
-        "artifacts": {
-            "pdf": os.path.basename(pdf_path),
-            "tex": os.path.basename(tex_path),
-        },
+    overrides = {
+        "max_bullets": req.max_bullets,
+        "per_query_k": req.per_query_k,
+        "final_k": req.final_k,
+        "max_iters": req.max_iters,
+        "threshold": req.threshold,
+        "alpha": req.alpha,
+        "must_weight": req.must_weight,
+        "boost_weight": req.boost_weight,
+        "boost_top_n_missing": req.boost_top_n_missing,
     }
-    if profile_keywords:
-        report["profile_keywords"] = profile_keywords
-    if _has_temp_overrides(temp_overrides):
-        report["temp_additions"] = temp_overrides.get("additions", [])
-        report["temp_edits"] = temp_overrides.get("edits", {})
-        report["temp_removals"] = temp_overrides.get("removals", [])
+    if req.enable_bullet_rewrite is not None:
+        overrides["enable_bullet_rewrite"] = req.enable_bullet_rewrite
 
-    # Attach best score summary if available
-    if loop.best_hybrid is not None:
-        report["best_score"] = {
-            "final_score": loop.best_hybrid.final_score,
-            "retrieval_score": loop.best_hybrid.retrieval_score,
-            "coverage_bullets_only": loop.best_hybrid.coverage_bullets_only,
-            "coverage_all": loop.best_hybrid.coverage_all,
-            "must_missing_bullets_only": loop.best_hybrid.must_missing_bullets_only,
-            "nice_missing_bullets_only": loop.best_hybrid.nice_missing_bullets_only,
-            "must_missing_all": loop.best_hybrid.must_missing_all,
-            "nice_missing_all": loop.best_hybrid.nice_missing_all,
-        }
-
-    report_path = os.path.join(OUTPUT_DIR, f"{run_id}_report.json")
-    with open(report_path, "w", encoding="utf-8") as f:
-        json.dump(report, f, indent=2, ensure_ascii=False)
+    loop_settings = settings.model_copy(update=overrides)
+    run_id = req.run_id or generate_run_id(loop_settings)
+    _get_or_create_progress(run_id, max_iters=loop_settings.max_iters)
+    collection, embedding_fn = _require_collection()
+    try:
+        artifacts = run_loop(
+            jd_text=jd_text,
+            collection=collection,
+            embedding_fn=embedding_fn,
+            static_export=static_data,
+            settings=loop_settings,
+            run_id=run_id,
+            progress_cb=lambda payload: _emit_progress(run_id, payload),
+        )
+    except Exception as exc:
+        _emit_progress(run_id, {"stage": "error", "status": "error", "message": str(exc)})
+        raise
 
     return GenerateResponse(
-        run_id=run_id,
-        profile_used=profile is not None,
-        best_iteration_index=loop.best_iteration_index,
-        pdf_url=f"/runs/{run_id}/pdf",
-        tex_url=f"/runs/{run_id}/tex",
-        report_url=f"/runs/{run_id}/report",
+        run_id=artifacts.run_id,
+        profile_used=artifacts.profile_used,
+        best_iteration_index=artifacts.best_iteration_index,
+        pdf_url=f"/runs/{artifacts.run_id}/pdf",
+        tex_url=f"/runs/{artifacts.run_id}/tex",
+        report_url=f"/runs/{artifacts.run_id}/report",
     )
+
+
+@app.post("/generate_v3", response_model=GenerateResponse)
+async def generate_v3(req: GenerateV3Request) -> GenerateResponse:
+    """Deprecated. Use /generate."""
+    return await generate(req)
 
 
 @app.post("/runs/{run_id}/render")
@@ -1809,12 +1944,22 @@ def render_selected(run_id: str, payload: RenderSelectionRequest):
         return JSONResponse({"error": "selected_ids is empty"}, status_code=400)
 
     static_data = _load_static_data()
-    tailored_data = select_and_rebuild(
-        static_data,
-        selected_ids,
-        [],
-        temp_overrides=temp_overrides,
-    )
+    rewritten_bullets = payload.rewritten_bullets or {}
+    if rewritten_bullets:
+        tailored_data = select_and_rebuild_with_rewrites(
+            static_data,
+            selected_ids,
+            rewritten_bullets,
+            [],
+            temp_overrides=temp_overrides,
+        )
+    else:
+        tailored_data = select_and_rebuild(
+            static_data,
+            selected_ids,
+            [],
+            temp_overrides=temp_overrides,
+        )
     pdf_path, tex_path = render_pdf(tailored_data, run_id)
     pdf_path, tex_path, selected_ids, _ = _trim_to_single_page(
         run_id,
@@ -1823,6 +1968,7 @@ def render_selected(run_id: str, payload: RenderSelectionRequest):
         [],
         pdf_path,
         temp_overrides=temp_overrides,
+        rewritten_bullets=rewritten_bullets if rewritten_bullets else None,
     )
     temp_overrides = _filter_temp_overrides_for_report(temp_overrides, selected_ids)
 
@@ -1837,6 +1983,12 @@ def render_selected(run_id: str, payload: RenderSelectionRequest):
         report.setdefault("artifacts", {})
         report["artifacts"]["pdf"] = os.path.basename(pdf_path)
         report["artifacts"]["tex"] = os.path.basename(tex_path)
+        if rewritten_bullets and isinstance(report.get("rewritten_bullets"), list):
+            report["rewritten_bullets"] = [
+                entry
+                for entry in report["rewritten_bullets"]
+                if entry.get("bullet_id") in set(selected_ids)
+            ]
         if _has_temp_overrides(temp_overrides):
             report["temp_additions"] = temp_overrides.get("additions", [])
             report["temp_edits"] = temp_overrides.get("edits", {})
@@ -1858,6 +2010,27 @@ def render_selected(run_id: str, payload: RenderSelectionRequest):
     }
 
 
+@app.get("/runs/{run_id}/events")
+def stream_run_events(run_id: str):
+    """Stream progress events for a run via Server-Sent Events."""
+    progress = _get_or_create_progress(run_id)
+
+    def event_stream():
+        yield _format_sse(progress.state)
+        while True:
+            try:
+                event = progress.queue.get(timeout=10)
+            except Empty:
+                yield "event: ping\ndata: {}\n\n"
+                continue
+            yield _format_sse(event)
+            if event.get("status") in ("complete", "error"):
+                break
+
+    headers = {"Cache-Control": "no-cache", "Connection": "keep-alive"}
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers=headers)
+
+
 @app.get("/runs/{run_id}/pdf")
 def get_pdf(run_id: str):
     """Serve a rendered PDF artifact.
@@ -1869,7 +2042,8 @@ def get_pdf(run_id: str):
     if not os.path.exists(path):
         return JSONResponse({"error": "pdf not found"}, status_code=404)
     filename = _normalize_output_pdf_name(OUTPUT_PDF_NAME) or "tailored_resume.pdf"
-    return FileResponse(path, media_type="application/pdf", filename=filename)
+    headers = {"Content-Disposition": f'inline; filename="{filename}"'}
+    return FileResponse(path, media_type="application/pdf", headers=headers)
 
 
 @app.get("/runs/{run_id}/tex")

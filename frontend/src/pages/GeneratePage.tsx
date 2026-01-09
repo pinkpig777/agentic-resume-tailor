@@ -1,29 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import {
-  DndContext,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  arrayMove,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import {
-  ChevronDown,
-  Download,
-  GripVertical,
-  Loader2,
-  Plus,
-  Sparkles,
-  Trash2,
-} from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Download, Loader2, RefreshCcw, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,27 +10,30 @@ import {
   API_BASE_URL,
   fetchData,
   fetchRunReport,
+  fetchSettings,
   generateResume,
   renderSelection,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type {
-  GenerateResponse,
-  ResumeData,
-  RunReport,
-  TempAddition,
-  TempOverrides,
-} from "@/types/schema";
+import type { GenerateResponse, ResumeData, RunReport } from "@/types/schema";
 
-type SelectionItem = {
-  id: string;
+type BulletInfo = {
   text: string;
-  originalText: string;
   label: string;
-  parentType?: "experience" | "project" | "unknown";
-  parentId?: string;
-  tempId?: string;
-  isTemp: boolean;
+  parentType: "experience" | "project";
+  parentId: string;
+};
+
+type BulletCard = {
+  id: string;
+  label: string;
+  section: string;
+  parentType: "experience" | "project" | "unknown";
+  parentId: string;
+  text: string;
+  baseText: string;
+  originalText: string;
+  hasRewrite: boolean;
 };
 
 type StatusTone = "success" | "error";
@@ -63,88 +43,37 @@ type StatusMessage = {
   message: string;
 };
 
-type ParentOption = {
-  id: string;
-  label: string;
+type RunProgressEvent = {
+  stage?: string;
+  status?: "pending" | "running" | "complete" | "error";
+  iteration?: number;
+  max_iters?: number;
+  message?: string;
 };
 
-type BulletOption = {
-  id: string;
-  text: string;
-  parentType: "experience" | "project" | "unknown";
-  parentId: string;
-  parentLabel: string;
-};
-
-type AvailableGroup = {
+type BulletGroup = {
   key: string;
-  label: string;
-  parentType: "experience" | "project" | "unknown";
-  parentId: string;
-  items: BulletOption[];
+  title: string;
+  section: "Experience" | "Project" | "Unknown";
+  items: BulletCard[];
 };
 
-type SelectedGroup = {
-  key: string;
-  label: string;
-  parentType: "experience" | "project" | "unknown";
-  parentId: string;
-  items: SelectionItem[];
-};
+const LOOP_STAGES = [
+  { key: "query", label: "Query" },
+  { key: "retrieve", label: "Retrieve" },
+  { key: "select", label: "Select" },
+  { key: "rewrite", label: "Rewrite" },
+  { key: "score", label: "Score" },
+  { key: "render", label: "Render" },
+];
 
-type StoredGenerateState = {
-  jdText: string;
-  result: GenerateResponse | null;
-  selection: SelectionItem[];
-};
-
-const STORAGE_KEY = "art.generate.state.v1";
-
-const loadStoredState = (): StoredGenerateState | null => {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw) as StoredGenerateState;
-    if (!parsed || typeof parsed !== "object") {
-      return null;
-    }
-    return {
-      jdText: parsed.jdText ?? "",
-      result: parsed.result ?? null,
-      selection: Array.isArray(parsed.selection) ? parsed.selection : [],
-    };
-  } catch {
-    return null;
-  }
-};
-
-const persistState = (state: StoredGenerateState) => {
-  if (typeof window === "undefined") {
-    return;
-  }
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // Ignore storage write failures (private mode, quota, etc.)
-  }
-};
-
-const buildBulletId = (
-  parentType: "experience" | "project",
-  parentId: string,
-  localId: string,
-) => `${parentType === "experience" ? "exp" : "proj"}:${parentId}:${localId}`;
+const STAGE_INDEX = new Map(
+  LOOP_STAGES.map((stage, idx) => [stage.key, idx]),
+);
+STAGE_INDEX.set("done", LOOP_STAGES.length - 1);
 
 const buildBulletLookup = (data: ResumeData) => {
-  const map = new Map<
-    string,
-    { text: string; label: string; parentType: "experience" | "project"; parentId: string }
-  >();
+  const map = new Map<string, BulletInfo>();
 
   data.experiences.forEach((exp) => {
     const label = `${exp.role} · ${exp.company}`;
@@ -175,281 +104,186 @@ const buildBulletLookup = (data: ResumeData) => {
   return map;
 };
 
-const buildAvailableGroups = (
-  data: ResumeData,
-  selectedIds: Set<string>,
-): AvailableGroup[] => {
-  const groups: AvailableGroup[] = [];
-
-  data.experiences.forEach((exp) => {
-    const label = `${exp.role} · ${exp.company}`;
-    const items = exp.bullets
-      .map((bullet) => ({
-        id: `exp:${exp.job_id}:${bullet.id}`,
-        text: bullet.text_latex,
-        parentType: "experience" as const,
-        parentId: exp.job_id,
-        parentLabel: label,
-      }))
-      .filter((item) => !selectedIds.has(item.id));
-    if (items.length) {
-      groups.push({
-        key: `exp:${exp.job_id}`,
-        label,
-        parentType: "experience",
-        parentId: exp.job_id,
-        items,
-      });
-    }
-  });
-
-  data.projects.forEach((proj) => {
-    const label = proj.name;
-    const items = proj.bullets
-      .map((bullet) => ({
-        id: `proj:${proj.project_id}:${bullet.id}`,
-        text: bullet.text_latex,
-        parentType: "project" as const,
-        parentId: proj.project_id,
-        parentLabel: label,
-      }))
-      .filter((item) => !selectedIds.has(item.id));
-    if (items.length) {
-      groups.push({
-        key: `proj:${proj.project_id}`,
-        label,
-        parentType: "project",
-        parentId: proj.project_id,
-        items,
-      });
-    }
-  });
-
-  return groups;
-};
-
-const sortGroupsByType = <T extends { parentType: "experience" | "project" | "unknown" }>(
-  groups: T[],
-): T[] => {
-  const experiences = groups.filter((group) => group.parentType === "experience");
-  const projects = groups.filter((group) => group.parentType === "project");
-  const unknown = groups.filter((group) => group.parentType === "unknown");
-  return [...experiences, ...projects, ...unknown];
-};
-
-const buildSelectedGroups = (items: SelectionItem[]): SelectedGroup[] => {
-  const groups = new Map<string, SelectedGroup>();
-  const order: string[] = [];
-
-  items.forEach((item) => {
-    const parentType = item.parentType ?? "unknown";
-    const parentId = item.parentId ?? "";
-    const key =
-      parentType === "unknown" ? `unknown:${item.id}` : `${parentType}:${parentId}`;
-    if (!groups.has(key)) {
-      groups.set(key, {
-        key,
-        label: item.label || "Unlinked bullets",
-        parentType,
-        parentId,
-        items: [],
-      });
-      order.push(key);
-    }
-    groups.get(key)?.items.push(item);
-  });
-
-  const ordered = order.map((key) => groups.get(key)!).filter(Boolean);
-  return sortGroupsByType(ordered);
-};
-
-const labelForSection = (type: "experience" | "project" | "unknown") => {
-  if (type === "project") {
-    return "Project";
-  }
-  if (type === "experience") {
-    return "Experience";
-  }
-  return "Bullet";
-};
-
-const mapTempAdditions = (report: RunReport) => {
-  const additions = report.temp_additions ?? [];
-  const map = new Map<string, TempAddition>();
-  additions.forEach((addition, index) => {
-    const bulletId =
-      addition.bullet_id ||
-      buildBulletId(
-        addition.parent_type,
-        addition.parent_id,
-        addition.temp_id || `tmp_${report.run_id}_${index + 1}`,
-      );
-    map.set(bulletId, { ...addition, bullet_id: bulletId });
+const buildRewriteMap = (report?: RunReport) => {
+  const map = new Map<string, { rewritten: string; original: string }>();
+  (report?.rewritten_bullets ?? []).forEach((entry) => {
+    map.set(entry.bullet_id, {
+      rewritten: entry.rewritten_text,
+      original: entry.original_text,
+    });
   });
   return map;
 };
 
-const buildSelectionFromReport = (
-  report: RunReport,
-  lookup: Map<
-    string,
-    { text: string; label: string; parentType: "experience" | "project"; parentId: string }
-  >,
-) => {
-  const additionsById = mapTempAdditions(report);
-  const edits = report.temp_edits ?? {};
-
-  return report.selected_ids.map((id) => {
-    const addition = additionsById.get(id);
-    if (addition) {
-      const label =
-        lookup.get(id)?.label ||
-        `${addition.parent_type} · ${addition.parent_id}`;
-      return {
-        id,
-        text: addition.text_latex,
-        originalText: addition.text_latex,
-        label,
-        parentType: addition.parent_type,
-        parentId: addition.parent_id,
-        tempId: addition.temp_id,
-        isTemp: true,
-      } satisfies SelectionItem;
-    }
-
+const buildBulletCards = (
+  ids: string[],
+  lookup: Map<string, BulletInfo>,
+  rewrites: Map<string, { rewritten: string; original: string }>,
+  edits: Record<string, string>,
+) =>
+  ids.map((id) => {
     const info = lookup.get(id);
-    const baseText = info?.text ?? "";
-    const text = edits[id] ?? baseText;
+    const rewrite = rewrites.get(id);
+    const parentType = info?.parentType ?? "unknown";
+    const section =
+      parentType === "project"
+        ? "Project"
+        : parentType === "experience"
+          ? "Experience"
+          : "Unknown";
+    const baseText = rewrite?.rewritten ?? info?.text ?? "";
     return {
       id,
-      text,
-      originalText: baseText,
-      label: info?.label ?? "Unknown bullet",
-      parentType: info?.parentType,
-      parentId: info?.parentId,
-      isTemp: false,
-    } satisfies SelectionItem;
+      label: info?.label ?? "Unknown",
+      section,
+      parentType,
+      parentId: info?.parentId ?? "",
+      text: edits[id] ?? baseText,
+      baseText,
+      originalText: rewrite?.original ?? info?.text ?? "",
+      hasRewrite: Boolean(rewrite && rewrite.rewritten !== rewrite.original),
+    } satisfies BulletCard;
   });
-};
 
-function SortableSelectionRow({
-  item,
-  onChange,
-  onBlur,
-  onDelete,
-}: {
-  item: SelectionItem;
-  onChange: (id: string, value: string) => void;
-  onBlur: (id: string, value: string) => void;
-  onDelete: (id: string) => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: item.id });
+const buildBulletGroups = (
+  cards: BulletCard[],
+  resumeData?: ResumeData,
+): BulletGroup[] => {
+  const cardsById = new Map(cards.map((card) => [card.id, card]));
+  const idsByParent = new Map<string, string[]>();
+  const unknownIds: string[] = [];
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
+  cards.forEach((card) => {
+    if (!card.parentId || card.parentType === "unknown") {
+      unknownIds.push(card.id);
+      return;
+    }
+    const key = `${card.parentType}:${card.parentId}`;
+    const existing = idsByParent.get(key) ?? [];
+    existing.push(card.id);
+    idsByParent.set(key, existing);
+  });
+
+  const groups: BulletGroup[] = [];
+  const pushGroup = (
+    key: string,
+    section: BulletGroup["section"],
+    title: string,
+  ) => {
+    const ids = idsByParent.get(key);
+    if (!ids?.length) {
+      return;
+    }
+    groups.push({
+      key,
+      section,
+      title,
+      items: ids.map((id) => cardsById.get(id)).filter(Boolean) as BulletCard[],
+    });
   };
 
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={cn(
-        "flex gap-3 rounded-lg border bg-card p-3 shadow-sm",
-        isDragging && "opacity-70",
-      )}
-    >
-      <button
-        type="button"
-        className="mt-1 inline-flex h-9 w-9 items-center justify-center rounded-md border bg-muted text-muted-foreground transition hover:text-foreground"
-        aria-label="Drag bullet"
-        {...attributes}
-        {...listeners}
-      >
-        <GripVertical className="h-4 w-4" />
-      </button>
-      <div className="flex-1 space-y-2">
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span className="rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.2em]">
-            {item.parentType === "project"
-              ? "Project"
-              : item.parentType === "experience"
-                ? "Experience"
-                : "Bullet"}
-          </span>
-          <span className="font-medium text-foreground">{item.label}</span>
-          {item.isTemp ? (
-            <span className="rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-accent">
-              Temp
-            </span>
-          ) : null}
-        </div>
-        <Textarea
-          value={item.text}
-          onChange={(event) => onChange(item.id, event.target.value)}
-          onBlur={(event) => onBlur(item.id, event.target.value)}
-          className="min-h-[84px]"
-          placeholder="Bullet text"
-        />
-      </div>
-      <button
-        type="button"
-        className="mt-1 inline-flex h-9 w-9 items-center justify-center rounded-md border bg-muted text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
-        aria-label="Remove bullet"
-        onClick={() => onDelete(item.id)}
-      >
-        <Trash2 className="h-4 w-4" />
-      </button>
-    </div>
-  );
-}
+  if (resumeData) {
+    resumeData.experiences.forEach((exp) => {
+      const title = `${exp.role} · ${exp.company}`.trim();
+      pushGroup(`experience:${exp.job_id}`, "Experience", title || "Experience");
+    });
+    resumeData.projects.forEach((proj) => {
+      pushGroup(`project:${proj.project_id}`, "Project", proj.name || "Project");
+    });
+  } else {
+    const experienceKeys: string[] = [];
+    const projectKeys: string[] = [];
+    for (const key of idsByParent.keys()) {
+      if (key.startsWith("experience:")) {
+        experienceKeys.push(key);
+      } else if (key.startsWith("project:")) {
+        projectKeys.push(key);
+      }
+    }
+    experienceKeys.forEach((key) => pushGroup(key, "Experience", "Experience"));
+    projectKeys.forEach((key) => pushGroup(key, "Project", "Project"));
+  }
+
+  if (unknownIds.length) {
+    groups.push({
+      key: "unknown",
+      section: "Unknown",
+      title: "Other",
+      items: unknownIds
+        .map((id) => cardsById.get(id))
+        .filter(Boolean) as BulletCard[],
+    });
+  }
+
+  return groups;
+};
+
+const buildMissingSkills = (report?: RunReport) => ({
+  must: report?.best_score?.must_missing_bullets_only ?? [],
+  nice: report?.best_score?.nice_missing_bullets_only ?? [],
+});
 
 export default function GeneratePage() {
-  const initialState = useMemo(() => loadStoredState(), []);
-  const [jdText, setJdText] = useState(() => initialState?.jdText ?? "");
-  const [result, setResult] = useState<GenerateResponse | null>(
-    () => initialState?.result ?? null,
-  );
-  const [selection, setSelection] = useState<SelectionItem[]>(
-    () => initialState?.selection ?? [],
-  );
-  const [seededRunId, setSeededRunId] = useState<string | null>(() => {
-    if (initialState?.result?.run_id && initialState.selection?.length) {
-      return initialState.result.run_id;
-    }
-    return null;
-  });
-  const [selectionStatus, setSelectionStatus] = useState<StatusMessage | null>(null);
-  const [newBulletType, setNewBulletType] = useState<"experience" | "project">(
-    "experience",
-  );
-  const [selectedCollapsedGroups, setSelectedCollapsedGroups] = useState<
-    Record<string, boolean>
-  >({});
-  const [availableCollapsedGroups, setAvailableCollapsedGroups] = useState<
-    Record<string, boolean>
-  >({});
-  const [newBulletParentId, setNewBulletParentId] = useState("");
-  const [newBulletText, setNewBulletText] = useState("");
-  const tempCounter = useRef(0);
+  const queryClient = useQueryClient();
+  const [jdText, setJdText] = useState("");
+  const [result, setResult] = useState<GenerateResponse | null>(null);
+  const [selectionOrder, setSelectionOrder] = useState<string[]>([]);
+  const [selectedMap, setSelectedMap] = useState<Record<string, boolean>>({});
+  const [showOriginal, setShowOriginal] = useState<Record<string, boolean>>({});
+  const [editedBullets, setEditedBullets] = useState<Record<string, string>>({});
+  const [pdfNonce, setPdfNonce] = useState(() => Date.now());
+  const [loopStage, setLoopStage] = useState<number | null>(null);
+  const [loopStatus, setLoopStatus] = useState<RunProgressEvent["status"]>("pending");
+  const [loopIteration, setLoopIteration] = useState<number | null>(null);
+  const [loopMaxIters, setLoopMaxIters] = useState<number | null>(null);
+  const [showPreview, setShowPreview] = useState(true);
+  const [status, setStatus] = useState<StatusMessage | null>(null);
+  const lastRunIdRef = useRef<string | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
-  const { data: resumeData } = useQuery({
+  const { isError: settingsError, refetch: refetchSettings } = useQuery({
+    queryKey: ["settings"],
+    queryFn: fetchSettings,
+  });
+
+  const {
+    data: resumeData,
+    isError: resumeError,
+    refetch: refetchResume,
+  } = useQuery({
     queryKey: ["resumeData"],
     queryFn: fetchData,
   });
 
   const runId = result?.run_id;
+  const reportUrl = result ? `${API_BASE_URL}${result.report_url}` : "#";
+  const pdfUrl = result ? `${API_BASE_URL}${result.pdf_url}` : "#";
+  const pdfPreviewUrl = result ? `${pdfUrl}?v=${pdfNonce}` : "#";
+  const texUrl = result ? `${API_BASE_URL}${result.tex_url}` : "#";
 
   const {
     data: report,
-    isLoading: reportLoading,
     isError: reportError,
+    refetch: refetchReport,
   } = useQuery({
     queryKey: ["runReport", runId],
     queryFn: () => fetchRunReport(runId as string),
     enabled: Boolean(runId),
   });
+
+  useEffect(() => {
+    if (!report?.selected_ids) {
+      return;
+    }
+    setSelectionOrder(report.selected_ids);
+    setSelectedMap(
+      report.selected_ids.reduce(
+        (acc, id) => ({ ...acc, [id]: true }),
+        {} as Record<string, boolean>,
+      ),
+    );
+    setShowOriginal({});
+  }, [report?.run_id, report?.selected_ids]);
 
   const bulletLookup = useMemo(() => {
     if (!resumeData) {
@@ -458,334 +292,264 @@ export default function GeneratePage() {
     return buildBulletLookup(resumeData);
   }, [resumeData]);
 
-  const selectedIdSet = useMemo(
-    () => new Set(selection.map((item) => item.id)),
-    [selection],
-  );
-
-  const availableGroups = useMemo(() => {
-    if (!resumeData) {
-      return [];
-    }
-    return sortGroupsByType(buildAvailableGroups(resumeData, selectedIdSet));
-  }, [resumeData, selectedIdSet]);
-
-  const selectedGroups = useMemo(
-    () => buildSelectedGroups(selection),
-    [selection],
-  );
-
-  const orderedSelection = useMemo(
-    () => selectedGroups.flatMap((group) => group.items),
-    [selectedGroups],
-  );
-
-  const experienceOptions = useMemo<ParentOption[]>(() => {
-    if (!resumeData) {
-      return [];
-    }
-    return resumeData.experiences.map((exp) => ({
-      id: exp.job_id,
-      label: `${exp.role} · ${exp.company}`,
-    }));
-  }, [resumeData]);
-
-  const projectOptions = useMemo<ParentOption[]>(() => {
-    if (!resumeData) {
-      return [];
-    }
-    return resumeData.projects.map((proj) => ({
-      id: proj.project_id,
-      label: proj.name,
-    }));
-  }, [resumeData]);
-
-  const parentOptions =
-    newBulletType === "experience" ? experienceOptions : projectOptions;
+  const rewrites = useMemo(() => buildRewriteMap(report), [report]);
 
   useEffect(() => {
-    persistState({ jdText, result, selection });
-  }, [jdText, result, selection]);
+    if (!report?.run_id || !report.selected_ids) {
+      return;
+    }
+    if (lastRunIdRef.current === report.run_id) {
+      return;
+    }
+    const hasLookup = report.selected_ids.some((id) => bulletLookup.has(id));
+    const hasRewrites = report.selected_ids.some((id) => rewrites.has(id));
+    if (!hasLookup && !hasRewrites) {
+      return;
+    }
+    lastRunIdRef.current = report.run_id;
+    const next: Record<string, string> = {};
+    report.selected_ids.forEach((id) => {
+      const info = bulletLookup.get(id);
+      const rewrite = rewrites.get(id);
+      next[id] = rewrite?.rewritten ?? info?.text ?? "";
+    });
+    setEditedBullets(next);
+  }, [report?.run_id, report?.selected_ids, bulletLookup, rewrites]);
 
   useEffect(() => {
-    if (!parentOptions.length) {
-      setNewBulletParentId("");
-      return;
+    if (result?.run_id) {
+      setPdfNonce(Date.now());
     }
-    if (!parentOptions.some((option) => option.id === newBulletParentId)) {
-      setNewBulletParentId(parentOptions[0].id);
+  }, [result?.run_id]);
+
+
+  const selectedIds = useMemo(
+    () => selectionOrder.filter((id) => selectedMap[id]),
+    [selectionOrder, selectedMap],
+  );
+
+  const bulletCards = useMemo(
+    () => buildBulletCards(selectionOrder, bulletLookup, rewrites, editedBullets),
+    [selectionOrder, bulletLookup, rewrites, editedBullets],
+  );
+
+  const bulletGroups = useMemo(
+    () => buildBulletGroups(bulletCards, resumeData),
+    [bulletCards, resumeData],
+  );
+
+  const missingSkills = useMemo(() => buildMissingSkills(report), [report]);
+
+  const selectionDirty = useMemo(() => {
+    if (!report?.selected_ids) {
+      return false;
     }
-  }, [parentOptions, newBulletParentId]);
+    if (report.selected_ids.length !== selectedIds.length) {
+      return true;
+    }
+    return report.selected_ids.some((id, idx) => id !== selectedIds[idx]);
+  }, [report?.selected_ids, selectedIds]);
+
+  const editsDirty = useMemo(
+    () =>
+      bulletCards.some(
+        (card) =>
+          selectedMap[card.id] &&
+          editedBullets[card.id] !== undefined &&
+          editedBullets[card.id] !== card.baseText,
+      ),
+    [bulletCards, editedBullets, selectedMap],
+  );
+
+  const closeEventSource = () => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+  };
+
+  const handleProgressEvent = (payload: RunProgressEvent) => {
+    if (payload.max_iters !== undefined) {
+      setLoopMaxIters(payload.max_iters ?? null);
+    }
+    if (payload.iteration !== undefined) {
+      setLoopIteration(
+        payload.iteration !== null ? payload.iteration + 1 : null,
+      );
+    }
+    if (payload.status) {
+      setLoopStatus(payload.status);
+    }
+    if (payload.stage) {
+      const idx = STAGE_INDEX.get(payload.stage);
+      if (idx !== undefined) {
+        setLoopStage(idx);
+      }
+    }
+    if (payload.status === "complete") {
+      setLoopStage(LOOP_STAGES.length - 1);
+      closeEventSource();
+    }
+    if (payload.status === "error") {
+      setStatus({
+        tone: "error",
+        message: payload.message || "Generation failed. Check the API.",
+      });
+      setLoopStage(null);
+      closeEventSource();
+    }
+  };
+
+  const startProgressStream = (runId: string) => {
+    closeEventSource();
+    const url = `${API_BASE_URL}/runs/${runId}/events`;
+    const source = new EventSource(url);
+    source.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data) as RunProgressEvent;
+        handleProgressEvent(payload);
+      } catch {
+        // Ignore malformed progress events.
+      }
+    };
+    source.onerror = () => {
+      setLoopStatus("error");
+      setLoopStage(null);
+      setStatus({
+        tone: "error",
+        message: "Progress stream interrupted. The run may still be processing.",
+      });
+      closeEventSource();
+    };
+    eventSourceRef.current = source;
+  };
 
   useEffect(() => {
-    if (!report || !resumeData) {
-      return;
-    }
-    if (report.run_id === seededRunId) {
-      return;
-    }
-    setSelection(buildSelectionFromReport(report, bulletLookup));
-    setSeededRunId(report.run_id);
-  }, [report, resumeData, bulletLookup, seededRunId]);
+    return () => {
+      closeEventSource();
+    };
+  }, []);
 
   const mutation = useMutation({
-    mutationFn: generateResume,
-    onMutate: () => {
+    mutationFn: (payload: { text: string; runId: string }) =>
+      generateResume(payload.text, payload.runId),
+    onMutate: ({ runId }) => {
       setResult(null);
-      setSelection([]);
-      setSeededRunId(null);
-      setSelectionStatus(null);
+      setSelectionOrder([]);
+      setSelectedMap({});
+      setEditedBullets({});
+      setLoopStage(0);
+      setLoopStatus("running");
+      setLoopIteration(null);
+      setLoopMaxIters(null);
+      setStatus(null);
+      startProgressStream(runId);
     },
-    onSuccess: (data) => setResult(data),
+    onSuccess: (data) => {
+      setResult(data);
+      setLoopStatus("complete");
+      setLoopStage(LOOP_STAGES.length - 1);
+      closeEventSource();
+    },
+    onError: () => {
+      setStatus({ tone: "error", message: "Generation failed. Check the API." });
+      setLoopStatus("error");
+      setLoopStage(null);
+      closeEventSource();
+    },
   });
 
   const renderMutation = useMutation({
-    mutationFn: ({
-      runId,
-      payload,
-    }: {
+    mutationFn: (payload: {
       runId: string;
-      payload: { selected_ids: string[]; temp_overrides?: TempOverrides };
-    }) => renderSelection(runId, payload),
+      selectedIds: string[];
+      rewritten?: Record<string, string>;
+      tempEdits?: Record<string, string>;
+    }) =>
+      renderSelection(payload.runId, {
+        selected_ids: payload.selectedIds,
+        rewritten_bullets: payload.rewritten,
+        temp_overrides: payload.tempEdits ? { edits: payload.tempEdits } : undefined,
+      }),
     onSuccess: () => {
-      setSelectionStatus({
-        tone: "success",
-        message: "PDF re-rendered with your selection.",
-      });
+      setStatus({ tone: "success", message: "PDF re-rendered." });
+      setPdfNonce(Date.now());
+      queryClient.invalidateQueries({ queryKey: ["runReport", runId] });
     },
     onError: () => {
-      setSelectionStatus({
-        tone: "error",
-        message: "Failed to render PDF. Check the API server.",
-      });
+      setStatus({ tone: "error", message: "Failed to render PDF." });
     },
   });
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-  );
 
   const handleGenerate = () => {
     const trimmed = jdText.trim();
     if (!trimmed || mutation.isPending) {
       return;
     }
-    mutation.mutate(trimmed);
+    const runId =
+      window.crypto?.randomUUID?.() ||
+      `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    mutation.mutate({ text: trimmed, runId });
   };
 
-  const handleSelectionChange = (id: string, value: string) => {
-    setSelection((items) =>
-      items.map((item) => (item.id === id ? { ...item, text: value } : item)),
+  const toggleInclude = (id: string) => {
+    setSelectedMap((current) => ({ ...current, [id]: !current[id] }));
+  };
+
+  const toggleOriginal = (id: string) => {
+    setShowOriginal((current) => ({ ...current, [id]: !current[id] }));
+  };
+
+  const handleEditBullet = (id: string, value: string) => {
+    setEditedBullets((current) => ({ ...current, [id]: value }));
+  };
+
+  const handleApplySelection = () => {
+    if (!runId || !selectedIds.length) {
+      return;
+    }
+    const rewritten = Object.fromEntries(
+      bulletCards
+        .filter((card) => card.hasRewrite && selectedMap[card.id])
+        .map((card) => [card.id, card.baseText]),
     );
-  };
-
-  const handleSelectionBlur = (id: string, value: string) => {
-    const trimmed = value.trim();
-    setSelection((items) =>
-      items.map((item) => {
-        if (item.id !== id) {
-          return item;
-        }
-        if (!trimmed) {
-          return { ...item, text: item.originalText || item.text };
-        }
-        return { ...item, text: trimmed };
-      }),
+    const tempEdits = Object.fromEntries(
+      bulletCards
+        .filter((card) => selectedMap[card.id])
+        .filter((card) => {
+          const edited = editedBullets[card.id];
+          return edited !== undefined && edited.trim() && edited !== card.baseText;
+        })
+        .map((card) => [card.id, editedBullets[card.id] as string]),
     );
-  };
-
-  const handleSelectionDelete = (id: string) => {
-    setSelection((items) => items.filter((item) => item.id !== id));
-  };
-
-  const handleGroupDragEnd = (group: SelectedGroup, event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) {
-      return;
-    }
-    const ids = group.items.map((item) => item.id);
-    const oldIndex = ids.indexOf(String(active.id));
-    const newIndex = ids.indexOf(String(over.id));
-    if (oldIndex < 0 || newIndex < 0) {
-      return;
-    }
-    const reordered = arrayMove(ids, oldIndex, newIndex);
-    const groupSet = new Set(ids);
-    setSelection((items) => {
-      const itemMap = new Map(
-        items
-          .filter((item) => groupSet.has(item.id))
-          .map((item) => [item.id, item]),
-      );
-      let cursor = 0;
-      return items.map((item) => {
-        if (!groupSet.has(item.id)) {
-          return item;
-        }
-        const nextId = reordered[cursor];
-        cursor += 1;
-        return itemMap.get(nextId) ?? item;
-      });
+    renderMutation.mutate({
+      runId,
+      selectedIds,
+      rewritten: Object.keys(rewritten).length ? rewritten : undefined,
+      tempEdits: Object.keys(tempEdits).length ? tempEdits : undefined,
     });
   };
 
-  const handleAddExistingBullet = (option: BulletOption) => {
-    setSelection((items) => {
-      if (items.some((item) => item.id === option.id)) {
-        return items;
-      }
-      return [
-        ...items,
-        {
-          id: option.id,
-          text: option.text,
-          originalText: option.text,
-          label: option.parentLabel,
-          parentType: option.parentType,
-          parentId: option.parentId,
-          isTemp: false,
-        },
-      ];
-    });
-  };
-
-  const toggleSelectedGroup = (key: string) => {
-    setSelectedCollapsedGroups((prev) => {
-      const current = prev[key] ?? true;
-      return { ...prev, [key]: !current };
-    });
-  };
-
-  const toggleAvailableGroup = (key: string) => {
-    setAvailableCollapsedGroups((prev) => {
-      const current = prev[key] ?? true;
-      return { ...prev, [key]: !current };
-    });
-  };
-
-  const nextTempId = () => {
-    tempCounter.current += 1;
-    return `tmp_${Date.now()}_${tempCounter.current}`;
-  };
-
-  const handleAddTempBullet = () => {
-    const trimmed = newBulletText.trim();
-    if (!trimmed) {
-      setSelectionStatus({
-        tone: "error",
-        message: "Bullet text cannot be empty.",
-      });
-      return;
-    }
-    if (!newBulletParentId) {
-      setSelectionStatus({
-        tone: "error",
-        message: "Select a parent experience or project first.",
-      });
-      return;
-    }
-    const tempId = nextTempId();
-    const id = buildBulletId(newBulletType, newBulletParentId, tempId);
-    const parentLabel =
-      parentOptions.find((option) => option.id === newBulletParentId)?.label ||
-      `${newBulletType} · ${newBulletParentId}`;
-
-    setSelection((items) => [
-      ...items,
-      {
-        id,
-        text: trimmed,
-        originalText: trimmed,
-        label: parentLabel,
-        parentType: newBulletType,
-        parentId: newBulletParentId,
-        tempId,
-        isTemp: true,
-      },
-    ]);
-    setNewBulletText("");
-  };
-
-  const buildRenderPayload = () => {
-    const selected_ids = orderedSelection.map((item) => item.id);
-    const additions = orderedSelection
-      .filter((item) => item.isTemp)
-      .map((item) => ({
-        temp_id: item.tempId,
-        parent_type: item.parentType as "experience" | "project",
-        parent_id: item.parentId as string,
-        text_latex: item.text.trim(),
-      }))
-      .filter((item) => item.text_latex);
-
-    const edits: Record<string, string> = {};
-    orderedSelection.forEach((item) => {
-      if (item.isTemp) {
-        return;
-      }
-      const trimmed = item.text.trim();
-      if (!trimmed || trimmed === item.originalText) {
-        return;
-      }
-      edits[item.id] = trimmed;
-    });
-
-    const temp_overrides: TempOverrides = {};
-    if (additions.length) {
-      temp_overrides.additions = additions;
-    }
-    if (Object.keys(edits).length) {
-      temp_overrides.edits = edits;
-    }
-
-    return {
-      selected_ids,
-      temp_overrides: Object.keys(temp_overrides).length
-        ? temp_overrides
-        : undefined,
-    };
-  };
-
-  const handleRender = () => {
-    if (!runId) {
-      return;
-    }
-    if (!selection.length) {
-      setSelectionStatus({
-        tone: "error",
-        message: "Select at least one bullet before rendering.",
-      });
-      return;
-    }
-    const payload = buildRenderPayload();
-    const invalidAddition = payload.temp_overrides?.additions?.find(
-      (addition) =>
-        !addition.parent_id || !addition.parent_type || !addition.text_latex,
-    );
-    if (invalidAddition) {
-      setSelectionStatus({
-        tone: "error",
-        message: "Every temp bullet needs a parent and text.",
-      });
-      return;
-    }
-    renderMutation.mutate({ runId, payload });
-  };
-
-  const pdfUrl = result ? new URL(result.pdf_url, API_BASE_URL).toString() : "";
-
-  const pendingEdits = useMemo(
-    () =>
-      selection.filter(
-        (item) => !item.isTemp && item.text !== item.originalText,
-      ).length,
-    [selection],
-  );
-
-  const pendingAdditions = useMemo(
-    () => selection.filter((item) => item.isTemp).length,
-    [selection],
-  );
+  const showBackendWarning = settingsError || resumeError || reportError;
+  const activeStage = loopStage ?? -1;
+  const progressPercent =
+    activeStage >= 0
+      ? Math.round(((activeStage + 1) / LOOP_STAGES.length) * 100)
+      : 0;
+  const loopStatusLabel =
+    loopStatus === "running"
+      ? "Running"
+      : loopStatus === "complete"
+        ? "Complete"
+        : loopStatus === "error"
+          ? "Error"
+          : "Pending";
+  const iterationLabel =
+    loopIteration && loopMaxIters
+      ? `Iteration ${loopIteration}/${loopMaxIters}`
+      : loopIteration
+        ? `Iteration ${loopIteration}`
+        : null;
 
   return (
     <div className="space-y-6">
@@ -798,17 +562,39 @@ export default function GeneratePage() {
           Tailor a resume in minutes.
         </h1>
         <p className="max-w-2xl text-sm text-muted-foreground">
-          Paste a job description, run the agent loop, then adjust the selected
+          Paste a job description, run the agent loop, then review the suggested
           bullets before rendering a one-page PDF.
         </p>
       </header>
+
+      {showBackendWarning ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <span>We could not reach the API. Check the server and retry.</span>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              refetchSettings();
+              refetchResume();
+              if (runId) {
+                refetchReport();
+              }
+            }}
+          >
+            <RefreshCcw className="h-4 w-4" />
+            Retry
+          </Button>
+        </div>
+      ) : null}
 
       <Card className="animate-rise">
         <CardHeader>
           <CardTitle>Job description</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          <Label htmlFor="jd-text">Paste a JD</Label>
           <Textarea
+            id="jd-text"
             value={jdText}
             onChange={(event) => setJdText(event.target.value)}
             placeholder="Paste the job description here..."
@@ -828,12 +614,49 @@ export default function GeneratePage() {
                 "Generate"
               )}
             </Button>
-            {mutation.isError ? (
-              <span className="text-sm text-destructive">
-                Generation failed. Check the API server.
-              </span>
-            ) : null}
           </div>
+          {loopStage !== null ? (
+            <div className="rounded-lg border bg-muted/40 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                <span>Loop progress</span>
+                <span>{loopStatusLabel}</span>
+              </div>
+              {iterationLabel ? (
+                <div className="mt-2 text-xs font-medium text-muted-foreground">
+                  {iterationLabel}
+                </div>
+              ) : null}
+              <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                {LOOP_STAGES.map((stage, idx) => (
+                  <div
+                    key={stage.key}
+                    className={cn(
+                      "flex items-center gap-2 text-xs font-medium",
+                      idx <= activeStage ? "text-foreground" : "text-muted-foreground",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "h-2.5 w-2.5 rounded-full border",
+                        idx < activeStage
+                          ? "border-primary bg-primary"
+                          : idx === activeStage
+                            ? "border-accent bg-accent animate-pulse"
+                            : "border-muted-foreground/40",
+                      )}
+                    />
+                    <span>{stage.label}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full bg-primary transition-all duration-500"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -852,6 +675,12 @@ export default function GeneratePage() {
                   Download PDF
                 </a>
               </Button>
+              <Button variant="secondary" asChild>
+                <a href={reportUrl} target="_blank" rel="noreferrer">
+                  <Download className="h-4 w-4" />
+                  Download report
+                </a>
+              </Button>
               <span className="text-xs text-muted-foreground">
                 JD parser used: {result.profile_used ? "yes" : "no"}
               </span>
@@ -860,259 +689,237 @@ export default function GeneratePage() {
         </Card>
       ) : null}
 
+      {status ? (
+        <div
+          className={cn(
+            "rounded-lg border px-3 py-2 text-sm",
+            status.tone === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border-destructive/30 bg-destructive/10 text-destructive",
+          )}
+        >
+          {status.message}
+        </div>
+      ) : null}
+
       {result ? (
-        <Card className="animate-rise">
-          <CardHeader>
-            <CardTitle>Selected bullets</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-              <span>
-                Drag to reorder. Edit text inline, add custom bullets, or remove
-                items before rendering.
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Selected bullets</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+                <span>
+                  Toggle bullets for this run and re-render the PDF when ready.
+                </span>
+                <span>{selectedIds.length} selected</span>
+              </div>
+              <div className="space-y-4">
+                {bulletGroups.map((group) => (
+                  <div
+                    key={group.key}
+                    className="rounded-xl border bg-card/60 p-4 shadow-sm"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                          {group.section}
+                        </div>
+                        <div className="text-sm font-semibold">{group.title}</div>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {group.items.filter((item) => selectedMap[item.id]).length}/
+                        {group.items.length} selected
+                      </div>
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {group.items.map((card) => {
+                        const isEdited = card.text !== card.baseText;
+                        return (
+                          <div
+                            key={card.id}
+                            className="rounded-lg border bg-background/80 p-3"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                {card.hasRewrite ? (
+                                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700">
+                                    Rewritten
+                                  </span>
+                                ) : null}
+                                {isEdited ? (
+                                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
+                                    Edited
+                                  </span>
+                                ) : null}
+                              </div>
+                              <label className="flex items-center gap-2 text-xs font-medium">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(selectedMap[card.id])}
+                                  onChange={() => toggleInclude(card.id)}
+                                />
+                                Include
+                              </label>
+                            </div>
+                            <div className="mt-3 space-y-2">
+                              <Textarea
+                                value={card.text}
+                                onChange={(event) =>
+                                  handleEditBullet(card.id, event.target.value)
+                                }
+                                className="min-h-[96px]"
+                              />
+                              {card.hasRewrite ? (
+                                <button
+                                  type="button"
+                                  className="text-xs text-muted-foreground underline"
+                                  onClick={() => toggleOriginal(card.id)}
+                                >
+                                  {showOriginal[card.id]
+                                    ? "Hide original"
+                                    : "Show original"}
+                                </button>
+                              ) : null}
+                              {showOriginal[card.id] ? (
+                                <div className="rounded-md border border-dashed bg-muted/40 p-2 text-xs text-muted-foreground">
+                                  {card.originalText}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  variant="secondary"
+                  onClick={handleApplySelection}
+                  disabled={(!selectionDirty && !editsDirty) || renderMutation.isPending}
+                >
+                  {renderMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Rendering
+                    </>
+                  ) : (
+                    "Re-render PDF"
+                  )}
+                </Button>
+                {selectionDirty || editsDirty ? (
+                  <span className="text-xs text-muted-foreground">
+                    Updates pending. Re-render to refresh the PDF.
+                  </span>
+                ) : null}
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="rounded-xl border bg-card/60 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setShowPreview((current) => !current)}
+              className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold"
+              aria-expanded={showPreview}
+            >
+              <span className="uppercase tracking-[0.2em] text-muted-foreground">
+                PDF preview
               </span>
-              <span>
-                {selection.length} selected · {pendingEdits} edits · {pendingAdditions} additions
+              <span className="text-xs text-muted-foreground">
+                {showPreview ? "Collapse" : "Expand"}
               </span>
-            </div>
-            {selectionStatus ? (
-              <div
-                className={cn(
-                  "rounded-lg border px-3 py-2 text-sm",
-                  selectionStatus.tone === "success"
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : "border-destructive/30 bg-destructive/10 text-destructive",
-                )}
-              >
-                {selectionStatus.message}
+            </button>
+            {showPreview ? (
+              <div className="border-t px-4 pb-4 pt-3">
+                <div className="space-y-3">
+                  <iframe
+                    title="Resume preview"
+                    src={pdfPreviewUrl}
+                    className="h-[640px] w-full rounded-md border"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="secondary" asChild>
+                      <a href={pdfUrl} target="_blank" rel="noreferrer">
+                        Download PDF
+                      </a>
+                    </Button>
+                    <Button variant="secondary" asChild>
+                      <a href={texUrl} target="_blank" rel="noreferrer">
+                        Download TeX
+                      </a>
+                    </Button>
+                  </div>
+                </div>
               </div>
             ) : null}
+          </div>
 
-            {reportLoading ? (
-              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                Loading selection...
-              </div>
-            ) : reportError ? (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
-                Failed to load selection for this run.
-              </div>
-            ) : selection.length ? (
-              <div className="space-y-3">
-                {selectedGroups.map((group) => {
-                  const isCollapsed = selectedCollapsedGroups[group.key] ?? true;
-                  return (
-                    <div key={group.key} className="rounded-lg border">
-                      <button
-                        type="button"
-                        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
-                        onClick={() => toggleSelectedGroup(group.key)}
+          <Card>
+            <CardHeader>
+              <CardTitle>Missing skills</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  Must-have
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {missingSkills.must.length ? (
+                    missingSkills.must.map((skill) => (
+                      <span
+                        key={skill}
+                        className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700"
                       >
-                        <div className="flex items-center gap-2">
-                          <ChevronDown
-                            className={cn(
-                              "h-4 w-4 transition-transform",
-                              isCollapsed && "-rotate-90",
-                            )}
-                          />
-                          <span className="text-sm font-medium">{group.label}</span>
-                          <span className="rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                            {labelForSection(group.parentType)}
-                          </span>
-                        </div>
-                        <span className="text-xs text-muted-foreground">
-                          {group.items.length} bullets
-                        </span>
-                      </button>
-                      {!isCollapsed ? (
-                        <div className="space-y-3 border-t px-3 py-3">
-                          <DndContext
-                            sensors={sensors}
-                            collisionDetection={closestCenter}
-                            onDragEnd={(event) => handleGroupDragEnd(group, event)}
-                          >
-                            <SortableContext
-                              items={group.items.map((item) => item.id)}
-                              strategy={verticalListSortingStrategy}
-                            >
-                              <div className="space-y-3">
-                                {group.items.map((item) => (
-                                  <SortableSelectionRow
-                                    key={item.id}
-                                    item={item}
-                                    onChange={handleSelectionChange}
-                                    onBlur={handleSelectionBlur}
-                                    onDelete={handleSelectionDelete}
-                                  />
-                                ))}
-                              </div>
-                            </SortableContext>
-                          </DndContext>
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                No bullets selected yet.
-              </div>
-            )}
-
-            <div className="rounded-lg border bg-background p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-semibold">Bullet picker</div>
-                <span className="text-xs text-muted-foreground">
-                  {availableGroups.reduce(
-                    (count, group) => count + group.items.length,
-                    0,
-                  )}{" "}
-                  available
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Add existing bullets that are not in the current selection.
-              </p>
-              <div className="mt-4 space-y-3">
-                {availableGroups.length ? (
-                  availableGroups.map((group) => {
-                    const isCollapsed = availableCollapsedGroups[group.key] ?? true;
-                    return (
-                      <div key={group.key} className="rounded-lg border">
-                        <button
-                          type="button"
-                          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
-                          onClick={() => toggleAvailableGroup(group.key)}
-                        >
-                          <div className="flex items-center gap-2">
-                            <ChevronDown
-                              className={cn(
-                                "h-4 w-4 transition-transform",
-                                isCollapsed && "-rotate-90",
-                              )}
-                            />
-                            <span className="text-sm font-medium">
-                              {group.label}
-                            </span>
-                          </div>
-                          <span className="text-xs text-muted-foreground">
-                            {group.items.length} bullets
-                          </span>
-                        </button>
-                        {!isCollapsed ? (
-                          <div className="space-y-3 border-t px-3 py-3">
-                            {group.items.map((item) => (
-                              <div
-                                key={item.id}
-                                className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-3 md:flex-row md:items-start md:justify-between"
-                              >
-                                <div className="text-sm text-muted-foreground">
-                                  {item.text}
-                                </div>
-                                <Button
-                                  type="button"
-                                  variant="secondary"
-                                  size="sm"
-                                  onClick={() => handleAddExistingBullet(item)}
-                                >
-                                  <Plus className="h-4 w-4" />
-                                  Add
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-                    All bullets are already selected.
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-lg border bg-muted/30 p-4">
-              <div className="text-sm font-semibold">Add a temporary bullet</div>
-              <div className="mt-3 grid gap-4 md:grid-cols-[160px_1fr]">
-                <div className="space-y-2">
-                  <Label htmlFor="temp-bullet-type">Section</Label>
-                  <select
-                    id="temp-bullet-type"
-                    value={newBulletType}
-                    onChange={(event) =>
-                      setNewBulletType(
-                        event.target.value as "experience" | "project",
-                      )
-                    }
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  >
-                    <option value="experience">Experience</option>
-                    <option value="project">Project</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="temp-bullet-parent">Parent</Label>
-                  <select
-                    id="temp-bullet-parent"
-                    value={newBulletParentId}
-                    onChange={(event) => setNewBulletParentId(event.target.value)}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  >
-                    {parentOptions.map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  {!parentOptions.length ? (
-                    <p className="text-xs text-muted-foreground">
-                      Add a {newBulletType} in the editor first.
-                    </p>
-                  ) : null}
+                        {skill}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      No missing must-haves detected.
+                    </span>
+                  )}
                 </div>
               </div>
-              <div className="mt-4 space-y-2">
-                <Label htmlFor="temp-bullet-text">Bullet text</Label>
-                <Textarea
-                  id="temp-bullet-text"
-                  value={newBulletText}
-                  onChange={(event) => setNewBulletText(event.target.value)}
-                  placeholder="Add a temporary bullet for this run..."
-                />
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  Nice-to-have
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {missingSkills.nice.length ? (
+                    missingSkills.nice.map((skill) => (
+                      <span
+                        key={skill}
+                        className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600"
+                      >
+                        {skill}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      No missing nice-to-haves detected.
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="mt-4 flex justify-end">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleAddTempBullet}
-                  disabled={!parentOptions.length}
-                >
-                  <Plus className="h-4 w-4" />
-                  Add bullet
-                </Button>
-              </div>
-            </div>
+            </CardContent>
+          </Card>
 
-            <div className="flex justify-end">
-              <Button
-                onClick={handleRender}
-                disabled={renderMutation.isPending || !selection.length}
-              >
-                {renderMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Rendering
-                  </>
-                ) : (
-                  "Render PDF"
-                )}
-              </Button>
+          <details className="rounded-lg border bg-card p-4 text-sm">
+            <summary className="cursor-pointer text-sm font-medium">
+              Technical details
+            </summary>
+            <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+              <div>Run ID: {result.run_id}</div>
+              <div>Best iteration: {report?.best_iteration_index ?? "n/a"}</div>
+              <div>Score: {report?.best_score?.final_score ?? "n/a"}</div>
+              <div>Report URL: {result.report_url}</div>
             </div>
-          </CardContent>
-        </Card>
+          </details>
+        </div>
       ) : null}
     </div>
   );

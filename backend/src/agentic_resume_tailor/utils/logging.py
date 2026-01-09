@@ -31,8 +31,7 @@ class JsonFormatter(logging.Formatter):
 
 
 def configure_logging() -> None:
-    """Configure logging.
-    """
+    """Configure logging."""
     settings = get_settings()
     formatter = "json" if settings.log_json else "standard"
 

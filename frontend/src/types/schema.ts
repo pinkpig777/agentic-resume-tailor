@@ -71,6 +71,13 @@ export interface SettingsData {
   boost_weight: number;
   boost_top_n_missing: number;
   experience_weight: number;
+  enable_bullet_rewrite: boolean;
+  rewrite_min_chars: number;
+  rewrite_max_chars: number;
+  length_weight: number;
+  redundancy_weight: number;
+  redundancy_threshold: number;
+  quality_weight: number;
   cors_origins: string;
   skip_pdf: boolean;
   run_id: string | null;
@@ -159,7 +166,33 @@ export interface TempOverrides {
 
 export interface RunReport {
   run_id: string;
+  best_iteration_index?: number;
+  profile_used?: boolean;
   selected_ids: string[];
+  best_score?: {
+    final_score: number;
+    retrieval_score: number;
+    coverage_bullets_only: number;
+    coverage_all: number;
+    must_missing_bullets_only?: string[];
+    nice_missing_bullets_only?: string[];
+    must_missing_all?: string[];
+    nice_missing_all?: string[];
+    length_score?: number;
+    redundancy_penalty?: number;
+    quality_score?: number;
+  };
+  rewritten_bullets?: Array<{
+    bullet_id: string;
+    original_text: string;
+    rewritten_text: string;
+    changed: boolean;
+    fallback_used: boolean;
+    violations: string[];
+    new_numbers?: string[];
+    new_tools?: string[];
+  }>;
+  iterations?: Array<Record<string, unknown>>;
   temp_additions?: TempAddition[];
   temp_edits?: Record<string, string>;
   temp_removals?: string[];

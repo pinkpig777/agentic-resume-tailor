@@ -19,6 +19,7 @@ import type { SettingsData } from "@/types/schema";
 const booleanFields = [
   "auto_reingest_on_save",
   "use_jd_parser",
+  "enable_bullet_rewrite",
   "skip_pdf",
   "log_json",
 ] as const;
@@ -30,6 +31,8 @@ const integerFields = [
   "max_iters",
   "threshold",
   "boost_top_n_missing",
+  "rewrite_min_chars",
+  "rewrite_max_chars",
   "port",
 ] as const;
 
@@ -40,6 +43,10 @@ const floatFields = [
   "quant_bonus_cap",
   "boost_weight",
   "experience_weight",
+  "length_weight",
+  "redundancy_weight",
+  "redundancy_threshold",
+  "quality_weight",
 ] as const;
 
 const numberFields = [...integerFields, ...floatFields] as const;
@@ -76,6 +83,13 @@ const tooltips: Record<string, string> = {
   boost_weight: "Boost weight for missing keywords.",
   boost_top_n_missing: "Number of missing keywords boosted.",
   experience_weight: "Multiplier for experience bullets vs projects.",
+  enable_bullet_rewrite: "Rewrite bullets via the agent under strict constraints.",
+  rewrite_min_chars: "Minimum target length for rewritten bullets.",
+  rewrite_max_chars: "Maximum target length for rewritten bullets.",
+  length_weight: "Weight for length efficiency in scoring.",
+  redundancy_weight: "Penalty weight for near-duplicate bullets.",
+  redundancy_threshold: "Similarity threshold for redundancy detection.",
+  quality_weight: "Weight for quantified/quality signals.",
   collection_name: "Chroma collection name used for retrieval.",
   embed_model: "Embedding model ID used to embed bullets.",
   jd_model: "OpenAI model used when JD parsing is enabled.",
@@ -659,6 +673,59 @@ export default function SettingsPage() {
             )}
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Rewrite & scoring</CardTitle>
+            <CardDescription>
+              Advanced tuning for rewrite length and redundancy scoring.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-3">
+            {renderNumberField(
+              "rewrite_min_chars",
+              "Rewrite min chars",
+              "100",
+              "Minimum length target for rewritten bullets.",
+              tooltips.rewrite_min_chars,
+            )}
+            {renderNumberField(
+              "rewrite_max_chars",
+              "Rewrite max chars",
+              "200",
+              "Maximum length target for rewritten bullets.",
+              tooltips.rewrite_max_chars,
+            )}
+            {renderNumberField(
+              "length_weight",
+              "Length weight",
+              "0.1",
+              "Weight for length efficiency in scoring.",
+              tooltips.length_weight,
+            )}
+            {renderNumberField(
+              "redundancy_weight",
+              "Redundancy weight",
+              "0.1",
+              "Penalty weight for near-duplicate bullets.",
+              tooltips.redundancy_weight,
+            )}
+            {renderNumberField(
+              "redundancy_threshold",
+              "Redundancy threshold",
+              "0.88",
+              "Similarity threshold for redundancy detection.",
+              tooltips.redundancy_threshold,
+            )}
+            {renderNumberField(
+              "quality_weight",
+              "Quality weight",
+              "0.05",
+              "Weight for quantified/quality signals.",
+              tooltips.quality_weight,
+            )}
+          </CardContent>
+        </Card>
       </section>
 
       <section className="space-y-4">
@@ -757,9 +824,15 @@ export default function SettingsPage() {
               )}
               {renderToggleField(
                 "use_jd_parser",
-                "Use JD parser",
+                "Enable JD parser (OpenAI)",
                 "Use OpenAI to parse the JD (requires OPENAI_API_KEY). Turn off to use fallback queries.",
                 tooltips.use_jd_parser,
+              )}
+              {renderToggleField(
+                "enable_bullet_rewrite",
+                "Enable bullet rewrite",
+                "Rewrite bullets via the agent with strict validation.",
+                tooltips.enable_bullet_rewrite,
               )}
               {renderToggleField(
                 "skip_pdf",
