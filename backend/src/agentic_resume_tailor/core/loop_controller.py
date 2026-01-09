@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 import jinja2
 from pypdf import PdfReader
@@ -173,6 +173,11 @@ def _run_id(settings: Any) -> str:
     if override:
         return override
     return time.strftime("%Y%m%d_%H%M%S") + "_" + str(int(time.time() * 1000))[-6:]
+
+
+def generate_run_id(settings: Any) -> str:
+    """Return a run id using the standard server scheme."""
+    return _run_id(settings)
 
 
 def _output_pdf_alias_path(settings: Any) -> str | None:
@@ -348,8 +353,21 @@ def run_loop(
     embedding_fn: Any,
     static_export: Dict[str, Any],
     settings: Any,
+    run_id: str | None = None,
+    progress_cb: Callable[[Dict[str, Any]], None] | None = None,
 ) -> RunArtifacts:
-    run_id = _run_id(settings)
+    run_id = run_id or _run_id(settings)
+    total_iters = int(getattr(settings, "max_iters", 0) or 0)
+
+    def _notify(stage: str, iteration: int | None = None) -> None:
+        if not progress_cb:
+            return
+        payload: Dict[str, Any] = {"stage": stage, "max_iters": total_iters}
+        if iteration is not None:
+            payload["iteration"] = iteration
+        progress_cb(payload)
+
+    _notify("query")
     query_plan = build_query_plan(jd_text, settings)
     base_profile = query_plan.profile
 
@@ -363,6 +381,7 @@ def run_loop(
 
     boost_terms: List[str] = []
     for it in range(settings.max_iters):
+        _notify("retrieve", iteration=it)
         items = _query_items_with_boosts(query_plan.items, boost_terms, settings.boost_weight)
         payload = _query_payload(items)
         queries_used = _queries_used(items)
@@ -375,10 +394,12 @@ def run_loop(
             final_k=settings.final_k,
         )
 
+        _notify("select", iteration=it)
         selected_ids, _ = select_topk(candidates, max_bullets=settings.max_bullets)
         selected_candidates = [c for c in candidates if c.bullet_id in set(selected_ids)]
         selected_bullets = _collect_selected_bullets(candidates, selected_ids)
 
+        _notify("rewrite", iteration=it)
         allowlist = build_rewrite_allowlist_by_bullet(selected_bullets, settings=settings)
         constraints = RewriteConstraints(
             enabled=settings.enable_bullet_rewrite,
@@ -392,6 +413,7 @@ def run_loop(
             constraints=constraints,
         )
 
+        _notify("score", iteration=it)
         score = score_resume(
             jd_text,
             target_profile=base_profile,
@@ -471,6 +493,7 @@ def run_loop(
     if best_score is None:
         raise ValueError("No candidates selected; cannot build artifacts.")
 
+    _notify("render")
     tailored = _build_tailored_snapshot(static_export, best_selected_ids, best_rewrites)
     pdf_path, tex_path = _render_pdf(settings, tailored, run_id)
     pdf_path, tex_path, best_selected_ids, best_rewrites = _trim_to_single_page(
@@ -536,6 +559,7 @@ def run_loop(
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
 
+    _notify("done")
     return RunArtifacts(
         run_id=run_id,
         selected_ids=best_selected_ids,

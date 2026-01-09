@@ -21,6 +21,8 @@ def run_loop_v3(
     embedding_fn: Any,
     static_export: Dict[str, Any],
     settings: Any,
+    run_id: str | None = None,
+    progress_cb: Any | None = None,
 ) -> RunArtifacts:
     """Deprecated. Use run_loop."""
     return run_loop(
@@ -29,4 +31,6 @@ def run_loop_v3(
         embedding_fn=embedding_fn,
         static_export=static_export,
         settings=settings,
+        run_id=run_id,
+        progress_cb=progress_cb,
     )

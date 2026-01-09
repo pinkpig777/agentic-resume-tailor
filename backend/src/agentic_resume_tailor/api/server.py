@@ -6,7 +6,9 @@ import shutil
 import subprocess
 import threading
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
+from queue import Empty, Queue
 from typing import Any, Dict, List, Literal, Tuple
 
 import chromadb
@@ -15,13 +17,13 @@ import uvicorn
 from chromadb.errors import NotFoundError
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
-from agentic_resume_tailor.core.loop_controller import run_loop
+from agentic_resume_tailor.core.loop_controller import generate_run_id, run_loop
 from agentic_resume_tailor.db.models import (
     Education,
     EducationBullet,
@@ -56,6 +58,65 @@ settings = get_settings()
 
 INGEST_LOCK = threading.Lock()
 USER_CONFIG = load_user_config()
+
+PROGRESS_TTL_S = 1800
+
+
+@dataclass
+class RunProgress:
+    queue: Queue[Dict[str, Any]] = field(default_factory=Queue)
+    state: Dict[str, Any] = field(default_factory=dict)
+
+
+RUN_PROGRESS: Dict[str, RunProgress] = {}
+RUN_PROGRESS_LOCK = threading.Lock()
+
+
+def _schedule_progress_cleanup(run_id: str) -> None:
+    def _cleanup() -> None:
+        with RUN_PROGRESS_LOCK:
+            RUN_PROGRESS.pop(run_id, None)
+
+    timer = threading.Timer(PROGRESS_TTL_S, _cleanup)
+    timer.daemon = True
+    timer.start()
+
+
+def _get_or_create_progress(run_id: str, max_iters: int | None = None) -> RunProgress:
+    with RUN_PROGRESS_LOCK:
+        progress = RUN_PROGRESS.get(run_id)
+        if progress is None:
+            progress = RunProgress(
+                state={
+                    "run_id": run_id,
+                    "status": "pending",
+                    "stage": None,
+                    "iteration": None,
+                    "max_iters": max_iters,
+                    "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                }
+            )
+            RUN_PROGRESS[run_id] = progress
+        elif max_iters is not None:
+            progress.state.setdefault("max_iters", max_iters)
+    return progress
+
+
+def _emit_progress(run_id: str, payload: Dict[str, Any]) -> None:
+    progress = _get_or_create_progress(run_id)
+    event = {"run_id": run_id, **payload}
+    if "status" not in event:
+        stage = event.get("stage")
+        event["status"] = "complete" if stage == "done" else "running"
+    event["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    progress.state.update(event)
+    progress.queue.put(event)
+    if event.get("status") in ("complete", "error"):
+        _schedule_progress_cleanup(run_id)
+
+
+def _format_sse(payload: Dict[str, Any]) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 # -----------------------------
 # Configuration (env-driven)
@@ -113,6 +174,7 @@ class TempOverrides(BaseModel):
 
 class GenerateRequest(BaseModel):
     jd_text: str = Field(min_length=1)
+    run_id: str | None = Field(default=None, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
     max_bullets: int = Field(default=DEFAULT_MAX_BULLETS, ge=4, le=32)
     per_query_k: int = Field(default=DEFAULT_PER_QUERY_K, ge=1, le=50)
@@ -1829,14 +1891,22 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
         overrides["enable_bullet_rewrite"] = req.enable_bullet_rewrite
 
     loop_settings = settings.model_copy(update=overrides)
+    run_id = req.run_id or generate_run_id(loop_settings)
+    _get_or_create_progress(run_id, max_iters=loop_settings.max_iters)
     collection, embedding_fn = _require_collection()
-    artifacts = run_loop(
-        jd_text=jd_text,
-        collection=collection,
-        embedding_fn=embedding_fn,
-        static_export=static_data,
-        settings=loop_settings,
-    )
+    try:
+        artifacts = run_loop(
+            jd_text=jd_text,
+            collection=collection,
+            embedding_fn=embedding_fn,
+            static_export=static_data,
+            settings=loop_settings,
+            run_id=run_id,
+            progress_cb=lambda payload: _emit_progress(run_id, payload),
+        )
+    except Exception as exc:
+        _emit_progress(run_id, {"stage": "error", "status": "error", "message": str(exc)})
+        raise
 
     return GenerateResponse(
         run_id=artifacts.run_id,
@@ -1940,6 +2010,27 @@ def render_selected(run_id: str, payload: RenderSelectionRequest):
     }
 
 
+@app.get("/runs/{run_id}/events")
+def stream_run_events(run_id: str):
+    """Stream progress events for a run via Server-Sent Events."""
+    progress = _get_or_create_progress(run_id)
+
+    def event_stream():
+        yield _format_sse(progress.state)
+        while True:
+            try:
+                event = progress.queue.get(timeout=10)
+            except Empty:
+                yield "event: ping\ndata: {}\n\n"
+                continue
+            yield _format_sse(event)
+            if event.get("status") in ("complete", "error"):
+                break
+
+    headers = {"Cache-Control": "no-cache", "Connection": "keep-alive"}
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers=headers)
+
+
 @app.get("/runs/{run_id}/pdf")
 def get_pdf(run_id: str):
     """Serve a rendered PDF artifact.
@@ -1951,7 +2042,8 @@ def get_pdf(run_id: str):
     if not os.path.exists(path):
         return JSONResponse({"error": "pdf not found"}, status_code=404)
     filename = _normalize_output_pdf_name(OUTPUT_PDF_NAME) or "tailored_resume.pdf"
-    return FileResponse(path, media_type="application/pdf", filename=filename)
+    headers = {"Content-Disposition": f'inline; filename="{filename}"'}
+    return FileResponse(path, media_type="application/pdf", headers=headers)
 
 
 @app.get("/runs/{run_id}/tex")
