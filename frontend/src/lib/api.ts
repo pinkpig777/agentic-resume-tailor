@@ -215,8 +215,15 @@ export async function triggerIngest(): Promise<{
   return data;
 }
 
-export async function generateResume(jdText: string): Promise<GenerateResponse> {
-  const { data } = await api.post("/generate", { jd_text: jdText });
+export async function generateResume(
+  jdText: string,
+  runId?: string,
+): Promise<GenerateResponse> {
+  const payload: Record<string, string> = { jd_text: jdText };
+  if (runId) {
+    payload.run_id = runId;
+  }
+  const { data } = await api.post("/generate", payload);
   return data;
 }
 
