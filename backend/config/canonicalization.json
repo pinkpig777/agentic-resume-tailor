@@ -22,6 +22,133 @@
     },
 
     {
+      "canonical": "s3",
+      "variants": ["amazon s3", "aws s3"]
+    },
+    {
+      "canonical": "ec2",
+      "variants": ["amazon ec2", "aws ec2"]
+    },
+    {
+      "canonical": "rds",
+      "variants": ["amazon rds", "aws rds"]
+    },
+    {
+      "canonical": "lambda",
+      "variants": ["aws lambda", "amazon lambda"]
+    },
+    {
+      "canonical": "ecs",
+      "variants": ["aws ecs", "elastic container service"]
+    },
+    {
+      "canonical": "eks",
+      "variants": ["aws eks", "elastic kubernetes service"]
+    },
+    {
+      "canonical": "fargate",
+      "variants": ["aws fargate"]
+    },
+    {
+      "canonical": "cloudwatch",
+      "variants": ["aws cloudwatch"]
+    },
+    {
+      "canonical": "iam",
+      "variants": ["aws iam", "identity and access management"]
+    },
+    {
+      "canonical": "vpc",
+      "variants": ["aws vpc", "virtual private cloud"]
+    },
+    {
+      "canonical": "route53",
+      "variants": ["route 53", "aws route 53"]
+    },
+    {
+      "canonical": "cloudfront",
+      "variants": ["aws cloudfront"]
+    },
+    {
+      "canonical": "dynamodb",
+      "variants": ["dynamo db", "amazon dynamodb", "aws dynamodb"]
+    },
+    {
+      "canonical": "sagemaker",
+      "variants": ["sage maker", "amazon sagemaker", "aws sagemaker"]
+    },
+
+    {
+      "canonical": "gcs",
+      "variants": ["google cloud storage", "gcs storage"]
+    },
+    {
+      "canonical": "gce",
+      "variants": ["google compute engine", "g c e"]
+    },
+    {
+      "canonical": "bigquery",
+      "variants": ["big query", "google bigquery"]
+    },
+    {
+      "canonical": "pubsub",
+      "variants": ["pub sub", "pub/sub", "google pubsub"]
+    },
+    {
+      "canonical": "cloud run",
+      "variants": ["gcp cloud run", "google cloud run"]
+    },
+    {
+      "canonical": "cloud functions",
+      "variants": ["gcp cloud functions", "google cloud functions"]
+    },
+    {
+      "canonical": "gke",
+      "variants": ["google kubernetes engine", "g k e"]
+    },
+    {
+      "canonical": "dataproc",
+      "variants": ["google dataproc"]
+    },
+    {
+      "canonical": "dataflow",
+      "variants": ["google dataflow", "gcp dataflow"]
+    },
+    {
+      "canonical": "vertex ai",
+      "variants": ["vertexai", "google vertex ai"]
+    },
+
+    {
+      "canonical": "azure functions",
+      "variants": ["azure function", "azure function app"]
+    },
+    {
+      "canonical": "aks",
+      "variants": ["azure kubernetes service", "a k s"]
+    },
+    {
+      "canonical": "app service",
+      "variants": ["azure app service"]
+    },
+    {
+      "canonical": "blob storage",
+      "variants": ["azure blob", "azure blob storage"]
+    },
+    {
+      "canonical": "cosmos db",
+      "variants": ["cosmosdb", "azure cosmos db"]
+    },
+    {
+      "canonical": "azure ml",
+      "variants": ["azure machine learning", "azureml"]
+    },
+    {
+      "canonical": "synapse",
+      "variants": ["azure synapse", "synapse analytics"]
+    },
+
+    {
       "canonical": "kubernetes",
       "variants": ["k8s", "kube", "kube orchestration"]
     },
@@ -30,8 +157,65 @@
       "variants": ["docker container", "docker containers"]
     },
     {
+      "canonical": "containerd",
+      "variants": ["container d"]
+    },
+    {
+      "canonical": "podman",
+      "variants": ["pod man"]
+    },
+    {
+      "canonical": "helm",
+      "variants": ["helm chart", "helm charts"]
+    },
+    {
+      "canonical": "kustomize",
+      "variants": ["kustomise"]
+    },
+    {
+      "canonical": "istio",
+      "variants": ["service mesh istio"]
+    },
+    {
+      "canonical": "linkerd",
+      "variants": ["linkerd service mesh"]
+    },
+    {
+      "canonical": "argo cd",
+      "variants": ["argocd", "argo cd"]
+    },
+    {
+      "canonical": "argo workflows",
+      "variants": ["argo workflow", "argo workflows"]
+    },
+    {
+      "canonical": "flux",
+      "variants": ["fluxcd", "flux cd"]
+    },
+
+    {
       "canonical": "terraform",
       "variants": ["hashicorp terraform"]
+    },
+    {
+      "canonical": "pulumi",
+      "variants": ["pulumi iac"]
+    },
+    {
+      "canonical": "cloudformation",
+      "variants": ["cloud formation", "aws cloudformation"]
+    },
+    {
+      "canonical": "ansible",
+      "variants": ["ansible automation"]
+    },
+    {
+      "canonical": "packer",
+      "variants": ["hashicorp packer"]
+    },
+    {
+      "canonical": "terragrunt",
+      "variants": ["terra grunt"]
     },
 
     {
@@ -43,12 +227,121 @@
       "variants": ["my sql"]
     },
     {
+      "canonical": "sqlite",
+      "variants": ["sqlite3"]
+    },
+    {
+      "canonical": "sql server",
+      "variants": ["mssql", "ms sql", "microsoft sql server"]
+    },
+    {
+      "canonical": "mariadb",
+      "variants": ["maria db"]
+    },
+    {
+      "canonical": "oracle",
+      "variants": ["oracle db", "oracle database"]
+    },
+    {
       "canonical": "mongodb",
       "variants": ["mongo db", "mongo"]
     },
     {
+      "canonical": "cassandra",
+      "variants": ["apache cassandra"]
+    },
+    {
       "canonical": "redis",
       "variants": ["redis cache"]
+    },
+    {
+      "canonical": "memcached",
+      "variants": ["memcache", "mem cache"]
+    },
+    {
+      "canonical": "elasticsearch",
+      "variants": ["elastic search"]
+    },
+    {
+      "canonical": "opensearch",
+      "variants": ["open search", "open-search"]
+    },
+    {
+      "canonical": "couchbase",
+      "variants": ["couch base"]
+    },
+    {
+      "canonical": "neo4j",
+      "variants": ["neo 4j"]
+    },
+    {
+      "canonical": "firestore",
+      "variants": ["fire store", "cloud firestore"]
+    },
+    {
+      "canonical": "bigtable",
+      "variants": ["big table", "cloud bigtable"]
+    },
+    {
+      "canonical": "snowflake",
+      "variants": ["snowflake db", "snowflake data warehouse"]
+    },
+    {
+      "canonical": "redshift",
+      "variants": ["amazon redshift", "aws redshift"]
+    },
+    {
+      "canonical": "clickhouse",
+      "variants": ["click house"]
+    },
+    {
+      "canonical": "duckdb",
+      "variants": ["duck db"]
+    },
+    {
+      "canonical": "timescaledb",
+      "variants": ["timescale db", "time scale db"]
+    },
+    {
+      "canonical": "influxdb",
+      "variants": ["influx db"]
+    },
+    {
+      "canonical": "minio",
+      "variants": ["min io"]
+    },
+
+    {
+      "canonical": "kafka",
+      "variants": ["apache kafka"]
+    },
+    {
+      "canonical": "rabbitmq",
+      "variants": ["rabbit mq"]
+    },
+    {
+      "canonical": "nats",
+      "variants": ["nats messaging"]
+    },
+    {
+      "canonical": "sqs",
+      "variants": ["aws sqs", "simple queue service"]
+    },
+    {
+      "canonical": "kinesis",
+      "variants": ["amazon kinesis", "aws kinesis"]
+    },
+    {
+      "canonical": "pulsar",
+      "variants": ["apache pulsar"]
+    },
+    {
+      "canonical": "mqtt",
+      "variants": ["mqtt protocol"]
+    },
+    {
+      "canonical": "activemq",
+      "variants": ["active mq"]
     },
 
     {
@@ -74,6 +367,22 @@
       "canonical": "jenkins",
       "variants": ["jenkins pipeline", "jenkins pipelines"]
     },
+    {
+      "canonical": "circleci",
+      "variants": ["circle ci"]
+    },
+    {
+      "canonical": "travis ci",
+      "variants": ["travis", "travis ci"]
+    },
+    {
+      "canonical": "buildkite",
+      "variants": ["build kite"]
+    },
+    {
+      "canonical": "azure pipelines",
+      "variants": ["azure devops", "azure pipelines"]
+    },
 
     {
       "canonical": "rest",
@@ -91,6 +400,10 @@
       "canonical": "websockets",
       "variants": ["websocket", "web socket", "web sockets"]
     },
+    {
+      "canonical": "openapi",
+      "variants": ["open api", "swagger", "swagger api"]
+    },
 
     {
       "canonical": "microservices",
@@ -99,6 +412,237 @@
     {
       "canonical": "distributed systems",
       "variants": ["distributed system", "distributed computing"]
+    },
+    {
+      "canonical": "event-driven",
+      "variants": ["event driven", "event-driven architecture"]
+    },
+    {
+      "canonical": "serverless",
+      "variants": ["faas", "function as a service"]
+    },
+
+    {
+      "canonical": "linux",
+      "variants": ["unix", "gnu/linux"]
+    },
+    {
+      "canonical": "git",
+      "variants": ["git scm"]
+    },
+    {
+      "canonical": "docker compose",
+      "variants": ["docker-compose", "docker compose"]
+    },
+
+    {
+      "canonical": "node.js",
+      "variants": ["nodejs", "node js"]
+    },
+    {
+      "canonical": "next.js",
+      "variants": ["nextjs", "next js"]
+    },
+
+    {
+      "canonical": "fastapi",
+      "variants": ["fast api"]
+    },
+    {
+      "canonical": "django",
+      "variants": ["django framework"]
+    },
+    {
+      "canonical": "flask",
+      "variants": ["flask framework"]
+    },
+    {
+      "canonical": "express",
+      "variants": ["express.js", "expressjs"]
+    },
+    {
+      "canonical": "nestjs",
+      "variants": ["nest.js", "nest js"]
+    },
+    {
+      "canonical": "spring boot",
+      "variants": ["springboot", "spring boot"]
+    },
+    {
+      "canonical": "spring",
+      "variants": ["spring framework"]
+    },
+    {
+      "canonical": "asp.net",
+      "variants": ["aspnet", "asp net"]
+    },
+    {
+      "canonical": "dotnet",
+      "variants": [".net", "dot net", ".net core", "dotnet core"]
+    },
+    {
+      "canonical": "ruby on rails",
+      "variants": ["rails", "ror", "ruby rails"]
+    },
+
+    {
+      "canonical": "react",
+      "variants": ["react.js", "reactjs"]
+    },
+    {
+      "canonical": "vue",
+      "variants": ["vue.js", "vuejs"]
+    },
+    {
+      "canonical": "angular",
+      "variants": ["angular.js", "angularjs"]
+    },
+    {
+      "canonical": "svelte",
+      "variants": ["svelte.js", "sveltejs"]
+    },
+
+    {
+      "canonical": "python",
+      "variants": ["python3", "python 3"]
+    },
+    {
+      "canonical": "java",
+      "variants": ["jdk", "jre"]
+    },
+    {
+      "canonical": "javascript",
+      "variants": ["js", "java script"]
+    },
+    {
+      "canonical": "typescript",
+      "variants": ["ts", "type script"]
+    },
+    {
+      "canonical": "go",
+      "variants": ["golang", "go lang"]
+    },
+    {
+      "canonical": "rust",
+      "variants": ["rustlang"]
+    },
+    {
+      "canonical": "c++",
+      "variants": ["cpp", "c plus plus"]
+    },
+    {
+      "canonical": "c#",
+      "variants": ["csharp", "c sharp"]
+    },
+    {
+      "canonical": "scala",
+      "variants": ["scala lang"]
+    },
+    {
+      "canonical": "kotlin",
+      "variants": ["kotlin lang"]
+    },
+    {
+      "canonical": "swift",
+      "variants": ["swift lang"]
+    },
+    {
+      "canonical": "ruby",
+      "variants": ["ruby lang"]
+    },
+    {
+      "canonical": "php",
+      "variants": ["php 7", "php7", "php 8", "php8"]
+    },
+    {
+      "canonical": "bash",
+      "variants": ["shell", "bash shell", "shell scripting"]
+    },
+    {
+      "canonical": "sql",
+      "variants": ["structured query language"]
+    },
+
+    {
+      "canonical": "pytest",
+      "variants": ["py test"]
+    },
+    {
+      "canonical": "junit",
+      "variants": ["j unit"]
+    },
+    {
+      "canonical": "jest",
+      "variants": ["js test", "jestjs"]
+    },
+    {
+      "canonical": "mocha",
+      "variants": ["mocha.js", "mochajs"]
+    },
+    {
+      "canonical": "cypress",
+      "variants": ["cypress io", "cypress.io"]
+    },
+    {
+      "canonical": "playwright",
+      "variants": ["playwright test"]
+    },
+    {
+      "canonical": "vitest",
+      "variants": ["vite test", "vitestjs"]
+    },
+
+    {
+      "canonical": "prometheus",
+      "variants": ["prometheus monitoring"]
+    },
+    {
+      "canonical": "grafana",
+      "variants": ["grafana dashboards"]
+    },
+    {
+      "canonical": "opentelemetry",
+      "variants": ["open telemetry", "otel"]
+    },
+    {
+      "canonical": "datadog",
+      "variants": ["data dog"]
+    },
+    {
+      "canonical": "new relic",
+      "variants": ["newrelic"]
+    },
+    {
+      "canonical": "sentry",
+      "variants": ["sentry.io"]
+    },
+    {
+      "canonical": "elk",
+      "variants": ["elastic stack", "elk stack"]
+    },
+    {
+      "canonical": "logstash",
+      "variants": ["log stash"]
+    },
+    {
+      "canonical": "kibana",
+      "variants": ["ki bana"]
+    },
+    {
+      "canonical": "jaeger",
+      "variants": ["jaeger tracing"]
+    },
+    {
+      "canonical": "zipkin",
+      "variants": ["zipkin tracing"]
+    },
+    {
+      "canonical": "splunk",
+      "variants": ["splunk enterprise"]
+    },
+    {
+      "canonical": "loki",
+      "variants": ["grafana loki"]
     },
 
     {
@@ -117,6 +661,54 @@
       "canonical": "data engineering",
       "variants": ["de", "data engineer", "data engineering"]
     },
+    {
+      "canonical": "mlops",
+      "variants": ["ml ops", "ml-ops"]
+    },
+    {
+      "canonical": "nlp",
+      "variants": ["natural language processing"]
+    },
+    {
+      "canonical": "computer vision",
+      "variants": ["cv", "computer-vision", "machine vision"]
+    },
+    {
+      "canonical": "reinforcement learning",
+      "variants": ["rl", "reinforcement learning"]
+    },
+    {
+      "canonical": "generative ai",
+      "variants": ["genai", "gen ai", "generative ai"]
+    },
+    {
+      "canonical": "embeddings",
+      "variants": ["embedding", "embedding vectors", "vector embeddings"]
+    },
+    {
+      "canonical": "vector search",
+      "variants": ["semantic search", "nearest neighbor search", "ann search", "approximate nearest neighbor"]
+    },
+    {
+      "canonical": "feature store",
+      "variants": ["feature stores"]
+    },
+    {
+      "canonical": "model serving",
+      "variants": ["model inference", "inference serving"]
+    },
+    {
+      "canonical": "prompt engineering",
+      "variants": ["prompt design", "prompting"]
+    },
+    {
+      "canonical": "time series",
+      "variants": ["timeseries", "time-series"]
+    },
+    {
+      "canonical": "forecasting",
+      "variants": ["time series forecasting", "demand forecasting"]
+    },
 
     {
       "canonical": "pytorch",
@@ -130,6 +722,210 @@
       "canonical": "scikit-learn",
       "variants": ["sklearn", "scikit learn"]
     },
+    {
+      "canonical": "keras",
+      "variants": ["tf keras", "tensorflow keras"]
+    },
+    {
+      "canonical": "xgboost",
+      "variants": ["xgb", "xg boost"]
+    },
+    {
+      "canonical": "lightgbm",
+      "variants": ["light gbm"]
+    },
+    {
+      "canonical": "catboost",
+      "variants": ["cat boost"]
+    },
+    {
+      "canonical": "huggingface",
+      "variants": ["hugging face"]
+    },
+    {
+      "canonical": "transformers",
+      "variants": ["transformer models", "transformer model", "transformer"]
+    },
+    {
+      "canonical": "bert",
+      "variants": ["bert model"]
+    },
+    {
+      "canonical": "gpt",
+      "variants": ["gpt-3", "gpt-4", "gpt3", "gpt4"]
+    },
+    {
+      "canonical": "llama",
+      "variants": ["llama2", "llama 2", "llama3", "llama 3"]
+    },
+    {
+      "canonical": "spacy",
+      "variants": ["spa cy"]
+    },
+    {
+      "canonical": "opencv",
+      "variants": ["open cv", "open-cv"]
+    },
+    {
+      "canonical": "yolo",
+      "variants": ["you only look once"]
+    },
+    {
+      "canonical": "detectron2",
+      "variants": ["detectron 2"]
+    },
+    {
+      "canonical": "mediapipe",
+      "variants": ["media pipe"]
+    },
+    {
+      "canonical": "mmcv",
+      "variants": ["mm cv"]
+    },
+
+    {
+      "canonical": "numpy",
+      "variants": ["numpy library"]
+    },
+    {
+      "canonical": "pandas",
+      "variants": ["pandas library", "pandas dataframe"]
+    },
+    {
+      "canonical": "scipy",
+      "variants": ["sci py"]
+    },
+    {
+      "canonical": "jupyter",
+      "variants": ["jupyter notebook", "jupyter notebooks", "ipython notebook"]
+    },
+    {
+      "canonical": "pyarrow",
+      "variants": ["py arrow", "apache arrow"]
+    },
+
+    {
+      "canonical": "spark",
+      "variants": ["apache spark", "spark sql"]
+    },
+    {
+      "canonical": "hadoop",
+      "variants": ["apache hadoop"]
+    },
+    {
+      "canonical": "flink",
+      "variants": ["apache flink"]
+    },
+    {
+      "canonical": "beam",
+      "variants": ["apache beam"]
+    },
+    {
+      "canonical": "airflow",
+      "variants": ["apache airflow"]
+    },
+    {
+      "canonical": "dbt",
+      "variants": ["data build tool", "dbt core"]
+    },
+    {
+      "canonical": "dagster",
+      "variants": ["dagster orchestration"]
+    },
+    {
+      "canonical": "prefect",
+      "variants": ["prefect io"]
+    },
+    {
+      "canonical": "kubeflow",
+      "variants": ["kube flow"]
+    },
+    {
+      "canonical": "mlflow",
+      "variants": ["ml flow"]
+    },
+    {
+      "canonical": "wandb",
+      "variants": ["weights and biases", "weights & biases"]
+    },
+    {
+      "canonical": "tensorboard",
+      "variants": ["tensor board"]
+    },
+    {
+      "canonical": "feast",
+      "variants": ["feature store feast"]
+    },
+    {
+      "canonical": "tecton",
+      "variants": ["tecton feature store"]
+    },
+    {
+      "canonical": "hopsworks",
+      "variants": ["hops works"]
+    },
+
+    {
+      "canonical": "onnx",
+      "variants": ["onnx runtime"]
+    },
+    {
+      "canonical": "tensorrt",
+      "variants": ["tensor rt"]
+    },
+    {
+      "canonical": "triton",
+      "variants": ["triton inference server", "nvidia triton"]
+    },
+    {
+      "canonical": "torchserve",
+      "variants": ["torch serve"]
+    },
+    {
+      "canonical": "tensorflow serving",
+      "variants": ["tf serving", "tensorflow serving"]
+    },
+    {
+      "canonical": "bentoml",
+      "variants": ["bento ml"]
+    },
+    {
+      "canonical": "ray",
+      "variants": ["ray.io", "ray cluster"]
+    },
+    {
+      "canonical": "ray serve",
+      "variants": ["rayserve", "ray serve"]
+    },
+
+    {
+      "canonical": "faiss",
+      "variants": ["facebook faiss"]
+    },
+    {
+      "canonical": "pinecone",
+      "variants": ["pinecone db"]
+    },
+    {
+      "canonical": "weaviate",
+      "variants": ["weaviate db"]
+    },
+    {
+      "canonical": "milvus",
+      "variants": ["milvus db"]
+    },
+    {
+      "canonical": "qdrant",
+      "variants": ["qdrant db"]
+    },
+    {
+      "canonical": "pgvector",
+      "variants": ["pg vector", "postgres vector", "postgresql vector"]
+    },
+    {
+      "canonical": "chroma",
+      "variants": ["chroma db", "chromadb", "chroma database"]
+    },
 
     {
       "canonical": "llm",
@@ -141,29 +937,7 @@
     },
     {
       "canonical": "vector database",
-      "variants": ["vectordb", "vector store", "vector stores"]
-    },
-
-    {
-      "canonical": "linux",
-      "variants": ["unix", "gnu/linux"]
-    },
-    {
-      "canonical": "node.js",
-      "variants": ["nodejs", "node js"]
-    },
-    {
-      "canonical": "next.js",
-      "variants": ["nextjs", "next js"]
-    },
-
-    {
-      "canonical": "fastapi",
-      "variants": ["fast api"]
-    },
-    {
-      "canonical": "ruby on rails",
-      "variants": ["rails", "ror", "ruby rails"]
+      "variants": ["vectordb", "vector store", "vector stores", "vector db", "vector databases"]
     },
 
     {

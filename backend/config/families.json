@@ -1,35 +1,291 @@
 {
   "schema_version": "families_v1",
   "families": [
-    { "generic": "sql", "satisfied_by": ["postgresql", "mysql", "sqlite", "mssql", "mariadb", "oracle", "sql server"] },
-    { "generic": "nosql", "satisfied_by": ["mongodb", "dynamodb", "cassandra", "redis", "firestore", "couchbase", "elasticsearch"] },
+    {
+      "generic": "sql",
+      "satisfied_by": ["postgresql", "mysql", "sqlite", "sql server", "mariadb", "oracle"]
+    },
+    {
+      "generic": "nosql",
+      "satisfied_by": [
+        "mongodb",
+        "dynamodb",
+        "cassandra",
+        "redis",
+        "firestore",
+        "couchbase",
+        "elasticsearch",
+        "neo4j"
+      ]
+    },
+    {
+      "generic": "cache",
+      "satisfied_by": ["redis", "memcached"]
+    },
+    {
+      "generic": "search",
+      "satisfied_by": ["elasticsearch", "opensearch", "solr"]
+    },
+    {
+      "generic": "data warehouse",
+      "satisfied_by": ["bigquery", "snowflake", "redshift", "synapse"]
+    },
+    {
+      "generic": "object storage",
+      "satisfied_by": ["s3", "gcs", "blob storage", "minio"]
+    },
 
-    { "generic": "cloud", "satisfied_by": ["aws", "gcp", "azure"] },
-    { "generic": "aws", "satisfied_by": ["ec2", "s3", "rds", "lambda", "ecs", "eks", "cloudwatch", "iam"] },
-    { "generic": "gcp", "satisfied_by": ["gce", "gcs", "cloud run", "cloud functions", "bigquery", "gke", "iam"] },
-    { "generic": "azure", "satisfied_by": ["azure functions", "aks", "app service", "blob storage", "monitor", "active directory"] },
+    {
+      "generic": "cloud",
+      "satisfied_by": ["aws", "gcp", "azure"]
+    },
+    {
+      "generic": "aws",
+      "satisfied_by": [
+        "ec2",
+        "s3",
+        "rds",
+        "lambda",
+        "ecs",
+        "eks",
+        "cloudwatch",
+        "iam",
+        "dynamodb",
+        "sagemaker"
+      ]
+    },
+    {
+      "generic": "gcp",
+      "satisfied_by": [
+        "gce",
+        "gcs",
+        "cloud run",
+        "cloud functions",
+        "bigquery",
+        "gke",
+        "pubsub",
+        "vertex ai",
+        "dataflow"
+      ]
+    },
+    {
+      "generic": "azure",
+      "satisfied_by": [
+        "azure functions",
+        "aks",
+        "app service",
+        "blob storage",
+        "cosmos db",
+        "azure ml"
+      ]
+    },
+    {
+      "generic": "serverless",
+      "satisfied_by": ["lambda", "cloud functions", "azure functions", "cloud run"]
+    },
 
-    { "generic": "containers", "satisfied_by": ["docker", "kubernetes", "containerd", "podman"] },
-    { "generic": "kubernetes", "satisfied_by": ["k8s", "helm", "kustomize", "eks", "gke", "aks"] },
+    {
+      "generic": "containers",
+      "satisfied_by": ["docker", "kubernetes", "containerd", "podman"]
+    },
+    {
+      "generic": "kubernetes",
+      "satisfied_by": ["k8s", "helm", "kustomize", "eks", "gke", "aks", "argo cd"]
+    },
+    {
+      "generic": "service mesh",
+      "satisfied_by": ["istio", "linkerd"]
+    },
 
-    { "generic": "ci/cd", "satisfied_by": ["github actions", "gitlab ci", "jenkins", "circleci", "travis ci", "azure pipelines", "buildkite"] },
-    { "generic": "infra", "satisfied_by": ["terraform", "pulumi", "cloudformation", "ansible", "packer"] },
+    {
+      "generic": "ci/cd",
+      "satisfied_by": [
+        "github actions",
+        "gitlab ci",
+        "jenkins",
+        "circleci",
+        "travis ci",
+        "azure pipelines",
+        "buildkite"
+      ]
+    },
+    {
+      "generic": "infra",
+      "satisfied_by": ["terraform", "pulumi", "cloudformation", "ansible", "packer", "terragrunt"]
+    },
 
-    { "generic": "backend", "satisfied_by": ["fastapi", "django", "flask", "ruby on rails", "express", "nestjs", "spring", "asp.net", "grpc"] },
-    { "generic": "api", "satisfied_by": ["rest", "rest api", "restful", "graphql", "grpc", "websocket", "websockets"] },
+    {
+      "generic": "backend",
+      "satisfied_by": [
+        "fastapi",
+        "django",
+        "flask",
+        "ruby on rails",
+        "express",
+        "nestjs",
+        "spring boot",
+        "asp.net",
+        "grpc"
+      ]
+    },
+    {
+      "generic": "api",
+      "satisfied_by": [
+        "rest",
+        "rest api",
+        "restful",
+        "graphql",
+        "grpc",
+        "websocket",
+        "websockets",
+        "openapi"
+      ]
+    },
+    {
+      "generic": "async",
+      "satisfied_by": [
+        "celery",
+        "sidekiq",
+        "rq",
+        "bullmq",
+        "bull",
+        "resque",
+        "kafka",
+        "rabbitmq",
+        "sqs",
+        "pubsub",
+        "nats"
+      ]
+    },
+    {
+      "generic": "messaging",
+      "satisfied_by": ["kafka", "rabbitmq", "sqs", "pubsub", "nats", "kinesis", "pulsar"]
+    },
+    {
+      "generic": "streaming",
+      "satisfied_by": ["kafka", "kinesis", "pulsar", "flink", "spark"]
+    },
+    {
+      "generic": "workflow orchestration",
+      "satisfied_by": ["airflow", "dagster", "prefect", "argo workflows"]
+    },
 
-    { "generic": "async", "satisfied_by": ["celery", "sidekiq", "rq", "bullmq", "bull", "resque", "kafka", "rabbitmq", "sqs", "pubsub"] },
-    { "generic": "messaging", "satisfied_by": ["kafka", "rabbitmq", "sqs", "pubsub", "nats", "redis streams"] },
+    {
+      "generic": "frontend",
+      "satisfied_by": ["react", "next.js", "vue", "angular", "svelte"]
+    },
 
-    { "generic": "frontend", "satisfied_by": ["react", "next.js", "vue", "angular", "svelte"] },
+    {
+      "generic": "observability",
+      "satisfied_by": [
+        "prometheus",
+        "grafana",
+        "opentelemetry",
+        "datadog",
+        "new relic",
+        "sentry",
+        "elk",
+        "loki",
+        "splunk",
+        "jaeger",
+        "zipkin"
+      ]
+    },
+    {
+      "generic": "monitoring",
+      "satisfied_by": ["prometheus", "grafana", "datadog", "new relic"]
+    },
+    {
+      "generic": "logging",
+      "satisfied_by": ["elk", "opensearch", "splunk", "loki", "cloudwatch"]
+    },
+    {
+      "generic": "tracing",
+      "satisfied_by": ["opentelemetry", "jaeger", "zipkin"]
+    },
+    {
+      "generic": "testing",
+      "satisfied_by": ["pytest", "junit", "jest", "cypress", "playwright", "mocha", "vitest"]
+    },
 
-    { "generic": "observability", "satisfied_by": ["prometheus", "grafana", "opentelemetry", "datadog", "new relic", "sentry", "elk", "elasticsearch", "kibana", "logstash"] },
-
-    { "generic": "ml", "satisfied_by": ["pytorch", "tensorflow", "scikit-learn", "xgboost", "lightgbm"] },
-    { "generic": "cv", "satisfied_by": ["opencv", "yolo", "detectron2", "mmcv", "mediapipe"] },
-    { "generic": "nlp", "satisfied_by": ["transformers", "bert", "llm", "gpt", "tokenization", "rag"] },
-
-    { "generic": "ml deployment", "satisfied_by": ["onnx", "tensorrt", "triton", "torchserve", "tf serving", "mlflow", "docker", "kubernetes"] },
-    { "generic": "edge", "satisfied_by": ["jetson", "raspberry pi", "edge devices", "cuda", "tensorrt", "onnx"] }
+    {
+      "generic": "ml",
+      "satisfied_by": [
+        "pytorch",
+        "tensorflow",
+        "scikit-learn",
+        "xgboost",
+        "lightgbm",
+        "catboost",
+        "keras"
+      ]
+    },
+    {
+      "generic": "cv",
+      "satisfied_by": ["opencv", "yolo", "detectron2", "mmcv", "mediapipe"]
+    },
+    {
+      "generic": "nlp",
+      "satisfied_by": ["transformers", "bert", "llm", "gpt", "spacy", "rag"]
+    },
+    {
+      "generic": "genai",
+      "satisfied_by": ["llm", "gpt", "llama", "rag"]
+    },
+    {
+      "generic": "vector database",
+      "satisfied_by": ["pinecone", "weaviate", "milvus", "qdrant", "chroma", "pgvector", "faiss"]
+    },
+    {
+      "generic": "embeddings",
+      "satisfied_by": [
+        "vector database",
+        "faiss",
+        "pgvector",
+        "chroma",
+        "pinecone",
+        "weaviate",
+        "milvus",
+        "qdrant"
+      ]
+    },
+    {
+      "generic": "ml deployment",
+      "satisfied_by": [
+        "onnx",
+        "tensorrt",
+        "triton",
+        "torchserve",
+        "tensorflow serving",
+        "bentoml",
+        "ray serve",
+        "sagemaker",
+        "vertex ai"
+      ]
+    },
+    {
+      "generic": "mlops",
+      "satisfied_by": ["mlflow", "kubeflow", "sagemaker", "vertex ai", "azure ml", "wandb", "tensorboard"]
+    },
+    {
+      "generic": "feature store",
+      "satisfied_by": ["feast", "tecton", "hopsworks"]
+    },
+    {
+      "generic": "experiment tracking",
+      "satisfied_by": ["mlflow", "wandb", "neptune", "comet"]
+    },
+    {
+      "generic": "data processing",
+      "satisfied_by": ["spark", "hadoop", "flink", "beam"]
+    },
+    {
+      "generic": "data engineering",
+      "satisfied_by": ["spark", "airflow", "dbt", "kafka", "hadoop"]
+    },
+    {
+      "generic": "edge",
+      "satisfied_by": ["jetson", "raspberry pi", "edge devices", "cuda", "tensorrt", "onnx"]
+    }
   ]
 }
