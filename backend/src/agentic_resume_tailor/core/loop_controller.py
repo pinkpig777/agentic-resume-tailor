@@ -17,9 +17,11 @@ from agentic_resume_tailor.core.agents.rewrite_agent import (
     RewriteConstraints,
     RewriteResult,
     build_rewrite_allowlist_by_bullet,
+    build_rewrite_context,
     rewrite_bullets,
 )
 from agentic_resume_tailor.core.agents.scoring_agent import ScoreResult, score_resume
+from agentic_resume_tailor.core.jd_utils import build_jd_excerpt
 from agentic_resume_tailor.core.retrieval import multi_query_retrieve
 from agentic_resume_tailor.core.selection import select_topk
 
@@ -166,6 +168,36 @@ def _rewrite_report_entries(
             }
         )
     return entries
+
+
+def _rewrite_conditioning_report(context: Any | None, settings: Any) -> Dict[str, Any]:
+    if context is None:
+        return {
+            "has_target_profile": False,
+            "has_jd_excerpt": False,
+            "must_have_keywords": [],
+            "query_plan_top": [],
+        }
+    profile_summary = context.target_profile_summary or {}
+    must_have = list(profile_summary.get("must_have") or [])
+    top_n = int(getattr(settings, "rewrite_report_query_plan_top_n", 5) or 0)
+    query_plan = list(context.query_plan_summary or [])
+    top_items = []
+    if top_n > 0:
+        for item in query_plan[:top_n]:
+            top_items.append(
+                {
+                    "query": item.get("query"),
+                    "purpose": item.get("purpose"),
+                    "weight": item.get("weight"),
+                }
+            )
+    return {
+        "has_target_profile": context.target_profile_summary is not None,
+        "has_jd_excerpt": bool(context.jd_excerpt),
+        "must_have_keywords": must_have,
+        "query_plan_top": top_items,
+    }
 
 
 def _run_id(settings: Any) -> str:
@@ -370,6 +402,8 @@ def run_loop(
     _notify("query")
     query_plan = build_query_plan(jd_text, settings)
     base_profile = query_plan.profile
+    jd_excerpt = build_jd_excerpt(jd_text, max_chars=settings.jd_excerpt_max_chars)
+    rewrite_context = build_rewrite_context(base_profile, query_plan.items, jd_excerpt)
 
     iterations: List[Dict[str, Any]] = []
     best_score: ScoreResult | None = None
@@ -407,7 +441,7 @@ def run_loop(
             max_chars=settings.rewrite_max_chars,
         )
         rewrite_result: RewriteResult = rewrite_bullets(
-            target_profile=base_profile,
+            rewrite_context=rewrite_context,
             bullets_original=selected_bullets,
             allowlist=allowlist,
             constraints=constraints,
@@ -450,6 +484,7 @@ def run_loop(
                 "nice_all": score.nice_missing_all,
             },
             "rewrites": _rewrite_report_entries(rewrite_result.bullet_info, selected_ids),
+            "rewrite_conditioning": _rewrite_conditioning_report(rewrite_context, settings),
             "boost_terms": score.boost_terms,
             "length": {
                 "by_bullet": score.length_by_bullet,
