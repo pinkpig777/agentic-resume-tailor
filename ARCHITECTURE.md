@@ -128,10 +128,13 @@ flowchart LR
   JSON -->|ingest| CHROMA[(ChromaDB)]
 
   JD[Job description] --> QA[Query Agent]
+  JD --> EXCERPT[JD excerpt (tone)]
   QA --> PLAN[Retrieval plan]
   PLAN --> RETRIEVE[Multi-query retrieve]
   RETRIEVE --> SELECT[Select Top-K]
+  QA -->|target profile + plan| REWRITE[Rewrite Agent]
   SELECT --> REWRITE[Rewrite Agent]
+  EXCERPT --> REWRITE
   REWRITE --> SCORE[Scoring Agent]
   SCORE -->|boost terms| QA
   SCORE -->|stop| RENDER[Render PDF/TeX + report]
