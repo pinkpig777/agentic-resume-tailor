@@ -34,10 +34,6 @@
     @apply bg-background text-foreground antialiased;
     font-family: "Space Grotesk", system-ui, sans-serif;
     min-height: 100vh;
-    background-image:
-      radial-gradient(900px circle at 10% 0%, rgba(255, 229, 180, 0.45), transparent 60%),
-      radial-gradient(800px circle at 90% -10%, rgba(180, 255, 229, 0.35), transparent 55%);
-    background-attachment: fixed;
   }
 }
 
