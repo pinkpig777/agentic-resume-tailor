@@ -1,6 +1,7 @@
 # Agentic Resume Tailor (ART)
 
 Local-first resume tailoring system with a React (Vite) UI and a FastAPI backend. Your profile lives in a SQLite database, retrieval runs against a ChromaDB vector store (RAG-style), and the agent loop iterates Query -> Rewrite -> Score until it meets the target quality.
+![Main UI](docs/images/figure.jpg)
 
 ## What it does
 
