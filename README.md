@@ -24,6 +24,16 @@ Local-first resume tailoring system with a React (Vite) UI and a FastAPI backend
 
 ## Quickstart
 
+### Docker Compose (backend + frontend)
+
+```bash
+docker compose up
+```
+
+- UI: `http://localhost:5173`
+- API: `http://localhost:8000`
+- In Compose, the frontend container should reach the backend at `http://api:8000` (set `VITE_API_URL` accordingly). The browser still accesses the UI via the localhost port mapping.
+
 ### Local development
 
 Backend:
@@ -48,16 +58,6 @@ npm run dev
 - API: `http://localhost:8000`
 - The UI calls the API using `VITE_API_URL` (defaults to `http://localhost:8000`).
 - If you enable LLM agents, set `OPENAI_API_KEY` in `backend/.env` or your shell.
-
-### Docker Compose (backend + frontend)
-
-```bash
-docker compose up
-```
-
-- UI: `http://localhost:5173`
-- API: `http://localhost:8000`
-- In Compose, the frontend container should reach the backend at `http://api:8000` (set `VITE_API_URL` accordingly). The browser still accesses the UI via the localhost port mapping.
 
 ### Ingest / re-ingest (explicit)
 
@@ -97,7 +97,7 @@ curl -X POST http://localhost:8000/admin/ingest
 
 1. Query Agent builds a target profile + retrieval plan from the JD (LLM optional).
 2. Chroma multi-query retrieval + Top-K selection.
-3. Rewrite Agent lightly rephrases selected bullets (no new facts, numbers, tools, or metadata; LaTeX-ready).
+3. Rewrite Agent rephrases selected bullets using the Query Agent target profile + retrieval plan, with an optional short JD excerpt for tone (no new facts, numbers, tools, or metadata; LaTeX-ready).
 4. Scoring Agent evaluates coverage, retrieval, length targets (roughly 100-200 chars), redundancy, and quality signals.
 5. Boost missing must-haves and repeat until threshold or max iterations.
 

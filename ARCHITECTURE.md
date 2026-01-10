@@ -60,12 +60,12 @@ POST /admin/ingest
 - Fallback: heuristic queries from JD.
 
 **B) Rewrite Agent**
-- Inputs: selected bullets, per-bullet allowlist, length constraints.
+- Inputs: selected bullets, per-bullet allowlist, length constraints, and a rewrite context built from the Query Agent (target profile summary + retrieval plan, plus an optional short JD excerpt for tone).
 - Constraints:
   - Rephrase only, no new facts/numbers/tools/companies.
   - Metadata unchanged; LaTeX-ready output.
   - Length target roughly 100-200 chars per bullet.
-- Invalid rewrites are reverted to original.
+  - Invalid rewrites are reverted to original.
 
 **C) Scoring Agent**
 - Inputs: JD, target profile, skills text, original + rewritten bullets, retrieval signals.
@@ -96,6 +96,7 @@ The backend writes to `backend/output/` per run:
 - `run_id`, `created_at`, `profile_used`, `target_profile_summary`
 - `selected_ids` and `best_iteration_index`
 - Per-iteration trace: queries used, selected IDs, scoring breakdowns, rewrite audits, boost terms
+- Per-iteration rewrite conditioning: whether target profile/JD excerpt was used, must-have keywords, and top query plan items
 - `rewritten_bullets` with per-bullet validation metadata
 - `artifacts` (pdf/tex filenames)
 
