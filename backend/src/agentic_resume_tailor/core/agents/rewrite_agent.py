@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Set
@@ -48,6 +48,13 @@ class RewriteConstraints:
     max_chars: int
 
 
+@dataclass(frozen=True)
+class RewriteContext:
+    target_profile_summary: Dict[str, Any] | None = None
+    query_plan_summary: List[Dict[str, Any]] = field(default_factory=list)
+    jd_excerpt: str | None = None
+
+
 @dataclass
 class RewriteBulletInfo:
     bullet_id: str
@@ -69,7 +76,7 @@ class RewriteResult:
 
 SYSTEM_PROMPT = """You are the Bullet Rewrite Agent for Agentic Resume Tailor.
 
-Task: rephrase bullets to be clearer and tighter while preserving facts.
+Task: rephrase bullets to be clearer, tighter and more JD-focused while preserving facts.
 
 Hard constraints:
 - Do NOT add new numbers, metrics, tools, companies, or claims.
@@ -77,11 +84,22 @@ Hard constraints:
 - Output must remain LaTeX-ready.
 - Each rewritten bullet must respect the provided min/max character limits.
 - Return STRICT JSON only; no extra keys or commentary.
+- No period at the end of bullets.
 """
 
 
-USER_TEMPLATE = """Target profile summary (may be empty):
-{profile_summary}
+USER_TEMPLATE = """Rewrite conditioning context (primary sources):
+Target profile summary (keywords + evidence snippets):
+{target_profile_summary}
+
+Query plan summary (purpose + weight + boost_keywords):
+{query_plan_summary}
+
+Tone reference (do not invent facts):
+{jd_excerpt}
+
+Guidance:
+{guidance}
 
 Length constraints:
 - min_chars: {min_chars}
@@ -143,35 +161,126 @@ def build_rewrite_allowlist_by_bullet(
     return allowlists
 
 
-def _profile_summary(target_profile: Any | None) -> str:
+def _normalize_profile_items(items: Iterable[Any]) -> List[Dict[str, Any]]:
+    normalized: List[Dict[str, Any]] = []
+    for item in items or []:
+        if item is None:
+            continue
+        if hasattr(item, "model_dump"):
+            normalized.append(item.model_dump())
+        elif isinstance(item, Mapping):
+            normalized.append(dict(item))
+        else:
+            normalized.append(
+                {
+                    "raw": getattr(item, "raw", ""),
+                    "canonical": getattr(item, "canonical", ""),
+                    "evidence": getattr(item, "evidence", []),
+                }
+            )
+    return normalized
+
+
+def _extract_keywords(items: Iterable[Dict[str, Any]]) -> List[str]:
+    out: List[str] = []
+    for item in items or []:
+        val = item.get("canonical") or item.get("raw") or ""
+        if val:
+            out.append(str(val))
+    return out
+
+
+def _extract_evidence_snippets(items: Iterable[Dict[str, Any]]) -> List[str]:
+    snippets: List[str] = []
+    seen = set()
+    for item in items or []:
+        evidence = item.get("evidence") or []
+        for ev in evidence:
+            snippet = ""
+            if isinstance(ev, str):
+                snippet = ev.strip()
+            elif hasattr(ev, "snippet"):
+                snippet = str(getattr(ev, "snippet") or "").strip()
+            elif isinstance(ev, Mapping):
+                snippet = str(ev.get("snippet") or "").strip()
+            if snippet and snippet not in seen:
+                seen.add(snippet)
+                snippets.append(snippet)
+    return snippets
+
+
+def _summarize_target_profile(target_profile: Any | None) -> Dict[str, Any] | None:
     if target_profile is None:
-        return ""
+        return None
     if hasattr(target_profile, "model_dump"):
-        target_profile = target_profile.model_dump()
-    must_have = ", ".join(
-        [
-            str(it.get("canonical") or it.get("raw") or "")
-            for it in target_profile.get("must_have", [])
-        ]
+        profile = target_profile.model_dump()
+    elif isinstance(target_profile, Mapping):
+        profile = dict(target_profile)
+    else:
+        profile = {
+            "role_title": getattr(target_profile, "role_title", ""),
+            "role_summary": getattr(target_profile, "role_summary", ""),
+            "must_have": getattr(target_profile, "must_have", []),
+            "nice_to_have": getattr(target_profile, "nice_to_have", []),
+        }
+
+    must_items = _normalize_profile_items(profile.get("must_have", []))
+    nice_items = _normalize_profile_items(profile.get("nice_to_have", []))
+    return {
+        "role_title": str(profile.get("role_title") or ""),
+        "role_summary": str(profile.get("role_summary") or ""),
+        "must_have": _extract_keywords(must_items),
+        "nice_to_have": _extract_keywords(nice_items),
+        "evidence_snippets": _extract_evidence_snippets(must_items + nice_items),
+    }
+
+
+def _summarize_query_plan(items: Iterable[Any]) -> List[Dict[str, Any]]:
+    summary: List[Dict[str, Any]] = []
+    for item in items or []:
+        if item is None:
+            continue
+        if hasattr(item, "model_dump"):
+            entry = item.model_dump()
+            query = entry.get("text") or entry.get("query") or ""
+            purpose = entry.get("purpose") or "general"
+            weight = entry.get("weight", 1.0) or 1.0
+            boosts = entry.get("boost_keywords") or []
+        elif isinstance(item, Mapping):
+            query = item.get("text") or item.get("query") or ""
+            purpose = item.get("purpose") or "general"
+            weight = item.get("weight", 1.0) or 1.0
+            boosts = item.get("boost_keywords") or []
+        else:
+            query = getattr(item, "text", "") or getattr(item, "query", "")
+            purpose = getattr(item, "purpose", "general")
+            weight = getattr(item, "weight", 1.0)
+            boosts = getattr(item, "boost_keywords", [])
+
+        query = str(query).strip()
+        if not query:
+            continue
+        summary.append(
+            {
+                "query": query,
+                "purpose": str(purpose),
+                "weight": float(weight) if weight else 1.0,
+                "boost_keywords": [str(k) for k in (list(boosts) if boosts else []) if str(k)],
+            }
+        )
+    return summary
+
+
+def build_rewrite_context(
+    target_profile: Any | None,
+    query_plan_items: Iterable[Any],
+    jd_excerpt: str | None,
+) -> RewriteContext:
+    return RewriteContext(
+        target_profile_summary=_summarize_target_profile(target_profile),
+        query_plan_summary=_summarize_query_plan(query_plan_items),
+        jd_excerpt=(jd_excerpt or "").strip() or None,
     )
-    nice_to_have = ", ".join(
-        [
-            str(it.get("canonical") or it.get("raw") or "")
-            for it in target_profile.get("nice_to_have", [])
-        ]
-    )
-    role_title = str(target_profile.get("role_title") or "")
-    role_summary = str(target_profile.get("role_summary") or "")
-    parts = []
-    if role_title:
-        parts.append(f"role_title: {role_title}")
-    if role_summary:
-        parts.append(f"role_summary: {role_summary}")
-    if must_have:
-        parts.append(f"must_have: {must_have}")
-    if nice_to_have:
-        parts.append(f"nice_to_have: {nice_to_have}")
-    return " | ".join(parts).strip()
 
 
 def _similarity_ratio(a: str, b: str) -> float:
@@ -191,7 +300,7 @@ def _allowlist_for_bullet(
 
 
 def rewrite_bullets(
-    target_profile: Any | None,
+    rewrite_context: RewriteContext | None,
     bullets_original: List[Dict[str, Any]],
     allowlist: Iterable[str] | Mapping[str, Iterable[str]],
     constraints: RewriteConstraints,
@@ -201,7 +310,8 @@ def rewrite_bullets(
     info: Dict[str, RewriteBulletInfo] = {}
 
     settings = get_settings()
-    model = getattr(settings, "agent_model", None) or getattr(settings, "jd_model", None)
+    model = getattr(settings, "agent_model", None) or getattr(
+        settings, "jd_model", None)
     agent_used = False
     agent_fallback = False
 
@@ -211,19 +321,34 @@ def rewrite_bullets(
     rewrites_from_llm: Dict[str, str] = {}
     if constraints.enabled:
         agent_used = True
+        context = rewrite_context or RewriteContext()
         bullets_payload = [
             {
                 "bullet_id": str(b.get("bullet_id") or ""),
                 "text_latex": str(b.get("text_latex") or ""),
                 "allowed_terms": sorted(
-                    _allowlist_for_bullet(allowlist, str(b.get("bullet_id") or ""))
+                    _allowlist_for_bullet(
+                        allowlist, str(b.get("bullet_id") or ""))
                 ),
             }
             for b in bullets_original
             if b.get("bullet_id")
         ]
+        guidance_lines = [
+            "- Prefer target profile + query plan over the JD excerpt for wording.",
+            "- Reuse only verbs/phrases from evidence snippets; do not add new facts.",
+            "- If target profile summary is empty, make only light clarity edits and avoid keyword injection.",
+            "- Use allowed_terms for any tools/technologies/numbers that appear in a rewrite.",
+        ]
         prompt = USER_TEMPLATE.format(
-            profile_summary=_profile_summary(target_profile),
+            target_profile_summary=json.dumps(
+                context.target_profile_summary or {}, ensure_ascii=False, indent=2
+            ),
+            query_plan_summary=json.dumps(
+                context.query_plan_summary or [], ensure_ascii=False, indent=2
+            ),
+            jd_excerpt=(context.jd_excerpt or "(none)").strip(),
+            guidance="\n".join(guidance_lines),
             min_chars=constraints.min_chars,
             max_chars=constraints.max_chars,
             bullets_payload=json.dumps(bullets_payload, ensure_ascii=False),
@@ -237,9 +362,11 @@ def rewrite_bullets(
                 model=model,
             )
             for item in output.rewritten_bullets:
-                rewrites_from_llm[str(item.bullet_id)] = str(item.rewritten_text)
+                rewrites_from_llm[str(item.bullet_id)] = str(
+                    item.rewritten_text)
         except Exception:
-            logger.exception("Rewrite agent failed; falling back to original bullets.")
+            logger.exception(
+                "Rewrite agent failed; falling back to original bullets.")
             agent_fallback = True
     else:
         agent_used = False
@@ -268,7 +395,8 @@ def rewrite_bullets(
                 violations.append("too_long")
 
         similarity = _similarity_ratio(original, candidate)
-        drift_threshold = float(getattr(settings, "rewrite_similarity_threshold", 0.55))
+        drift_threshold = float(
+            getattr(settings, "rewrite_similarity_threshold", 0.55))
         if candidate and similarity < drift_threshold:
             violations.append("semantic_drift")
 

@@ -79,23 +79,21 @@ const parseBullets = (value: string) =>
 
 const sortBullets = (bullets: Bullet[]) =>
   [...bullets].sort(
-    (a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id),
+    (a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id)
   );
 
 const sortEducation = (items: Education[]) =>
-  [...items].sort(
-    (a, b) => a.sort_order - b.sort_order || a.id - b.id,
-  );
+  [...items].sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
 
 const sortExperiences = (items: Experience[]) =>
   [...items].sort(
-    (a, b) => a.sort_order - b.sort_order || a.job_id.localeCompare(b.job_id),
+    (a, b) => a.sort_order - b.sort_order || a.job_id.localeCompare(b.job_id)
   );
 
 const sortProjects = (items: Project[]) =>
   [...items].sort(
     (a, b) =>
-      a.sort_order - b.sort_order || a.project_id.localeCompare(b.project_id),
+      a.sort_order - b.sort_order || a.project_id.localeCompare(b.project_id)
   );
 
 type StatusTone = "success" | "error";
@@ -141,9 +139,8 @@ const emptyProjectDraft: ProjectDraft = {
 
 export default function EditorPage() {
   const queryClient = useQueryClient();
-  const [personalDraft, setPersonalDraft] = useState<PersonalInfo>(
-    emptyPersonalInfo,
-  );
+  const [personalDraft, setPersonalDraft] =
+    useState<PersonalInfo>(emptyPersonalInfo);
   const [skillsDraft, setSkillsDraft] = useState<Skills>(emptySkills);
   const [collapsedEducation, setCollapsedEducation] = useState<
     Record<number, boolean>
@@ -154,15 +151,11 @@ export default function EditorPage() {
   const [collapsedProjects, setCollapsedProjects] = useState<
     Record<string, boolean>
   >({});
-  const [newEducation, setNewEducation] = useState<EducationDraft>(
-    emptyEducationDraft,
-  );
-  const [newExperience, setNewExperience] = useState<ExperienceDraft>(
-    emptyExperienceDraft,
-  );
-  const [newProject, setNewProject] = useState<ProjectDraft>(
-    emptyProjectDraft,
-  );
+  const [newEducation, setNewEducation] =
+    useState<EducationDraft>(emptyEducationDraft);
+  const [newExperience, setNewExperience] =
+    useState<ExperienceDraft>(emptyExperienceDraft);
+  const [newProject, setNewProject] = useState<ProjectDraft>(emptyProjectDraft);
   const [status, setStatus] = useState<StatusMessage | null>(null);
 
   const { data, isLoading, isError } = useQuery({
@@ -232,7 +225,7 @@ export default function EditorPage() {
 
   const updateResumeData = (updater: (current: ResumeData) => ResumeData) => {
     queryClient.setQueryData<ResumeData>(["resumeData"], (current) =>
-      current ? updater(current) : current,
+      current ? updater(current) : current
     );
   };
 
@@ -279,15 +272,20 @@ export default function EditorPage() {
   });
 
   const updateEducationMutation = useMutation({
-    mutationFn: ({ id, payload }: { id: number; payload: EducationUpdatePayload }) =>
-      updateEducation(id, payload),
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: number;
+      payload: EducationUpdatePayload;
+    }) => updateEducation(id, payload),
     onSuccess: (updated) => {
       updateResumeData((current) => ({
         ...current,
         education: sortEducation(
           current.education.map((entry) =>
-            entry.id === updated.id ? updated : entry,
-          ),
+            entry.id === updated.id ? updated : entry
+          )
         ),
       }));
     },
@@ -299,7 +297,9 @@ export default function EditorPage() {
     onSuccess: (_result, educationId) => {
       updateResumeData((current) => ({
         ...current,
-        education: current.education.filter((entry) => entry.id !== educationId),
+        education: current.education.filter(
+          (entry) => entry.id !== educationId
+        ),
       }));
     },
     onError: () => setError("Failed to delete education."),
@@ -318,15 +318,20 @@ export default function EditorPage() {
   });
 
   const updateExperienceMutation = useMutation({
-    mutationFn: ({ jobId, payload }: { jobId: string; payload: ExperienceUpdatePayload }) =>
-      updateExperience(jobId, payload),
+    mutationFn: ({
+      jobId,
+      payload,
+    }: {
+      jobId: string;
+      payload: ExperienceUpdatePayload;
+    }) => updateExperience(jobId, payload),
     onSuccess: (updated, variables) => {
       updateResumeData((current) => ({
         ...current,
         experiences: sortExperiences(
           current.experiences.map((entry) =>
-            entry.job_id === variables.jobId ? updated : entry,
-          ),
+            entry.job_id === variables.jobId ? updated : entry
+          )
         ),
       }));
     },
@@ -338,7 +343,9 @@ export default function EditorPage() {
     onSuccess: (_result, jobId) => {
       updateResumeData((current) => ({
         ...current,
-        experiences: current.experiences.filter((entry) => entry.job_id !== jobId),
+        experiences: current.experiences.filter(
+          (entry) => entry.job_id !== jobId
+        ),
       }));
     },
     onError: () => setError("Failed to delete experience."),
@@ -356,7 +363,7 @@ export default function EditorPage() {
                 ...entry,
                 bullets: sortBullets([...entry.bullets, created]),
               }
-            : entry,
+            : entry
         ),
       }));
     },
@@ -375,11 +382,11 @@ export default function EditorPage() {
                 ...entry,
                 bullets: sortBullets(
                   entry.bullets.map((bullet) =>
-                    bullet.id === updated.id ? updated : bullet,
-                  ),
+                    bullet.id === updated.id ? updated : bullet
+                  )
                 ),
               }
-            : entry,
+            : entry
         ),
       }));
     },
@@ -397,10 +404,10 @@ export default function EditorPage() {
             ? {
                 ...entry,
                 bullets: entry.bullets.filter(
-                  (bullet) => bullet.id !== variables.bulletId,
+                  (bullet) => bullet.id !== variables.bulletId
                 ),
               }
-            : entry,
+            : entry
         ),
       }));
     },
@@ -420,15 +427,20 @@ export default function EditorPage() {
   });
 
   const updateProjectMutation = useMutation({
-    mutationFn: ({ projectId, payload }: { projectId: string; payload: ProjectUpdatePayload }) =>
-      updateProject(projectId, payload),
+    mutationFn: ({
+      projectId,
+      payload,
+    }: {
+      projectId: string;
+      payload: ProjectUpdatePayload;
+    }) => updateProject(projectId, payload),
     onSuccess: (updated, variables) => {
       updateResumeData((current) => ({
         ...current,
         projects: sortProjects(
           current.projects.map((entry) =>
-            entry.project_id === variables.projectId ? updated : entry,
-          ),
+            entry.project_id === variables.projectId ? updated : entry
+          )
         ),
       }));
     },
@@ -441,7 +453,7 @@ export default function EditorPage() {
       updateResumeData((current) => ({
         ...current,
         projects: current.projects.filter(
-          (entry) => entry.project_id !== projectId,
+          (entry) => entry.project_id !== projectId
         ),
       }));
     },
@@ -460,7 +472,7 @@ export default function EditorPage() {
                 ...entry,
                 bullets: sortBullets([...entry.bullets, created]),
               }
-            : entry,
+            : entry
         ),
       }));
     },
@@ -468,8 +480,13 @@ export default function EditorPage() {
   });
 
   const updateProjectBulletMutation = useMutation({
-    mutationFn: ({ projectId, bullet }: { projectId: string; bullet: Bullet }) =>
-      updateProjectBullet(projectId, bullet),
+    mutationFn: ({
+      projectId,
+      bullet,
+    }: {
+      projectId: string;
+      bullet: Bullet;
+    }) => updateProjectBullet(projectId, bullet),
     onSuccess: (updated, variables) => {
       updateResumeData((current) => ({
         ...current,
@@ -479,11 +496,11 @@ export default function EditorPage() {
                 ...entry,
                 bullets: sortBullets(
                   entry.bullets.map((bullet) =>
-                    bullet.id === updated.id ? updated : bullet,
-                  ),
+                    bullet.id === updated.id ? updated : bullet
+                  )
                 ),
               }
-            : entry,
+            : entry
         ),
       }));
     },
@@ -491,8 +508,13 @@ export default function EditorPage() {
   });
 
   const deleteProjectBulletMutation = useMutation({
-    mutationFn: ({ projectId, bulletId }: { projectId: string; bulletId: string }) =>
-      deleteProjectBullet(projectId, bulletId),
+    mutationFn: ({
+      projectId,
+      bulletId,
+    }: {
+      projectId: string;
+      bulletId: string;
+    }) => deleteProjectBullet(projectId, bulletId),
     onSuccess: (_result, variables) => {
       updateResumeData((current) => ({
         ...current,
@@ -501,10 +523,10 @@ export default function EditorPage() {
             ? {
                 ...entry,
                 bullets: entry.bullets.filter(
-                  (bullet) => bullet.id !== variables.bulletId,
+                  (bullet) => bullet.id !== variables.bulletId
                 ),
               }
-            : entry,
+            : entry
         ),
       }));
     },
@@ -524,7 +546,7 @@ export default function EditorPage() {
     onSuccess: (result) => {
       if (result.status === "ok") {
         setSuccess(
-          `Re-ingested ${result.count} bullets in ${result.elapsed_s}s.`,
+          `Re-ingested ${result.count} bullets in ${result.elapsed_s}s.`
         );
       } else {
         setError(result.error ?? "Re-ingest failed.");
@@ -535,17 +557,17 @@ export default function EditorPage() {
 
   const canAddEducation = useMemo(
     () => newEducation.school.trim().length > 0,
-    [newEducation.school],
+    [newEducation.school]
   );
   const canAddExperience = useMemo(
     () =>
       newExperience.company.trim().length > 0 &&
       newExperience.role.trim().length > 0,
-    [newExperience.company, newExperience.role],
+    [newExperience.company, newExperience.role]
   );
   const canAddProject = useMemo(
     () => newProject.name.trim().length > 0,
-    [newProject.name],
+    [newProject.name]
   );
 
   const handlePersonalBlur = (field: keyof PersonalInfo) => {
@@ -621,14 +643,14 @@ export default function EditorPage() {
       experiences: current.experiences.map((entry) =>
         entry.job_id === jobId
           ? { ...entry, bullets: sortBullets(bullets) }
-          : entry,
+          : entry
       ),
     }));
     try {
       await Promise.all(
         bullets.map((bullet) =>
-          updateExperienceBulletMutation.mutateAsync({ jobId, bullet }),
-        ),
+          updateExperienceBulletMutation.mutateAsync({ jobId, bullet })
+        )
       );
     } catch {
       setError("Failed to reorder experience bullets.");
@@ -641,14 +663,14 @@ export default function EditorPage() {
       projects: current.projects.map((entry) =>
         entry.project_id === projectId
           ? { ...entry, bullets: sortBullets(bullets) }
-          : entry,
+          : entry
       ),
     }));
     try {
       await Promise.all(
         bullets.map((bullet) =>
-          updateProjectBulletMutation.mutateAsync({ projectId, bullet }),
-        ),
+          updateProjectBulletMutation.mutateAsync({ projectId, bullet })
+        )
       );
     } catch {
       setError("Failed to reorder project bullets.");
@@ -716,8 +738,8 @@ export default function EditorPage() {
               Keep your profile sharp.
             </h1>
             <p className="max-w-2xl text-sm text-muted-foreground">
-              Changes auto-save to the database on blur. Export JSON or re-ingest
-              to refresh Chroma when you are ready.
+              Changes auto-save to the database on blur. Export JSON or
+              re-ingest to refresh Chroma when you are ready.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -763,7 +785,7 @@ export default function EditorPage() {
               "rounded-lg border px-3 py-2 text-sm",
               status.tone === "success"
                 ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                : "border-destructive/30 bg-destructive/10 text-destructive",
+                : "border-destructive/30 bg-destructive/10 text-destructive"
             )}
           >
             {status.message}
@@ -837,7 +859,7 @@ export default function EditorPage() {
                   }))
                 }
                 onBlur={() => handlePersonalBlur("linkedin_id")}
-                placeholder="linkedin.com/in/username"
+                placeholder="username"
               />
             </div>
             <div className="space-y-2">
@@ -852,7 +874,7 @@ export default function EditorPage() {
                   }))
                 }
                 onBlur={() => handlePersonalBlur("github_id")}
-                placeholder="github.com/username"
+                placeholder="username"
               />
             </div>
             <div className="space-y-2">
@@ -1175,7 +1197,9 @@ export default function EditorPage() {
               <Button
                 type="button"
                 onClick={handleAddExperience}
-                disabled={!canAddExperience || createExperienceMutation.isPending}
+                disabled={
+                  !canAddExperience || createExperienceMutation.isPending
+                }
               >
                 {createExperienceMutation.isPending ? (
                   <>

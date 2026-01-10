@@ -71,6 +71,8 @@ class Settings(BaseSettings):
     rewrite_min_chars: int = 100
     rewrite_max_chars: int = 200
     rewrite_similarity_threshold: float = 0.55
+    jd_excerpt_max_chars: int = 1200
+    rewrite_report_query_plan_top_n: int = 5
     length_weight: float = 0.10
     redundancy_weight: float = 0.10
     redundancy_threshold: float = 0.88

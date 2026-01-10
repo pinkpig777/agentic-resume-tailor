@@ -1,8 +1,8 @@
 # Technical Documentation (ART)
 
-This document describes the current architecture after the migration to React UI + FastAPI backend + the agent loop.
+This document describes ART's developer-facing architecture. For run commands and quickstart, see [README.md](README.md).
 
-## Architecture overview
+## System design
 
 **Components**
 
@@ -20,7 +20,7 @@ This document describes the current architecture after the migration to React UI
 - `backend/data/my_experience.json` is an exported artifact for backup/inspection and for Chroma ingest.
 - Rewrites in the agent loop are temporary for the run and are not written back to the DB or Chroma.
 
-## Ingest pipeline (explicit)
+## Ingest pipeline invariants
 
 Ingest is an explicit action and always follows this path:
 
@@ -28,51 +28,46 @@ Ingest is an explicit action and always follows this path:
 SQLite DB -> export JSON -> Chroma ingest
 ```
 
-Commands:
+Invariants:
 
-```bash
-# local
-cd backend
-PYTHONPATH=src uv run python -m agentic_resume_tailor.ingest
+- Exported JSON is the only source ingested into Chroma.
+- Ingest never mutates SQLite; it only rebuilds the retrieval index.
+- Commands and API usage live in `README.md`.
 
-# docker compose
-docker compose run --rm api python -m agentic_resume_tailor.ingest
-```
-
-API endpoint:
-
-```
-POST /admin/ingest
-```
-
-## Retrieval and selection
+## Retrieval and selection internals
 
 - The Query Agent produces a retrieval plan (3-7 dense, specific queries).
 - Chroma performs multi-query retrieval with query boosts.
 - Candidates are merged and scored; Top-K bullets are selected.
 - Selection preserves bullet metadata (`bullet_id`, section, ordering context).
 
-## Agent loop (A/B/C)
+## Agent loop responsibilities (A/B/C)
+
+This section captures responsibilities and constraints per agent.
 
 **A) Query Agent**
+
 - Inputs: JD text (LLM optional).
 - Outputs: target profile + retrieval plan.
 - Fallback: heuristic queries from JD.
 
 **B) Rewrite Agent**
-- Inputs: selected bullets, per-bullet allowlist, length constraints.
+
+- Inputs: selected bullets, per-bullet allowlist, length constraints, and a rewrite context built from the Query Agent (target profile summary + retrieval plan, plus an optional short JD excerpt for tone).
 - Constraints:
   - Rephrase only, no new facts/numbers/tools/companies.
   - Metadata unchanged; LaTeX-ready output.
   - Length target roughly 100-200 chars per bullet.
-- Invalid rewrites are reverted to original.
+  - Invalid rewrites are reverted to original.
 
 **C) Scoring Agent**
+
 - Inputs: JD, target profile, skills text, original + rewritten bullets, retrieval signals.
 - Outputs: final score, coverage metrics, missing keywords, boost terms.
 - Signals include coverage, retrieval fit, length compliance, redundancy penalty, and quality hints.
 
 **Loop**
+
 - Iterate with boost terms until score >= threshold or `max_iters` is reached.
 
 ## Scoring signals (high level)
@@ -83,41 +78,28 @@ POST /admin/ingest
 - **Redundancy**: near-duplicate bullets are penalized.
 - **Quality**: quantified signal hints (e.g., metrics) used as a soft bonus.
 
-## Artifacts and report.json
+## Report.json schema (what we store and why)
 
 The backend writes to `backend/output/` per run:
 
-- `<run_id>.pdf`
-- `<run_id>.tex`
-- `<run_id>_report.json`
+- `<run_id>.pdf` and `<run_id>.tex` for the final tailored resume.
+- `<run_id>_report.json` for explainability, debugging, and UI display.
 
-`report.json` includes:
+`report.json` stores:
 
-- `run_id`, `created_at`, `profile_used`, `target_profile_summary`
-- `selected_ids` and `best_iteration_index`
-- Per-iteration trace: queries used, selected IDs, scoring breakdowns, rewrite audits, boost terms
-- `rewritten_bullets` with per-bullet validation metadata
-- `artifacts` (pdf/tex filenames)
+- Run metadata (`run_id`, `created_at`) for traceability.
+- Query/target profile summary fields to explain what the system optimized for.
+- Per-iteration trace (queries, selections, scoring breakdowns, rewrite audits, boost terms) to debug loop behavior.
+- Rewrite conditioning details (target profile present, JD excerpt present, must-have keywords, top query plan items) for transparency.
+- Final `rewritten_bullets` with validation metadata for safety checks.
+- Artifact filenames so the UI can link to PDF/TeX outputs.
 
-The UI reads the report to display scoring, missing keywords, and rewritten bullet audits.
+## Deployment notes
 
-## Deployment model
+- Local dev uses `http://localhost:8000` for the API and `http://localhost:5173` for the UI.
+- In Docker Compose, the frontend container should reach the backend at `http://api:8000`, while the browser still uses the localhost port mapping. Set `VITE_API_URL` accordingly.
 
-### Local dev
-
-- Backend: `PYTHONPATH=src uv run python -m agentic_resume_tailor.api.server`
-- Frontend: `npm install && npm run dev`
-- UI: `http://localhost:5173`
-- API: `http://localhost:8000`
-
-### Docker Compose
-
-- `docker compose up`
-- UI: `http://localhost:5173`
-- API: `http://localhost:8000`
-- Frontend container should reach backend via `http://api:8000` (set `VITE_API_URL` accordingly); the browser still accesses the UI via localhost port mapping.
-
-## Workflow diagram
+## Workflow diagram (canonical)
 
 ```mermaid
 flowchart LR
@@ -127,14 +109,16 @@ flowchart LR
   JSON -->|ingest| CHROMA[(ChromaDB)]
 
   JD[Job description] --> QA[Query Agent]
-  QA --> PLAN[Retrieval plan]
+  QA --> PLAN[Target profile + retrieval plan]
   PLAN --> RETRIEVE[Multi-query retrieve]
+  CHROMA --> RETRIEVE
   RETRIEVE --> SELECT[Select Top-K]
   SELECT --> REWRITE[Rewrite Agent]
+  JD --> EXCERPT[JD excerpt tone]
+  EXCERPT -.->|tone only| REWRITE
   REWRITE --> SCORE[Scoring Agent]
   SCORE -->|boost terms| QA
   SCORE -->|stop| RENDER[Render PDF/TeX + report]
-  CHROMA --> RETRIEVE
 ```
 
 ## Migration Notes (v2 -> current)
