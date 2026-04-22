@@ -53,11 +53,10 @@ const numberFields = [...integerFields, ...floatFields] as const;
 
 const logLevelOptions = ["DEBUG", "INFO", "WARNING", "ERROR"];
 const jdModelOptions = [
-  "gpt-4.1-nano-2025-04-14",
-  "gpt-4.1-mini-2025-04-14",
-  "gpt-4.1-2025-04-14",
-  "gpt-4o-mini-2024-07-18",
-  "gpt-4o-2024-08-06",
+  "gpt-5.4-nano",
+  "gpt-5.4-mini",
+  "gpt-5.4",
+  "gpt-5.4-pro",
 ];
 
 const tooltips: Record<string, string> = {

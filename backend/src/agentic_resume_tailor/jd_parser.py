@@ -16,7 +16,8 @@ logger = logging.getLogger(__name__)
 # Target Profile v1 (STRICT schema for Structured Outputs)
 # =============================
 
-KeywordType = Literal["hard_skill", "soft_skill", "tool", "framework", "domain", "responsibility"]
+KeywordType = Literal["hard_skill", "soft_skill",
+                      "tool", "framework", "domain", "responsibility"]
 QueryPurpose = Literal[
     "core_stack", "domain_fit", "deployment", "scale_reliability", "leadership", "general"
 ]
@@ -31,13 +32,16 @@ class EvidenceSpan(BaseModel):
     end: int = Field(
         ge=0, description="Character end offset into original jd_text (repaired server-side)."
     )
-    snippet: str = Field(min_length=1, description="Exact substring copied from jd_text.")
+    snippet: str = Field(
+        min_length=1, description="Exact substring copied from jd_text.")
 
 
 class KeywordItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    raw: str = Field(min_length=1, description="Original phrase as it appears in the JD.")
-    canonical: str = Field(min_length=1, description="Canonicalized (lowercase, normalized).")
+    raw: str = Field(
+        min_length=1, description="Original phrase as it appears in the JD.")
+    canonical: str = Field(
+        min_length=1, description="Canonicalized (lowercase, normalized).")
     type: KeywordType
     evidence: List[EvidenceSpan] = Field(default_factory=list)
     priority: int = Field(ge=1, le=5, description="1 is highest priority.")
@@ -75,7 +79,8 @@ class MetaInfo(BaseModel):
 class TargetProfileV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_version: Literal["target_profile_v1"] = "target_profile_v1"
-    role_title: str = Field(default="", description="Job title if identifiable.")
+    role_title: str = Field(
+        default="", description="Job title if identifiable.")
     role_summary: str = Field(default="", description="1-2 sentence summary.")
     must_have: List[KeywordItem] = Field(default_factory=list)
     nice_to_have: List[KeywordItem] = Field(default_factory=list)
@@ -118,7 +123,8 @@ def load_canon_config(path: str) -> Dict[str, Any]:
         if not isinstance(data, dict):
             raise ValueError("canonicalization config must be a JSON object")
         if data.get("schema_version") != "canon_config_v1":
-            raise ValueError("canonicalization config schema_version must be canon_config_v1")
+            raise ValueError(
+                "canonicalization config schema_version must be canon_config_v1")
         return data
     except FileNotFoundError:
         logger.warning("%s not found; using empty canonical config", path)
@@ -299,14 +305,17 @@ def validate_evidence_spans(jd_text: str, item: KeywordItem) -> List[str]:
 
     for ev in item.evidence:
         if ev.start < 0 or ev.end <= ev.start:
-            errs.append(f"Invalid offsets for '{item.raw}': start={ev.start}, end={ev.end}")
+            errs.append(
+                f"Invalid offsets for '{item.raw}': start={ev.start}, end={ev.end}")
             continue
         if ev.end > n:
-            errs.append(f"Out of range for '{item.raw}': end={ev.end} > len={n}")
+            errs.append(
+                f"Out of range for '{item.raw}': end={ev.end} > len={n}")
             continue
-        expected = jd_text[ev.start : ev.end]
+        expected = jd_text[ev.start: ev.end]
         if ev.snippet != expected:
-            errs.append(f"Snippet mismatch for '{item.raw}' at [{ev.start}:{ev.end}]")
+            errs.append(
+                f"Snippet mismatch for '{item.raw}' at [{ev.start}:{ev.end}]")
     return errs
 
 
@@ -350,7 +359,8 @@ def salvage_evidence_for_item(jd_text: str, item: KeywordItem) -> None:
         span = _first_case_insensitive_span(jd_text, cand)
         if span:
             s, e = span
-            item.evidence = [EvidenceSpan(start=s, end=e, snippet=jd_text[s:e])]
+            item.evidence = [EvidenceSpan(
+                start=s, end=e, snippet=jd_text[s:e])]
             return
 
     item.evidence = []
@@ -406,7 +416,8 @@ def sanitize_query_for_embeddings(q: str) -> str:
     """
     q = q or ""
     q = re.sub(r"\bAND\b|\bOR\b|\bNOT\b", " ", q, flags=re.IGNORECASE)
-    q = q.replace("(", " ").replace(")", " ").replace('"', " ").replace("'", " ")
+    q = q.replace("(", " ").replace(")", " ").replace(
+        '"', " ").replace("'", " ")
     q = re.sub(r"\s+", " ", q).strip()
     return q
 
@@ -432,14 +443,16 @@ def postprocess(profile: TargetProfileV1, jd_text: str, model_name: str) -> Targ
     # Retrieval plan constraints
     eq = profile.retrieval_plan.experience_queries
     if len(eq) < 3:
-        raise ValueError("retrieval_plan.experience_queries must have at least 3 queries")
+        raise ValueError(
+            "retrieval_plan.experience_queries must have at least 3 queries")
     if len(eq) > 7:
         profile.retrieval_plan.experience_queries = eq[:7]
 
     # sanitize queries and canonicalize boosts
     for qi in profile.retrieval_plan.experience_queries:
         qi.query = sanitize_query_for_embeddings(qi.query)
-        qi.boost_keywords = [canonicalize(b) for b in (qi.boost_keywords or []) if b]
+        qi.boost_keywords = [canonicalize(b)
+                             for b in (qi.boost_keywords or []) if b]
         qi.weight = min(3.0, max(0.1, float(qi.weight)))
 
     # Evidence is best-effort: never fail pipeline if missing
@@ -540,20 +553,24 @@ def parse_job_description(
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT.strip()},
-        {"role": "user", "content": USER_TEMPLATE.format(jd_text=jd_text).strip()},
+        {"role": "user", "content": USER_TEMPLATE.format(
+            jd_text=jd_text).strip()},
     ]
 
     last_error: Optional[str] = None
 
     for attempt in range(1, max_attempts + 1):
-        logger.info("Analyzing job description (attempt %s/%s)...", attempt, max_attempts)
+        logger.info("Analyzing job description (attempt %s/%s)...",
+                    attempt, max_attempts)
 
-        completion = client.beta.chat.completions.parse(
+        response = client.responses.parse(
             model=model,
-            messages=messages,
-            response_format=TargetProfileV1,
+            input=messages,
+            text_format=TargetProfileV1,
         )
-        profile: TargetProfileV1 = completion.choices[0].message.parsed
+        profile: TargetProfileV1 | None = response.output_parsed
+        if profile is None:
+            raise ValueError("LLM returned empty parsed response.")
 
         # 1) Canonicalize the canonical fields early (helps salvage matching)
         for grp in [
@@ -580,7 +597,8 @@ def parse_job_description(
                 all_errors.extend(errs)
 
         if all_errors:
-            logger.warning("Evidence issues detected; continuing in best-effort mode.")
+            logger.warning(
+                "Evidence issues detected; continuing in best-effort mode.")
             last_error = "Evidence had mismatches; best-effort salvage applied."
 
         # 4) Postprocess contract checks (queries, dedupe, meta)

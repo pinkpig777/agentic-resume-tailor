@@ -16,14 +16,9 @@ class FakeMessage:
         self.parsed = parsed
 
 
-class FakeChoice:
+class FakeResponse:
     def __init__(self, parsed):
-        self.message = FakeMessage(parsed)
-
-
-class FakeCompletion:
-    def __init__(self, parsed):
-        self.choices = [FakeChoice(parsed)]
+        self.output_parsed = parsed
 
 
 class FakeCompletions:
@@ -34,23 +29,12 @@ class FakeCompletions:
         self.calls += 1
         if self.calls == 1:
             raise ValueError("bad json")
-        return FakeCompletion(DummySchema(value="ok"))
-
-
-class FakeChat:
-    def __init__(self, completions):
-        self.completions = completions
-
-
-class FakeBeta:
-    def __init__(self, completions):
-        self.chat = FakeChat(completions)
+        return FakeResponse(DummySchema(value="ok"))
 
 
 class FakeOpenAI:
     def __init__(self, **_kwargs):
-        self.completions = FakeCompletions()
-        self.beta = FakeBeta(self.completions)
+        self.responses = FakeCompletions()
 
 
 def test_call_llm_json_retries_with_repair(monkeypatch) -> None:
@@ -63,4 +47,4 @@ def test_call_llm_json_retries_with_repair(monkeypatch) -> None:
     result = llm_client.call_llm_json("prompt", DummySchema, settings=settings)
 
     assert result.value == "ok"
-    assert fake.completions.calls == 2
+    assert fake.responses.calls == 2
