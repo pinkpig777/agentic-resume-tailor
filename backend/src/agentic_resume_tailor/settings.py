@@ -82,7 +82,7 @@ class Settings(BaseSettings):
 
     skip_pdf: bool = False
     run_id: str | None = None
-    jd_model: str = "gpt-4.1-nano-2025-04-14"
+    jd_model: str = "gpt-5.4-nano"
     agent_model: str | None = None
     agent_temperature: float = 0.2
     agent_timeout_s: float = 60.0

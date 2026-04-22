@@ -81,7 +81,7 @@ Task: rephrase bullets to be clearer, tighter and more JD-focused while preservi
 Hard constraints:
 - Do NOT add new numbers, metrics, tools, companies, or claims.
 - Only rephrase; keep meaning and facts identical.
-- Output must remain LaTeX-ready.
+- Output must use the original LaTeX format, including all commands and special characters.
 - Each rewritten bullet must respect the provided min/max character limits.
 - Return STRICT JSON only; no extra keys or commentary.
 - No period at the end of bullets.

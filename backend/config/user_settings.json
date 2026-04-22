@@ -31,7 +31,7 @@
   "cors_origins": "*",
   "skip_pdf": false,
   "run_id": null,
-  "jd_model": "gpt-4.1-nano-2025-04-14",
+  "jd_model": "gpt-5.4-nano",
   "canon_config": "config/canonicalization.json",
   "family_config": "config/families.json",
   "api_url": "http://localhost:8000",

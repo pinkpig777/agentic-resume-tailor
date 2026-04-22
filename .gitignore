@@ -52,3 +52,5 @@ data/processed/
 
 # uv
 backend/uv.lock
+PRESENTATION_CONCISE.md
+PRESENTATION.md

@@ -27,6 +27,26 @@ def _schema_hint(schema_model: Type[BaseModel]) -> str:
         schema = schema_model.model_json_schema()
     except Exception:
         return ""
+
+
+def _parse_with_responses_api(
+    client: OpenAI,
+    *,
+    model: str,
+    messages: list[dict[str, str]],
+    schema_model: Type[T],
+    temperature: float,
+) -> T:
+    response = client.responses.parse(
+        model=model,
+        input=messages,
+        text_format=schema_model,
+        temperature=temperature,
+    )
+    parsed = getattr(response, "output_parsed", None)
+    if parsed is None:
+        raise ValueError("LLM returned empty parsed response.")
+    return parsed
     try:
         return json.dumps(schema, indent=2, ensure_ascii=False)
     except Exception:
@@ -47,7 +67,8 @@ def call_llm_json(
     if not api_key:
         raise ValueError("OPENAI_API_KEY is missing; cannot call LLM.")
 
-    model = model or getattr(settings, "agent_model", None) or getattr(settings, "jd_model", None)
+    model = model or getattr(settings, "agent_model", None) or getattr(
+        settings, "jd_model", None)
     if not model:
         raise ValueError("No model configured for LLM client.")
 
@@ -58,16 +79,13 @@ def call_llm_json(
     messages = _build_messages(system_prompt, prompt)
 
     try:
-        completion = client.beta.chat.completions.parse(
+        return _parse_with_responses_api(
+            client,
             model=model,
             messages=messages,
-            response_format=schema_model,
+            schema_model=schema_model,
             temperature=temperature,
         )
-        parsed = completion.choices[0].message.parsed
-        if parsed is None:
-            raise ValueError("LLM returned empty parsed response.")
-        return parsed
     except Exception as exc:
         logger.warning("LLM JSON parse failed; attempting repair: %s", exc)
 
@@ -81,13 +99,10 @@ def call_llm_json(
     if schema_hint:
         repair_prompt = f"{repair_prompt}\n\nSchema:\n{schema_hint}"
 
-    completion = client.beta.chat.completions.parse(
+    return _parse_with_responses_api(
+        client,
         model=model,
         messages=_build_messages(system_prompt, repair_prompt),
-        response_format=schema_model,
+        schema_model=schema_model,
         temperature=temperature,
     )
-    parsed = completion.choices[0].message.parsed
-    if parsed is None:
-        raise ValueError("LLM repair failed to return parsed response.")
-    return parsed
