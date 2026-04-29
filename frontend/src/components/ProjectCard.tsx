@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -52,6 +52,21 @@ const buildDraft = (project: Project): ProjectDraft => ({
 
 export function ProjectCard({
   project,
+  ...props
+}: ProjectCardProps) {
+  const resetKey = [
+    project.name,
+    project.technologies,
+    ...project.bullets.map(
+      (bullet) => `${bullet.id}:${bullet.text_latex}:${bullet.sort_order}`,
+    ),
+  ].join("|");
+
+  return <ProjectCardInner key={resetKey} project={project} {...props} />;
+}
+
+function ProjectCardInner({
+  project,
   onProjectUpdate,
   onProjectDelete,
   onBulletCreate,
@@ -65,14 +80,6 @@ export function ProjectCard({
   const [draft, setDraft] = useState<ProjectDraft>(() => buildDraft(project));
   const [newBullet, setNewBullet] = useState("");
   const contentId = `project-${project.project_id}-content`;
-
-  useEffect(() => {
-    setItems(project.bullets);
-  }, [project.bullets]);
-
-  useEffect(() => {
-    setDraft(buildDraft(project));
-  }, [project.name, project.technologies]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -216,7 +223,7 @@ export function ProjectCard({
                   {items.length ? (
                     items.map((bullet) => (
                       <SortableBullet
-                        key={bullet.id}
+                        key={`${bullet.id}:${bullet.text_latex}:${bullet.sort_order}`}
                         bullet={bullet}
                         onUpdate={(next) =>
                           onBulletUpdate(project.project_id, next)

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -56,6 +56,25 @@ const buildDraft = (experience: Experience): ExperienceDraft => ({
 
 export function ExperienceCard({
   experience,
+  ...props
+}: ExperienceCardProps) {
+  const resetKey = [
+    experience.company,
+    experience.role,
+    experience.dates,
+    experience.location,
+    ...experience.bullets.map(
+      (bullet) => `${bullet.id}:${bullet.text_latex}:${bullet.sort_order}`,
+    ),
+  ].join("|");
+
+  return (
+    <ExperienceCardInner key={resetKey} experience={experience} {...props} />
+  );
+}
+
+function ExperienceCardInner({
+  experience,
   onExperienceUpdate,
   onExperienceDelete,
   onBulletCreate,
@@ -69,14 +88,6 @@ export function ExperienceCard({
   const [draft, setDraft] = useState<ExperienceDraft>(() => buildDraft(experience));
   const [newBullet, setNewBullet] = useState("");
   const contentId = `experience-${experience.job_id}-content`;
-
-  useEffect(() => {
-    setItems(experience.bullets);
-  }, [experience.bullets]);
-
-  useEffect(() => {
-    setDraft(buildDraft(experience));
-  }, [experience.company, experience.role, experience.dates, experience.location]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -239,7 +250,7 @@ export function ExperienceCard({
                   {items.length ? (
                     items.map((bullet) => (
                       <SortableBullet
-                        key={bullet.id}
+                        key={`${bullet.id}:${bullet.text_latex}:${bullet.sort_order}`}
                         bullet={bullet}
                         onUpdate={(next) =>
                           onBulletUpdate(experience.job_id, next)

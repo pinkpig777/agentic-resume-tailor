@@ -43,6 +43,8 @@ const floatFields = [
   "quant_bonus_cap",
   "boost_weight",
   "experience_weight",
+  "rewrite_similarity_threshold",
+  "rewrite_similarity_threshold_creative",
   "length_weight",
   "redundancy_weight",
   "redundancy_threshold",
@@ -52,6 +54,7 @@ const floatFields = [
 const numberFields = [...integerFields, ...floatFields] as const;
 
 const logLevelOptions = ["DEBUG", "INFO", "WARNING", "ERROR"];
+const rewriteStyleOptions = ["conservative", "creative"] as const;
 const jdModelOptions = [
   "gpt-5.4-nano",
   "gpt-5.4-mini",
@@ -83,8 +86,14 @@ const tooltips: Record<string, string> = {
   boost_top_n_missing: "Number of missing keywords boosted.",
   experience_weight: "Multiplier for experience bullets vs projects.",
   enable_bullet_rewrite: "Rewrite bullets via the agent under strict constraints.",
+  rewrite_style:
+    "Conservative keeps wording close. Creative allows stronger framing without adding facts.",
   rewrite_min_chars: "Minimum target length for rewritten bullets.",
   rewrite_max_chars: "Maximum target length for rewritten bullets.",
+  rewrite_similarity_threshold:
+    "Minimum similarity accepted for conservative rewrite mode.",
+  rewrite_similarity_threshold_creative:
+    "Minimum similarity accepted for creative rewrite mode.",
   length_weight: "Weight for length efficiency in scoring.",
   redundancy_weight: "Penalty weight for near-duplicate bullets.",
   redundancy_threshold: "Similarity threshold for redundancy detection.",
@@ -107,9 +116,10 @@ const tooltips: Record<string, string> = {
 type BooleanField = (typeof booleanFields)[number];
 type IntegerField = (typeof integerFields)[number];
 type NumberField = (typeof numberFields)[number];
+type MetadataField = "config_path" | "live_fields" | "restart_required_fields";
 type TextField = Exclude<
   keyof SettingsData,
-  BooleanField | NumberField | "config_path"
+  BooleanField | NumberField | MetadataField
 >;
 
 type SettingsFormState = {
@@ -120,6 +130,8 @@ type SettingsFormState = {
   [K in TextField]: string;
 } & {
   config_path: string;
+  live_fields: string[];
+  restart_required_fields: string[];
 };
 
 type StatusTone = "success" | "error";
@@ -130,7 +142,7 @@ type StatusMessage = {
 };
 
 const buildFormState = (settings: SettingsData): SettingsFormState => {
-  const base: Record<string, string | boolean | number | null> = {
+  const base: Record<string, string | boolean | number | null | string[]> = {
     ...settings,
     run_id: settings.run_id ?? "",
     output_pdf_name: settings.output_pdf_name ?? "",
@@ -145,6 +157,8 @@ const buildFormState = (settings: SettingsData): SettingsFormState => {
   });
 
   base.config_path = settings.config_path;
+  base.live_fields = [...settings.live_fields];
+  base.restart_required_fields = [...settings.restart_required_fields];
 
   return base as SettingsFormState;
 };
@@ -156,25 +170,16 @@ const parseNumber = (field: NumberField, raw: string) => {
   return Number.parseFloat(raw);
 };
 
-export default function SettingsPage() {
+type SettingsFormProps = {
+  settings: SettingsData;
+};
+
+function SettingsForm({ settings }: SettingsFormProps) {
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<SettingsFormState | null>(null);
+  const [draft, setDraft] = useState<SettingsFormState>(() =>
+    buildFormState(settings),
+  );
   const [status, setStatus] = useState<StatusMessage | null>(null);
-
-  const {
-    data: settings,
-    isLoading,
-    isError,
-  } = useQuery({
-    queryKey: ["settings"],
-    queryFn: fetchSettings,
-  });
-
-  useEffect(() => {
-    if (settings) {
-      setDraft(buildFormState(settings));
-    }
-  }, [settings]);
 
   useEffect(() => {
     if (!status || status.tone === "error") {
@@ -198,9 +203,6 @@ export default function SettingsPage() {
   });
 
   const handleTextBlur = (field: TextField, rawValue?: string) => {
-    if (!settings || !draft) {
-      return;
-    }
     const currentValue = rawValue ?? draft[field];
     const next = currentValue.trim();
     const current = (settings[field] ?? "") as string | null;
@@ -214,24 +216,17 @@ export default function SettingsPage() {
   };
 
   const handleNumberBlur = (field: NumberField, rawValue?: string) => {
-    if (!settings || !draft) {
-      return;
-    }
     const raw = (rawValue ?? draft[field]).trim();
     if (!raw) {
       setDraft((prev) =>
-        prev
-          ? { ...prev, [field]: String(settings[field]) }
-          : prev,
+        ({ ...prev, [field]: String(settings[field]) }),
       );
       return;
     }
     const parsed = parseNumber(field, raw);
     if (Number.isNaN(parsed)) {
       setDraft((prev) =>
-        prev
-          ? { ...prev, [field]: String(settings[field]) }
-          : prev,
+        ({ ...prev, [field]: String(settings[field]) }),
       );
       return;
     }
@@ -242,11 +237,8 @@ export default function SettingsPage() {
   };
 
   const handleToggle = (field: BooleanField) => {
-    if (!settings || !draft) {
-      return;
-    }
     const next = !draft[field];
-    setDraft((prev) => (prev ? { ...prev, [field]: next } : prev));
+    setDraft((prev) => ({ ...prev, [field]: next }));
     if (next === settings[field]) {
       return;
     }
@@ -257,6 +249,16 @@ export default function SettingsPage() {
     queryClient.invalidateQueries({ queryKey: ["settings"] });
   };
 
+  const fieldRuntimeMode = (field: string) => {
+    if (draft.live_fields.includes(field)) {
+      return "Live";
+    }
+    if (draft.restart_required_fields.includes(field)) {
+      return "Restart";
+    }
+    return null;
+  };
+
   const renderTextField = (
     field: TextField,
     label: string,
@@ -264,23 +266,26 @@ export default function SettingsPage() {
     description?: string,
     tooltip?: string,
   ) => {
-    if (!draft) {
-      return null;
-    }
     const id = `settings-${field}`;
     const helpText = tooltip ?? description ?? label;
+    const runtimeMode = fieldRuntimeMode(field);
     return (
       <div className="space-y-2" key={field}>
-        <Label htmlFor={id} title={helpText}>
-          {label}
-        </Label>
+        <div className="flex items-center gap-2">
+          <Label htmlFor={id} title={helpText}>
+            {label}
+          </Label>
+          {runtimeMode ? (
+            <span className="rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              {runtimeMode}
+            </span>
+          ) : null}
+        </div>
         <Input
           id={id}
           value={draft[field]}
           onChange={(event) =>
-            setDraft((prev) =>
-              prev ? { ...prev, [field]: event.target.value } : prev,
-            )
+            setDraft((prev) => ({ ...prev, [field]: event.target.value }))
           }
           onBlur={(event) => handleTextBlur(field, event.currentTarget.value)}
           placeholder={placeholder}
@@ -300,24 +305,27 @@ export default function SettingsPage() {
     description?: string,
     tooltip?: string,
   ) => {
-    if (!draft) {
-      return null;
-    }
     const id = `settings-${field}`;
     const helpText = tooltip ?? description ?? label;
+    const runtimeMode = fieldRuntimeMode(field);
     return (
       <div className="space-y-2" key={field}>
-        <Label htmlFor={id} title={helpText}>
-          {label}
-        </Label>
+        <div className="flex items-center gap-2">
+          <Label htmlFor={id} title={helpText}>
+            {label}
+          </Label>
+          {runtimeMode ? (
+            <span className="rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              {runtimeMode}
+            </span>
+          ) : null}
+        </div>
         <Input
           id={id}
           type="number"
           value={draft[field]}
           onChange={(event) =>
-            setDraft((prev) =>
-              prev ? { ...prev, [field]: event.target.value } : prev,
-            )
+            setDraft((prev) => ({ ...prev, [field]: event.target.value }))
           }
           onBlur={(event) => handleNumberBlur(field, event.currentTarget.value)}
           placeholder={placeholder}
@@ -336,21 +344,26 @@ export default function SettingsPage() {
     description?: string,
     tooltip?: string,
   ) => {
-    if (!draft) {
-      return null;
-    }
     const id = `settings-${field}`;
     const helpText = tooltip ?? description ?? label;
+    const runtimeMode = fieldRuntimeMode(field);
     return (
       <div className="flex items-start justify-between gap-3" key={field}>
         <div className="space-y-1">
-          <Label
-            htmlFor={id}
-            title={helpText}
-            className="text-sm normal-case tracking-normal"
-          >
-            {label}
-          </Label>
+          <div className="flex items-center gap-2">
+            <Label
+              htmlFor={id}
+              title={helpText}
+              className="text-sm normal-case tracking-normal"
+            >
+              {label}
+            </Label>
+            {runtimeMode ? (
+              <span className="rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                {runtimeMode}
+              </span>
+            ) : null}
+          </div>
           {description ? (
             <p className="text-xs text-muted-foreground">{description}</p>
           ) : null}
@@ -368,22 +381,14 @@ export default function SettingsPage() {
   };
 
   const statusTone = status?.tone ?? "success";
-  const isCustomJdModel = draft
-    ? !jdModelOptions.includes(draft.jd_model)
-    : false;
+  const isCustomJdModel = !jdModelOptions.includes(draft.jd_model);
   const jdModelSelectValue = isCustomJdModel
     ? "__custom__"
-    : draft?.jd_model ?? jdModelOptions[0];
+    : draft.jd_model || jdModelOptions[0];
 
   const handleJdModelSelect = (value: string) => {
-    if (!draft) {
-      return;
-    }
     if (value === "__custom__") {
       setDraft((prev) => {
-        if (!prev) {
-          return prev;
-        }
         if (jdModelOptions.includes(prev.jd_model)) {
           return { ...prev, jd_model: "" };
         }
@@ -391,8 +396,8 @@ export default function SettingsPage() {
       });
       return;
     }
-    setDraft((prev) => (prev ? { ...prev, jd_model: value } : prev));
-    if (settings && value !== settings.jd_model) {
+    setDraft((prev) => ({ ...prev, jd_model: value }));
+    if (value !== settings.jd_model) {
       updateMutation.mutate({ jd_model: value });
     }
   };
@@ -404,50 +409,6 @@ export default function SettingsPage() {
     }),
     [status, updateMutation.isPending],
   );
-
-  if (isLoading || !draft) {
-    return (
-      <div className="space-y-6">
-        <header className="space-y-2">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-            <SlidersHorizontal className="h-4 w-4" />
-            Settings
-          </div>
-          <h1 className="text-3xl font-semibold md:text-4xl">Tune the pipeline.</h1>
-          <p className="max-w-2xl text-sm text-muted-foreground">
-            Loading settings from the FastAPI config file.
-          </p>
-        </header>
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            Loading settings...
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (isError || !settings) {
-    return (
-      <div className="space-y-6">
-        <header className="space-y-2">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-            <SlidersHorizontal className="h-4 w-4" />
-            Settings
-          </div>
-          <h1 className="text-3xl font-semibold md:text-4xl">Tune the pipeline.</h1>
-          <p className="max-w-2xl text-sm text-muted-foreground">
-            The settings view could not reach the API.
-          </p>
-        </header>
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-destructive">
-            Failed to load settings.
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-8">
@@ -681,6 +642,37 @@ export default function SettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-3">
+            <div className="space-y-2 md:col-span-3">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="settings-rewrite-style" title={tooltips.rewrite_style}>
+                  Rewrite style
+                </Label>
+                {fieldRuntimeMode("rewrite_style") ? (
+                  <span className="rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    {fieldRuntimeMode("rewrite_style")}
+                  </span>
+                ) : null}
+              </div>
+              <select
+                id="settings-rewrite-style"
+                value={draft.rewrite_style}
+                onChange={(event) => {
+                  const next = event.target.value as SettingsData["rewrite_style"];
+                  setDraft((prev) => ({ ...prev, rewrite_style: next }));
+                  if (next !== settings.rewrite_style) {
+                    updateMutation.mutate({ rewrite_style: next });
+                  }
+                }}
+                title={tooltips.rewrite_style}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                {rewriteStyleOptions.map((option) => (
+                  <option value={option} key={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
             {renderNumberField(
               "rewrite_min_chars",
               "Rewrite min chars",
@@ -694,6 +686,20 @@ export default function SettingsPage() {
               "200",
               "Maximum length target for rewritten bullets.",
               tooltips.rewrite_max_chars,
+            )}
+            {renderNumberField(
+              "rewrite_similarity_threshold",
+              "Conservative similarity",
+              "0.55",
+              "Similarity floor for conservative rewrites.",
+              tooltips.rewrite_similarity_threshold,
+            )}
+            {renderNumberField(
+              "rewrite_similarity_threshold_creative",
+              "Creative similarity",
+              "0.40",
+              "Similarity floor for creative rewrites.",
+              tooltips.rewrite_similarity_threshold_creative,
             )}
             {renderNumberField(
               "length_weight",
@@ -752,9 +758,16 @@ export default function SettingsPage() {
                 tooltips.embed_model,
               )}
               <div className="space-y-2">
-                <Label htmlFor="settings-jd-model" title={tooltips.jd_model}>
-                  JD model
-                </Label>
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="settings-jd-model" title={tooltips.jd_model}>
+                    JD model
+                  </Label>
+                  {fieldRuntimeMode("jd_model") ? (
+                    <span className="rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      {fieldRuntimeMode("jd_model")}
+                    </span>
+                  ) : null}
+                </div>
                 <select
                   id="settings-jd-model"
                   value={jdModelSelectValue}
@@ -773,9 +786,7 @@ export default function SettingsPage() {
                   <Input
                     value={draft.jd_model}
                     onChange={(event) =>
-                      setDraft((prev) =>
-                        prev ? { ...prev, jd_model: event.target.value } : prev,
-                      )
+                      setDraft((prev) => ({ ...prev, jd_model: event.target.value }))
                     }
                     onBlur={(event) =>
                       handleTextBlur("jd_model", event.currentTarget.value)
@@ -852,17 +863,22 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="settings-log-level" title={tooltips.log_level}>
-                Log level
-              </Label>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="settings-log-level" title={tooltips.log_level}>
+                  Log level
+                </Label>
+                {fieldRuntimeMode("log_level") ? (
+                  <span className="rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    {fieldRuntimeMode("log_level")}
+                  </span>
+                ) : null}
+              </div>
               <Input
                 id="settings-log-level"
                 list="log-levels"
                 value={draft.log_level}
                 onChange={(event) =>
-                  setDraft((prev) =>
-                    prev ? { ...prev, log_level: event.target.value } : prev,
-                  )
+                  setDraft((prev) => ({ ...prev, log_level: event.target.value }))
                 }
                 onBlur={(event) =>
                   handleTextBlur("log_level", event.currentTarget.value)
@@ -889,4 +905,61 @@ export default function SettingsPage() {
       </section>
     </div>
   );
+}
+
+export default function SettingsPage() {
+  const {
+    data: settings,
+    isLoading,
+    isError,
+  } = useQuery({
+    queryKey: ["settings"],
+    queryFn: fetchSettings,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <header className="space-y-2">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+            <SlidersHorizontal className="h-4 w-4" />
+            Settings
+          </div>
+          <h1 className="text-3xl font-semibold md:text-4xl">Tune the pipeline.</h1>
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            Loading settings from the FastAPI config file.
+          </p>
+        </header>
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            Loading settings...
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (isError || !settings) {
+    return (
+      <div className="space-y-6">
+        <header className="space-y-2">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+            <SlidersHorizontal className="h-4 w-4" />
+            Settings
+          </div>
+          <h1 className="text-3xl font-semibold md:text-4xl">Tune the pipeline.</h1>
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            The settings view could not reach the API.
+          </p>
+        </header>
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-destructive">
+            Failed to load settings.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return <SettingsForm key={JSON.stringify(settings)} settings={settings} />;
 }

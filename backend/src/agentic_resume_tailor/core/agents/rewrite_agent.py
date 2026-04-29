@@ -5,7 +5,6 @@ import logging
 import re
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
-from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Set
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -15,7 +14,9 @@ from agentic_resume_tailor.core.agents.rewrite_validation import (
     ValidationResult,
     validate_rewrite,
 )
+from agentic_resume_tailor.core.canonicalization import current_matching_configs
 from agentic_resume_tailor.core.keyword_matcher import latex_to_plain_for_matching
+from agentic_resume_tailor.core.prompts.rewrite import REWRITE_PROMPT_VERSION, build_rewrite_prompt
 from agentic_resume_tailor.settings import get_settings
 
 _TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9+./#-]*")
@@ -46,6 +47,7 @@ class RewriteConstraints:
     enabled: bool
     min_chars: int
     max_chars: int
+    style: str = "conservative"
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,18 @@ class RewriteContext:
     target_profile_summary: Dict[str, Any] | None = None
     query_plan_summary: List[Dict[str, Any]] = field(default_factory=list)
     jd_excerpt: str | None = None
+
+    @property
+    def target_profile_summary_json(self) -> str:
+        return json.dumps(self.target_profile_summary or {}, ensure_ascii=False, indent=2)
+
+    @property
+    def query_plan_summary_json(self) -> str:
+        return json.dumps(self.query_plan_summary or [], ensure_ascii=False, indent=2)
+
+    @property
+    def jd_excerpt_text(self) -> str:
+        return (self.jd_excerpt or "(none)").strip()
 
 
 @dataclass
@@ -72,59 +86,12 @@ class RewriteResult:
     agent_used: bool = False
     agent_fallback: bool = False
     agent_model: str | None = None
-
-
-SYSTEM_PROMPT = """You are the Bullet Rewrite Agent for Agentic Resume Tailor.
-
-Task: rephrase bullets to be clearer, tighter and more JD-focused while preserving facts.
-
-Hard constraints:
-- Do NOT add new numbers, metrics, tools, companies, or claims.
-- Only rephrase; keep meaning and facts identical.
-- Output must use the original LaTeX format, including all commands and special characters.
-- Each rewritten bullet must respect the provided min/max character limits.
-- Return STRICT JSON only; no extra keys or commentary.
-- No period at the end of bullets.
-"""
-
-
-USER_TEMPLATE = """Rewrite conditioning context (primary sources):
-Target profile summary (keywords + evidence snippets):
-{target_profile_summary}
-
-Query plan summary (purpose + weight + boost_keywords):
-{query_plan_summary}
-
-Tone reference (do not invent facts):
-{jd_excerpt}
-
-Guidance:
-{guidance}
-
-Length constraints:
-- min_chars: {min_chars}
-- max_chars: {max_chars}
-
-Bullets to rewrite (LaTeX-ready). Each bullet includes allowed_terms from the original text.
-{bullets_payload}
-
-Return JSON with this shape:
-{{
-  "rewritten_bullets": [{{"bullet_id": "...", "rewritten_text": "..."}}],
-  "bullet_info": [{{"bullet_id": "...", "changed": true, "notes": ""}}]
-}}
-"""
+    prompt_version: str = REWRITE_PROMPT_VERSION
+    rewrite_style: str = "conservative"
 
 
 def _tokenize_terms(text: str) -> List[str]:
     return [t.lower() for t in _TOKEN_RE.findall(text or "")]
-
-
-def _load_json(path: str) -> Dict[str, Any]:
-    try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    except Exception:
-        return {}
 
 
 def _expand_canon_terms(text: str, canon_cfg: Dict[str, Any]) -> Set[str]:
@@ -133,10 +100,10 @@ def _expand_canon_terms(text: str, canon_cfg: Dict[str, Any]) -> Set[str]:
     for group in canon_cfg.get("canon_groups", []) or []:
         canonical = group.get("canonical")
         variants = group.get("variants") or []
-        phrases = [p for p in [canonical, *variants] if isinstance(p, str)]
+        phrases = [phrase for phrase in [canonical, *variants] if isinstance(phrase, str)]
         if not phrases:
             continue
-        if any(p.lower() in lowered for p in phrases if p):
+        if any(phrase.lower() in lowered for phrase in phrases if phrase):
             for phrase in phrases:
                 tokens.update(_tokenize_terms(phrase))
     return tokens
@@ -148,7 +115,7 @@ def build_rewrite_allowlist_by_bullet(
 ) -> Dict[str, Set[str]]:
     """Build per-bullet allowlists from original text + canonicalization variants."""
     settings = settings or get_settings()
-    canon_cfg = _load_json(settings.canon_config)
+    canon_cfg, _ = current_matching_configs(settings)
 
     allowlists: Dict[str, Set[str]] = {}
     for bullet in bullets_original:
@@ -157,7 +124,7 @@ def build_rewrite_allowlist_by_bullet(
         if not bullet_id:
             continue
         tokens = _expand_canon_terms(text, canon_cfg)
-        allowlists[bullet_id] = {t for t in tokens if t}
+        allowlists[bullet_id] = {token for token in tokens if token}
     return allowlists
 
 
@@ -184,9 +151,9 @@ def _normalize_profile_items(items: Iterable[Any]) -> List[Dict[str, Any]]:
 def _extract_keywords(items: Iterable[Dict[str, Any]]) -> List[str]:
     out: List[str] = []
     for item in items or []:
-        val = item.get("canonical") or item.get("raw") or ""
-        if val:
-            out.append(str(val))
+        value = item.get("canonical") or item.get("raw") or ""
+        if value:
+            out.append(str(value))
     return out
 
 
@@ -265,7 +232,7 @@ def _summarize_query_plan(items: Iterable[Any]) -> List[Dict[str, Any]]:
                 "query": query,
                 "purpose": str(purpose),
                 "weight": float(weight) if weight else 1.0,
-                "boost_keywords": [str(k) for k in (list(boosts) if boosts else []) if str(k)],
+                "boost_keywords": [str(keyword) for keyword in (list(boosts) if boosts else []) if str(keyword)],
             }
         )
     return summary
@@ -304,72 +271,64 @@ def rewrite_bullets(
     bullets_original: List[Dict[str, Any]],
     allowlist: Iterable[str] | Mapping[str, Iterable[str]],
     constraints: RewriteConstraints,
+    *,
+    settings: Any | None = None,
 ) -> RewriteResult:
     """Rewrite bullets safely using an LLM with validation and fallback."""
     rewritten: Dict[str, str] = {}
     info: Dict[str, RewriteBulletInfo] = {}
 
-    settings = get_settings()
-    model = getattr(settings, "agent_model", None) or getattr(
-        settings, "jd_model", None)
+    settings = settings or get_settings()
+    model = getattr(settings, "agent_model", None) or getattr(settings, "jd_model", None)
+    rewrite_style = constraints.style or getattr(settings, "rewrite_style", "conservative")
     agent_used = False
     agent_fallback = False
 
     if not bullets_original:
-        return RewriteResult(rewritten_bullets=rewritten, bullet_info=info)
+        return RewriteResult(
+            rewritten_bullets=rewritten,
+            bullet_info=info,
+            rewrite_style=rewrite_style,
+        )
 
     rewrites_from_llm: Dict[str, str] = {}
     if constraints.enabled:
         agent_used = True
         context = rewrite_context or RewriteContext()
-        bullets_payload = [
-            {
-                "bullet_id": str(b.get("bullet_id") or ""),
-                "text_latex": str(b.get("text_latex") or ""),
-                "allowed_terms": sorted(
-                    _allowlist_for_bullet(
-                        allowlist, str(b.get("bullet_id") or ""))
-                ),
-            }
-            for b in bullets_original
-            if b.get("bullet_id")
-        ]
-        guidance_lines = [
-            "- Prefer target profile + query plan over the JD excerpt for wording.",
-            "- Reuse only verbs/phrases from evidence snippets; do not add new facts.",
-            "- If target profile summary is empty, make only light clarity edits and avoid keyword injection.",
-            "- Use allowed_terms for any tools/technologies/numbers that appear in a rewrite.",
-        ]
-        prompt = USER_TEMPLATE.format(
-            target_profile_summary=json.dumps(
-                context.target_profile_summary or {}, ensure_ascii=False, indent=2
-            ),
-            query_plan_summary=json.dumps(
-                context.query_plan_summary or [], ensure_ascii=False, indent=2
-            ),
-            jd_excerpt=(context.jd_excerpt or "(none)").strip(),
-            guidance="\n".join(guidance_lines),
+        bullets_payload = json.dumps(
+            [
+                {
+                    "bullet_id": str(bullet.get("bullet_id") or ""),
+                    "text_latex": str(bullet.get("text_latex") or ""),
+                    "allowed_terms": sorted(
+                        _allowlist_for_bullet(allowlist, str(bullet.get("bullet_id") or ""))
+                    ),
+                }
+                for bullet in bullets_original
+                if bullet.get("bullet_id")
+            ],
+            ensure_ascii=False,
+        )
+        system_prompt, prompt = build_rewrite_prompt(
+            rewrite_context=context,
+            bullets_payload=bullets_payload,
             min_chars=constraints.min_chars,
             max_chars=constraints.max_chars,
-            bullets_payload=json.dumps(bullets_payload, ensure_ascii=False),
+            rewrite_style=rewrite_style,
         )
         try:
             output = call_llm_json(
                 prompt,
                 RewriteAgentOutput,
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=system_prompt,
                 settings=settings,
                 model=model,
             )
             for item in output.rewritten_bullets:
-                rewrites_from_llm[str(item.bullet_id)] = str(
-                    item.rewritten_text)
+                rewrites_from_llm[str(item.bullet_id)] = str(item.rewritten_text)
         except Exception:
-            logger.exception(
-                "Rewrite agent failed; falling back to original bullets.")
+            logger.exception("Rewrite agent failed; falling back to original bullets.")
             agent_fallback = True
-    else:
-        agent_used = False
 
     for bullet in bullets_original:
         bullet_id = str(bullet.get("bullet_id") or "")
@@ -395,8 +354,11 @@ def rewrite_bullets(
                 violations.append("too_long")
 
         similarity = _similarity_ratio(original, candidate)
-        drift_threshold = float(
-            getattr(settings, "rewrite_similarity_threshold", 0.55))
+        conservative_threshold = float(getattr(settings, "rewrite_similarity_threshold", 0.55))
+        creative_threshold = float(
+            getattr(settings, "rewrite_similarity_threshold_creative", conservative_threshold)
+        )
+        drift_threshold = creative_threshold if rewrite_style == "creative" else conservative_threshold
         if candidate and similarity < drift_threshold:
             violations.append("semantic_drift")
 
@@ -426,4 +388,5 @@ def rewrite_bullets(
         agent_used=agent_used,
         agent_fallback=agent_fallback,
         agent_model=model if agent_used else None,
+        rewrite_style=rewrite_style,
     )

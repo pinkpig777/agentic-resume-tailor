@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from statistics import mean
 from typing import Any, Dict, List, Tuple
@@ -16,6 +16,7 @@ from agentic_resume_tailor.core.keyword_matcher import (
     latex_to_plain_for_matching,
     match_keywords_against_bullets,
 )
+from agentic_resume_tailor.core.prompts.scoring import SCORING_PROMPT_VERSION, build_scoring_prompt
 from agentic_resume_tailor.core.retrieval import _compute_quant_bonus
 from agentic_resume_tailor.core.scorer import clamp01, compute_coverage_norm, compute_retrieval_norm
 
@@ -25,18 +26,13 @@ logger = logging.getLogger(__name__)
 
 class ScoringAgentOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    final_score: int = Field(ge=0, le=100)
-    retrieval_score: float = Field(ge=0.0, le=1.0)
-    coverage_bullets_only: float = Field(ge=0.0, le=1.0)
-    coverage_all: float = Field(ge=0.0, le=1.0)
-    length_score: float = Field(ge=0.0, le=1.0)
-    redundancy_penalty: float = Field(ge=0.0, le=1.0)
-    quality_score: float = Field(ge=0.0, le=1.0)
     must_missing_bullets_only: List[str] = Field(default_factory=list)
     nice_missing_bullets_only: List[str] = Field(default_factory=list)
     must_missing_all: List[str] = Field(default_factory=list)
     nice_missing_all: List[str] = Field(default_factory=list)
-    boost_terms: List[str] = Field(default_factory=list)
+    candidate_boost_terms: List[str] = Field(default_factory=list)
+    summary: str = ""
+    notes: List[str] = Field(default_factory=list)
 
 
 @dataclass
@@ -55,65 +51,17 @@ class ScoreResult:
     length_by_bullet: Dict[str, int]
     redundancy_pairs: List[Tuple[str, str, float]]
     boost_terms: List[str]
+    semantic_summary: str = ""
+    semantic_notes: List[str] = field(default_factory=list)
+    candidate_boost_terms: List[str] = field(default_factory=list)
     agent_used: bool = False
     agent_fallback: bool = False
     agent_model: str | None = None
+    prompt_version: str = SCORING_PROMPT_VERSION
 
 
 class ScoreResultV3(ScoreResult):
     """Deprecated. Use ScoreResult."""
-
-
-SYSTEM_PROMPT = """You are the Scoring Agent for Agentic Resume Tailor.
-
-Evaluate the resume draft against the JD and target profile. Provide a strict JSON score breakdown.
-
-Rules:
-- Use only the provided JD, target profile, skills text, and bullets.
-- Missing keyword lists must be drawn from target_profile must-have/nice-to-have terms.
-- boost_terms must be a subset of must_missing_bullets_only.
-- Respect the provided retrieval_score/length_score/redundancy_penalty as fixed signals.
-- Output STRICT JSON only; no extra keys or commentary.
-"""
-
-
-USER_TEMPLATE = """Job description:
-{jd_text}
-
-Target profile:
-{target_profile}
-
-Skills text:
-{skills_text}
-
-Selected bullets (original):
-{selected_bullets}
-
-Rewritten bullets (final):
-{rewritten_bullets}
-
-Signals:
-{signals}
-
-Length constraints:
-{{"min_chars": {min_chars}, "max_chars": {max_chars}}}
-
-Return JSON with this shape:
-{{
-  "final_score": 0,
-  "retrieval_score": 0.0,
-  "coverage_bullets_only": 0.0,
-  "coverage_all": 0.0,
-  "length_score": 0.0,
-  "redundancy_penalty": 0.0,
-  "quality_score": 0.0,
-  "must_missing_bullets_only": ["..."],
-  "nice_missing_bullets_only": ["..."],
-  "must_missing_all": ["..."],
-  "nice_missing_all": ["..."],
-  "boost_terms": ["..."]
-}}
-"""
 
 
 def _mean(values: List[float]) -> float:
@@ -165,28 +113,28 @@ def _normalize_terms(terms: List[str]) -> List[str]:
     out: List[str] = []
     seen = set()
     for term in terms or []:
-        norm = (term or "").strip().lower()
-        if not norm or norm in seen:
+        normalized = (term or "").strip().lower()
+        if not normalized or normalized in seen:
             continue
-        seen.add(norm)
-        out.append(norm)
+        seen.add(normalized)
+        out.append(normalized)
     return out
 
 
 def _filter_terms(terms: List[str], allowed: List[str]) -> List[str]:
-    allowed_map = {t.lower(): t for t in allowed if t}
+    allowed_map = {term.lower(): term for term in allowed if term}
     out: List[str] = []
     seen = set()
     for term in terms or []:
-        norm = (term or "").strip().lower()
-        if not norm or norm not in allowed_map or norm in seen:
+        normalized = (term or "").strip().lower()
+        if not normalized or normalized not in allowed_map or normalized in seen:
             continue
-        seen.add(norm)
-        out.append(allowed_map[norm])
+        seen.add(normalized)
+        out.append(allowed_map[normalized])
     return out
 
 
-def _deterministic_score(
+def _deterministic_components(
     target_profile: Any | None,
     selected_candidates: List[Any],
     all_candidates: List[Any],
@@ -194,13 +142,7 @@ def _deterministic_score(
     rewritten_bullets: Dict[str, str],
     skills_text: str,
     settings: Any,
-    *,
-    agent_used: bool = False,
-    agent_model: str | None = None,
-    agent_fallback: bool | None = None,
-) -> ScoreResult:
-    """Deterministic fallback scoring using existing hybrid logic."""
-    fallback_flag = agent_fallback if agent_fallback is not None else bool(agent_used)
+) -> Dict[str, Any]:
     retrieval_score = compute_retrieval_norm(selected_candidates, all_candidates)
 
     length_by_bullet: Dict[str, int] = {}
@@ -231,40 +173,32 @@ def _deterministic_score(
             quality_scores.append(min(bonus, settings.quant_bonus_cap) / settings.quant_bonus_cap)
     quality_score = clamp01(_mean(quality_scores))
 
+    components = {
+        "retrieval_score": retrieval_score,
+        "length_by_bullet": length_by_bullet,
+        "rewritten_texts": rewritten_texts,
+        "length_score": length_score,
+        "redundancy_pairs": redundancy_pairs,
+        "redundancy_penalty": redundancy_penalty,
+        "quality_score": quality_score,
+        "coverage_bullets_only": retrieval_score,
+        "coverage_all": retrieval_score,
+        "must_missing_bullets_only": [],
+        "nice_missing_bullets_only": [],
+        "must_missing_all": [],
+        "nice_missing_all": [],
+    }
+
     if target_profile is None:
-        base = retrieval_score
-        return ScoreResult(
-            final_score=int(round(100 * clamp01(base))),
-            retrieval_score=retrieval_score,
-            coverage_bullets_only=base,
-            coverage_all=base,
-            length_score=length_score,
-            redundancy_penalty=redundancy_penalty,
-            quality_score=quality_score,
-            must_missing_bullets_only=[],
-            nice_missing_bullets_only=[],
-            must_missing_all=[],
-            nice_missing_all=[],
-            length_by_bullet=length_by_bullet,
-            redundancy_pairs=redundancy_pairs,
-            boost_terms=[],
-            agent_used=agent_used,
-            agent_fallback=fallback_flag,
-            agent_model=agent_model,
-        )
+        return components
 
     profile_keywords = extract_profile_keywords(target_profile)
-
     selected_bullets_for_match = [
         {"bullet_id": bid, "text_latex": txt, "meta": {"section": "selected"}}
         for bid, txt in rewritten_texts.items()
     ]
-    must_evs = match_keywords_against_bullets(
-        profile_keywords["must_have"], selected_bullets_for_match
-    )
-    nice_evs = match_keywords_against_bullets(
-        profile_keywords["nice_to_have"], selected_bullets_for_match
-    )
+    must_evs = match_keywords_against_bullets(profile_keywords["must_have"], selected_bullets_for_match)
+    nice_evs = match_keywords_against_bullets(profile_keywords["nice_to_have"], selected_bullets_for_match)
     coverage_bullets_only, must_missing_bullets, nice_missing_bullets = compute_coverage_norm(
         profile_keywords, must_evs, nice_evs, must_weight=settings.must_weight
     )
@@ -274,40 +208,84 @@ def _deterministic_score(
         all_plus_skills.append(
             {"bullet_id": "__skills__", "text_latex": skills_text, "meta": {"section": "skills"}}
         )
-
     must_all = match_keywords_against_bullets(profile_keywords["must_have"], all_plus_skills)
     nice_all = match_keywords_against_bullets(profile_keywords["nice_to_have"], all_plus_skills)
     coverage_all, must_missing_all, nice_missing_all = compute_coverage_norm(
         profile_keywords, must_all, nice_all, must_weight=settings.must_weight
     )
 
+    components.update(
+        {
+            "coverage_bullets_only": coverage_bullets_only,
+            "coverage_all": coverage_all,
+            "must_missing_bullets_only": must_missing_bullets,
+            "nice_missing_bullets_only": nice_missing_bullets,
+            "must_missing_all": must_missing_all,
+            "nice_missing_all": nice_missing_all,
+        }
+    )
+    return components
+
+
+def _deterministic_score(
+    target_profile: Any | None,
+    selected_candidates: List[Any],
+    all_candidates: List[Any],
+    selected_bullets_original: List[Dict[str, Any]],
+    rewritten_bullets: Dict[str, str],
+    skills_text: str,
+    settings: Any,
+    *,
+    semantic_summary: str = "",
+    semantic_notes: List[str] | None = None,
+    candidate_boost_terms: List[str] | None = None,
+    agent_used: bool = False,
+    agent_model: str | None = None,
+    agent_fallback: bool | None = None,
+) -> ScoreResult:
+    fallback_flag = agent_fallback if agent_fallback is not None else bool(agent_used)
+    components = _deterministic_components(
+        target_profile,
+        selected_candidates,
+        all_candidates,
+        selected_bullets_original,
+        rewritten_bullets,
+        skills_text,
+        settings,
+    )
     base = clamp01(
-        settings.alpha * retrieval_score + (1.0 - settings.alpha) * coverage_bullets_only
+        settings.alpha * components["retrieval_score"]
+        + (1.0 - settings.alpha) * components["coverage_bullets_only"]
     )
     final = clamp01(
         base
-        + settings.length_weight * length_score
-        + settings.quality_weight * quality_score
-        - settings.redundancy_weight * redundancy_penalty
+        + settings.length_weight * components["length_score"]
+        + settings.quality_weight * components["quality_score"]
+        - settings.redundancy_weight * components["redundancy_penalty"]
     )
 
-    boost_terms = _normalize_terms(must_missing_bullets)[: settings.boost_top_n_missing]
+    must_missing = _normalize_terms(components["must_missing_bullets_only"])
+    candidate_boost_terms = candidate_boost_terms or must_missing[: settings.boost_top_n_missing]
+    boost_terms = _filter_terms(candidate_boost_terms, must_missing)[: settings.boost_top_n_missing]
 
     return ScoreResult(
         final_score=int(round(100 * final)),
-        retrieval_score=retrieval_score,
-        coverage_bullets_only=coverage_bullets_only,
-        coverage_all=coverage_all,
-        length_score=length_score,
-        redundancy_penalty=redundancy_penalty,
-        quality_score=quality_score,
-        must_missing_bullets_only=must_missing_bullets,
-        nice_missing_bullets_only=nice_missing_bullets,
-        must_missing_all=must_missing_all,
-        nice_missing_all=nice_missing_all,
-        length_by_bullet=length_by_bullet,
-        redundancy_pairs=redundancy_pairs,
+        retrieval_score=components["retrieval_score"],
+        coverage_bullets_only=components["coverage_bullets_only"],
+        coverage_all=components["coverage_all"],
+        length_score=components["length_score"],
+        redundancy_penalty=components["redundancy_penalty"],
+        quality_score=components["quality_score"],
+        must_missing_bullets_only=components["must_missing_bullets_only"],
+        nice_missing_bullets_only=components["nice_missing_bullets_only"],
+        must_missing_all=components["must_missing_all"],
+        nice_missing_all=components["nice_missing_all"],
+        length_by_bullet=components["length_by_bullet"],
+        redundancy_pairs=components["redundancy_pairs"],
         boost_terms=boost_terms,
+        semantic_summary=semantic_summary,
+        semantic_notes=semantic_notes or [],
+        candidate_boost_terms=boost_terms,
         agent_used=agent_used,
         agent_fallback=fallback_flag,
         agent_model=agent_model,
@@ -324,37 +302,7 @@ def score_resume(
     skills_text: str,
     settings: Any,
 ) -> ScoreResult:
-    """Score a resume draft using retrieval, coverage, length, redundancy, and quality."""
-    retrieval_score = compute_retrieval_norm(selected_candidates, all_candidates)
-
-    length_by_bullet: Dict[str, int] = {}
-    rewritten_texts: Dict[str, str] = {}
-    for bullet in selected_bullets_original:
-        bullet_id = str(bullet.get("bullet_id") or "")
-        original_text = str(bullet.get("text_latex") or "")
-        text = rewritten_bullets.get(bullet_id, original_text)
-        rewritten_texts[bullet_id] = text
-        length_by_bullet[bullet_id] = len(text.strip())
-
-    length_score = _length_score(
-        length_by_bullet, settings.rewrite_min_chars, settings.rewrite_max_chars
-    )
-
-    redundancy_pairs = _redundancy_pairs(rewritten_texts, settings.redundancy_threshold)
-    total_pairs = max(len(rewritten_texts) * (len(rewritten_texts) - 1) / 2, 1)
-    redundancy_penalty = clamp01(len(redundancy_pairs) / float(total_pairs))
-
-    quality_scores: List[float] = []
-    for text in rewritten_texts.values():
-        bonus = _compute_quant_bonus(
-            text,
-            per_hit=settings.quant_bonus_per_hit,
-            cap=settings.quant_bonus_cap,
-        )
-        if settings.quant_bonus_cap > 0:
-            quality_scores.append(min(bonus, settings.quant_bonus_cap) / settings.quant_bonus_cap)
-    quality_score_hint = clamp01(_mean(quality_scores))
-
+    """Score a resume draft using deterministic metrics plus optional semantic feedback."""
     if target_profile is None:
         return _deterministic_score(
             target_profile,
@@ -366,70 +314,72 @@ def score_resume(
             settings,
         )
 
+    components = _deterministic_components(
+        target_profile,
+        selected_candidates,
+        all_candidates,
+        selected_bullets_original,
+        rewritten_bullets,
+        skills_text,
+        settings,
+    )
     model = getattr(settings, "agent_model", None) or getattr(settings, "jd_model", None)
     signals = {
-        "retrieval_score": retrieval_score,
-        "length_score": length_score,
-        "redundancy_penalty": redundancy_penalty,
-        "quant_bonus_hint": quality_score_hint,
+        "retrieval_score": components["retrieval_score"],
+        "coverage_bullets_only": components["coverage_bullets_only"],
+        "coverage_all": components["coverage_all"],
+        "length_score": components["length_score"],
+        "redundancy_penalty": components["redundancy_penalty"],
+        "quality_score": components["quality_score"],
+        "must_missing_bullets_only": components["must_missing_bullets_only"],
+        "nice_missing_bullets_only": components["nice_missing_bullets_only"],
+        "must_missing_all": components["must_missing_all"],
+        "nice_missing_all": components["nice_missing_all"],
     }
 
     try:
-        prompt = USER_TEMPLATE.format(
+        system_prompt, prompt = build_scoring_prompt(
             jd_text=jd_text,
-            target_profile=json.dumps(
-                target_profile.model_dump()
-                if hasattr(target_profile, "model_dump")
-                else target_profile,
+            target_profile_json=json.dumps(
+                target_profile.model_dump() if hasattr(target_profile, "model_dump") else target_profile,
                 ensure_ascii=False,
             ),
             skills_text=skills_text or "",
-            selected_bullets=json.dumps(selected_bullets_original, ensure_ascii=False),
-            rewritten_bullets=json.dumps(rewritten_texts, ensure_ascii=False),
-            signals=json.dumps(signals, ensure_ascii=False),
+            selected_bullets_json=json.dumps(selected_bullets_original, ensure_ascii=False),
+            rewritten_bullets_json=json.dumps(components["rewritten_texts"], ensure_ascii=False),
+            signals_json=json.dumps(signals, ensure_ascii=False),
             min_chars=settings.rewrite_min_chars,
             max_chars=settings.rewrite_max_chars,
         )
         output = call_llm_json(
             prompt,
             ScoringAgentOutput,
-            system_prompt=SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             settings=settings,
             model=model,
         )
 
         profile_keywords = extract_profile_keywords(target_profile)
         must_allowed = _normalize_terms(
-            [k.get("canonical") or k.get("raw") for k in profile_keywords.get("must_have", [])]
+            [item.get("canonical") or item.get("raw") for item in profile_keywords.get("must_have", [])]
         )
-        nice_allowed = _normalize_terms(
-            [k.get("canonical") or k.get("raw") for k in profile_keywords.get("nice_to_have", [])]
+        _normalize_terms(
+            [item.get("canonical") or item.get("raw") for item in profile_keywords.get("nice_to_have", [])]
         )
 
-        must_missing_bullets_only = _filter_terms(output.must_missing_bullets_only, must_allowed)
-        nice_missing_bullets_only = _filter_terms(output.nice_missing_bullets_only, nice_allowed)
-        must_missing_all = _filter_terms(output.must_missing_all, must_allowed)
-        nice_missing_all = _filter_terms(output.nice_missing_all, nice_allowed)
-
-        boost_terms = _filter_terms(output.boost_terms, must_missing_bullets_only)
-
-        return ScoreResult(
-            final_score=int(output.final_score),
-            retrieval_score=retrieval_score,
-            coverage_bullets_only=output.coverage_bullets_only,
-            coverage_all=output.coverage_all,
-            length_score=length_score,
-            redundancy_penalty=redundancy_penalty,
-            quality_score=output.quality_score,
-            must_missing_bullets_only=must_missing_bullets_only,
-            nice_missing_bullets_only=nice_missing_bullets_only,
-            must_missing_all=must_missing_all,
-            nice_missing_all=nice_missing_all,
-            length_by_bullet=length_by_bullet,
-            redundancy_pairs=redundancy_pairs,
-            boost_terms=boost_terms,
+        candidate_boost_terms = _filter_terms(output.candidate_boost_terms, must_allowed)
+        return _deterministic_score(
+            target_profile,
+            selected_candidates,
+            all_candidates,
+            selected_bullets_original,
+            rewritten_bullets,
+            skills_text,
+            settings,
+            semantic_summary=output.summary,
+            semantic_notes=list(output.notes or []),
+            candidate_boost_terms=candidate_boost_terms,
             agent_used=True,
-            agent_fallback=False,
             agent_model=model,
         )
     except Exception:
@@ -444,4 +394,5 @@ def score_resume(
             settings,
             agent_used=True,
             agent_model=model,
+            agent_fallback=True,
         )

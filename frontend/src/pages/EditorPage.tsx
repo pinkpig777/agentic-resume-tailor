@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, FileText, Loader2, Plus, RefreshCcw } from "lucide-react";
 
@@ -140,8 +140,8 @@ const emptyProjectDraft: ProjectDraft = {
 export default function EditorPage() {
   const queryClient = useQueryClient();
   const [personalDraft, setPersonalDraft] =
-    useState<PersonalInfo>(emptyPersonalInfo);
-  const [skillsDraft, setSkillsDraft] = useState<Skills>(emptySkills);
+    useState<PersonalInfo | null>(null);
+  const [skillsDraft, setSkillsDraft] = useState<Skills | null>(null);
   const [collapsedEducation, setCollapsedEducation] = useState<
     Record<number, boolean>
   >({});
@@ -163,65 +163,8 @@ export default function EditorPage() {
     queryFn: fetchData,
   });
 
-  useEffect(() => {
-    if (!data) {
-      return;
-    }
-    setPersonalDraft(data.personal_info);
-    setSkillsDraft(data.skills);
-  }, [data]);
-
-  useEffect(() => {
-    if (!data) {
-      return;
-    }
-    setCollapsedEducation((prev) => {
-      const next = { ...prev };
-      const activeIds = new Set(data.education.map((entry) => entry.id));
-      data.education.forEach((entry) => {
-        if (!(entry.id in next)) {
-          next[entry.id] = true;
-        }
-      });
-      Object.keys(next).forEach((key) => {
-        const id = Number(key);
-        if (!activeIds.has(id)) {
-          delete next[id];
-        }
-      });
-      return next;
-    });
-    setCollapsedExperiences((prev) => {
-      const next = { ...prev };
-      const activeIds = new Set(data.experiences.map((entry) => entry.job_id));
-      data.experiences.forEach((entry) => {
-        if (!(entry.job_id in next)) {
-          next[entry.job_id] = true;
-        }
-      });
-      Object.keys(next).forEach((key) => {
-        if (!activeIds.has(key)) {
-          delete next[key];
-        }
-      });
-      return next;
-    });
-    setCollapsedProjects((prev) => {
-      const next = { ...prev };
-      const activeIds = new Set(data.projects.map((entry) => entry.project_id));
-      data.projects.forEach((entry) => {
-        if (!(entry.project_id in next)) {
-          next[entry.project_id] = true;
-        }
-      });
-      Object.keys(next).forEach((key) => {
-        if (!activeIds.has(key)) {
-          delete next[key];
-        }
-      });
-      return next;
-    });
-  }, [data]);
+  const personalValues = personalDraft ?? data?.personal_info ?? emptyPersonalInfo;
+  const skillsValues = skillsDraft ?? data?.skills ?? emptySkills;
 
   const updateResumeData = (updater: (current: ResumeData) => ResumeData) => {
     queryClient.setQueryData<ResumeData>(["resumeData"], (current) =>
@@ -240,6 +183,7 @@ export default function EditorPage() {
   const updatePersonalInfoMutation = useMutation({
     mutationFn: updatePersonalInfo,
     onSuccess: (updated) => {
+      setPersonalDraft(updated);
       updateResumeData((current) => ({
         ...current,
         personal_info: updated,
@@ -251,6 +195,7 @@ export default function EditorPage() {
   const updateSkillsMutation = useMutation({
     mutationFn: updateSkills,
     onSuccess: (updated) => {
+      setSkillsDraft(updated);
       updateResumeData((current) => ({
         ...current,
         skills: updated,
@@ -574,7 +519,7 @@ export default function EditorPage() {
     if (!data) {
       return;
     }
-    const next = personalDraft[field].trim();
+    const next = personalValues[field].trim();
     const current = data.personal_info[field];
     if (next === current) {
       return;
@@ -586,7 +531,7 @@ export default function EditorPage() {
     if (!data) {
       return;
     }
-    const next = skillsDraft[field];
+    const next = skillsValues[field];
     const current = data.skills[field];
     if (next === current) {
       return;
@@ -806,10 +751,10 @@ export default function EditorPage() {
               <Label htmlFor="personal-name">Name</Label>
               <Input
                 id="personal-name"
-                value={personalDraft.name}
+                value={personalValues.name}
                 onChange={(event) =>
                   setPersonalDraft((prev) => ({
-                    ...prev,
+                    ...(prev ?? data.personal_info),
                     name: event.target.value,
                   }))
                 }
@@ -821,10 +766,10 @@ export default function EditorPage() {
               <Label htmlFor="personal-email">Email</Label>
               <Input
                 id="personal-email"
-                value={personalDraft.email}
+                value={personalValues.email}
                 onChange={(event) =>
                   setPersonalDraft((prev) => ({
-                    ...prev,
+                    ...(prev ?? data.personal_info),
                     email: event.target.value,
                   }))
                 }
@@ -836,10 +781,10 @@ export default function EditorPage() {
               <Label htmlFor="personal-phone">Phone</Label>
               <Input
                 id="personal-phone"
-                value={personalDraft.phone}
+                value={personalValues.phone}
                 onChange={(event) =>
                   setPersonalDraft((prev) => ({
-                    ...prev,
+                    ...(prev ?? data.personal_info),
                     phone: event.target.value,
                   }))
                 }
@@ -851,10 +796,10 @@ export default function EditorPage() {
               <Label htmlFor="personal-linkedin-id">LinkedIn handle</Label>
               <Input
                 id="personal-linkedin-id"
-                value={personalDraft.linkedin_id}
+                value={personalValues.linkedin_id}
                 onChange={(event) =>
                   setPersonalDraft((prev) => ({
-                    ...prev,
+                    ...(prev ?? data.personal_info),
                     linkedin_id: event.target.value,
                   }))
                 }
@@ -866,10 +811,10 @@ export default function EditorPage() {
               <Label htmlFor="personal-github-id">GitHub handle</Label>
               <Input
                 id="personal-github-id"
-                value={personalDraft.github_id}
+                value={personalValues.github_id}
                 onChange={(event) =>
                   setPersonalDraft((prev) => ({
-                    ...prev,
+                    ...(prev ?? data.personal_info),
                     github_id: event.target.value,
                   }))
                 }
@@ -881,10 +826,10 @@ export default function EditorPage() {
               <Label htmlFor="personal-linkedin">LinkedIn URL</Label>
               <Input
                 id="personal-linkedin"
-                value={personalDraft.linkedin}
+                value={personalValues.linkedin}
                 onChange={(event) =>
                   setPersonalDraft((prev) => ({
-                    ...prev,
+                    ...(prev ?? data.personal_info),
                     linkedin: event.target.value,
                   }))
                 }
@@ -896,10 +841,10 @@ export default function EditorPage() {
               <Label htmlFor="personal-github">GitHub URL</Label>
               <Input
                 id="personal-github"
-                value={personalDraft.github}
+                value={personalValues.github}
                 onChange={(event) =>
                   setPersonalDraft((prev) => ({
-                    ...prev,
+                    ...(prev ?? data.personal_info),
                     github: event.target.value,
                   }))
                 }
@@ -922,10 +867,10 @@ export default function EditorPage() {
               <Label htmlFor="skills-languages">Languages & frameworks</Label>
               <Textarea
                 id="skills-languages"
-                value={skillsDraft.languages_frameworks}
+                value={skillsValues.languages_frameworks}
                 onChange={(event) =>
                   setSkillsDraft((prev) => ({
-                    ...prev,
+                    ...(prev ?? data.skills),
                     languages_frameworks: event.target.value,
                   }))
                 }
@@ -938,10 +883,10 @@ export default function EditorPage() {
               <Label htmlFor="skills-ml">AI / ML</Label>
               <Textarea
                 id="skills-ml"
-                value={skillsDraft.ai_ml}
+                value={skillsValues.ai_ml}
                 onChange={(event) =>
                   setSkillsDraft((prev) => ({
-                    ...prev,
+                    ...(prev ?? data.skills),
                     ai_ml: event.target.value,
                   }))
                 }
@@ -954,10 +899,10 @@ export default function EditorPage() {
               <Label htmlFor="skills-db">DB / Tools</Label>
               <Textarea
                 id="skills-db"
-                value={skillsDraft.db_tools}
+                value={skillsValues.db_tools}
                 onChange={(event) =>
                   setSkillsDraft((prev) => ({
-                    ...prev,
+                    ...(prev ?? data.skills),
                     db_tools: event.target.value,
                   }))
                 }

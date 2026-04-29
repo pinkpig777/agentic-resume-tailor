@@ -30,11 +30,11 @@ class DummyEmbedding:
 
 def test_ingest_counts_bullets(monkeypatch) -> None:
     """Test ingest counts bullets from data input."""
-    monkeypatch.setattr(ingest_module.chromadb, "PersistentClient", DummyClient)
+    monkeypatch.setattr(ingest_module, "create_chroma_client", lambda _settings=None: DummyClient())
     monkeypatch.setattr(
-        ingest_module.embedding_functions,
-        "SentenceTransformerEmbeddingFunction",
-        DummyEmbedding,
+        ingest_module,
+        "create_embedding_function",
+        lambda _settings=None: DummyEmbedding(),
     )
     data = {
         "experiences": [
@@ -70,11 +70,11 @@ def test_ingest_counts_bullets(monkeypatch) -> None:
 
 def test_ingest_handles_empty(monkeypatch) -> None:
     """Test ingest handles empty data."""
-    monkeypatch.setattr(ingest_module.chromadb, "PersistentClient", DummyClient)
+    monkeypatch.setattr(ingest_module, "create_chroma_client", lambda _settings=None: DummyClient())
     monkeypatch.setattr(
-        ingest_module.embedding_functions,
-        "SentenceTransformerEmbeddingFunction",
-        DummyEmbedding,
+        ingest_module,
+        "create_embedding_function",
+        lambda _settings=None: DummyEmbedding(),
     )
     data = {"experiences": [], "projects": []}
     count = ingest_module.ingest(data=data)

@@ -30,6 +30,13 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False)
 
 
+class _HealthCheckFilter(logging.Filter):
+    """Drop Uvicorn access log entries for GET /health."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "GET /health" not in record.getMessage()
+
+
 def configure_logging() -> None:
     """Configure logging."""
     settings = get_settings()
@@ -59,3 +66,6 @@ def configure_logging() -> None:
             },
         }
     )
+
+    # Silence GET /health from Uvicorn's access log
+    logging.getLogger("uvicorn.access").addFilter(_HealthCheckFilter())
