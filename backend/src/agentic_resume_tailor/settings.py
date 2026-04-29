@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
-from typing import Any, Dict, Literal
+from typing import Any, Dict
 
 from dotenv import dotenv_values
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -68,11 +68,9 @@ class Settings(BaseSettings):
     boost_top_n_missing: int = 6
     experience_weight: float = 1.2
     enable_bullet_rewrite: bool = True
-    rewrite_style: Literal["conservative", "creative"] = "conservative"
     rewrite_min_chars: int = 100
     rewrite_max_chars: int = 200
     rewrite_similarity_threshold: float = 0.55
-    rewrite_similarity_threshold_creative: float = 0.40
     jd_excerpt_max_chars: int = 1200
     rewrite_report_query_plan_top_n: int = 5
     length_weight: float = 0.10
@@ -121,23 +119,6 @@ class Settings(BaseSettings):
         )
 
 
-RESTART_REQUIRED_FIELDS = {
-    "db_path",
-    "sql_db_url",
-    "collection_name",
-    "embed_model",
-    "cors_origins",
-    "port",
-    "log_level",
-    "log_json",
-}
-
-
-def load_settings() -> Settings:
-    """Load a fresh settings snapshot without cache reuse."""
-    return Settings()
-
-
 @lru_cache
 def get_settings() -> Settings:
     """Get settings.
@@ -145,14 +126,4 @@ def get_settings() -> Settings:
     Returns:
         Result value.
     """
-    return load_settings()
-
-
-def restart_required_fields() -> list[str]:
-    """Return settings fields that require process restart."""
-    return sorted(RESTART_REQUIRED_FIELDS)
-
-
-def live_settings_fields() -> list[str]:
-    """Return settings fields that apply without restart."""
-    return sorted(set(Settings.model_fields.keys()) - RESTART_REQUIRED_FIELDS - {"openai_api_key"})
+    return Settings()

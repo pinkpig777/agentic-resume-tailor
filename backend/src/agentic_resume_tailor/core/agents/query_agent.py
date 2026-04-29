@@ -1,17 +1,15 @@
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from agentic_resume_tailor.core.agents.llm_client import call_llm_json
-from agentic_resume_tailor.core.canonicalization import canonicalize_term
 from agentic_resume_tailor.core.jd_utils import fallback_queries_from_jd
-from agentic_resume_tailor.core.prompts.query import QUERY_PROMPT_VERSION, build_query_prompt
 from agentic_resume_tailor.core.retrieval import normalize_query_text
+from agentic_resume_tailor.jd_parser import canonicalize
 
 logger = logging.getLogger(__name__)
 
@@ -82,22 +80,39 @@ class QueryPlan:
     agent_used: bool = False
     agent_fallback: bool = False
     agent_model: Optional[str] = None
-    prompt_version: str = QUERY_PROMPT_VERSION
 
 
-_GENERIC_QUERY_TERMS = {
-    "python",
-    "leadership",
-    "deployment",
-    "communication",
-    "apis",
-    "api",
-    "backend",
-    "frontend",
-    "engineering",
-    "developer",
-}
-_BOOLEAN_RE = re.compile(r"\b(and|or|not)\b", re.IGNORECASE)
+SYSTEM_PROMPT = """You are the Query Agent for Agentic Resume Tailor.
+
+Goal: parse the job description into a target profile and a retrieval plan.
+
+Rules:
+- Use ONLY information present in the JD; do not guess.
+- Canonical terms must be lowercase, concise, and tool/skill specific.
+- Include must-have vs nice-to-have skill lists and responsibilities.
+- retrieval_plan.experience_queries: 3-7 queries, 5-12 words each, no boolean operators.
+- Queries should be specific and technical (avoid single generic words).
+- Return STRICT JSON only; no extra keys or commentary.
+"""
+
+
+USER_TEMPLATE = """Job description:
+{jd_text}
+
+Return JSON with this shape:
+{{
+  "target_profile": {{
+    "role_title": "...",
+    "role_summary": "...",
+    "must_have": [{{"raw": "...", "canonical": "...", "type": "...", "priority": 1}}],
+    "nice_to_have": [{{"raw": "...", "canonical": "...", "type": "...", "priority": 2}}],
+    "responsibilities": [{{"raw": "...", "canonical": "...", "type": "...", "priority": 2}}],
+    "domain_terms": [{{"raw": "...", "canonical": "...", "type": "...", "priority": 3}}],
+    "retrieval_plan": {{"experience_queries": [{{"query": "...", "purpose": "...", "boost_keywords": [], "weight": 1.0}}]}}
+  }},
+  "retrieval_plan": {{"experience_queries": [{{"query": "...", "purpose": "...", "boost_keywords": [], "weight": 1.0}}]}}
+}}
+"""
 
 
 def _items_from_profile(profile: Any) -> List[QueryPlanItem]:
@@ -117,7 +132,7 @@ def _items_from_profile(profile: Any) -> List[QueryPlanItem]:
                 text=normalize_query_text(query),
                 purpose=str(entry.get("purpose") or "general"),
                 weight=float(entry.get("weight", 1.0) or 1.0),
-                boost_keywords=[str(keyword) for keyword in (entry.get("boost_keywords") or []) if str(keyword)],
+                boost_keywords=[str(k) for k in (entry.get("boost_keywords") or []) if str(k)],
             )
         )
     return items
@@ -129,9 +144,10 @@ def _normalize_profile(profile: TargetProfile) -> TargetProfile:
         items = profile_dict.get(bucket, []) or []
         for item in items:
             raw = str(item.get("raw") or "").strip()
-            canonical_val = str(item.get("canonical") or "").strip() or raw
+            canonical_val = str(item.get("canonical") or "").strip()
+            canonical_val = canonical_val or raw
             item["raw"] = raw or canonical_val
-            item["canonical"] = canonicalize_term(item["raw"] or canonical_val)
+            item["canonical"] = canonicalize(item["raw"] or canonical_val)
     return TargetProfile(**profile_dict)
 
 
@@ -154,143 +170,8 @@ def _summarize_profile(profile: Any) -> Dict[str, Any]:
     }
     for key, vals in summary.items():
         if isinstance(vals, list):
-            summary[key] = [val for val in vals if val]
+            summary[key] = [v for v in vals if v]
     return summary
-
-
-def _query_term_set(text: str) -> set[str]:
-    return {part for part in normalize_query_text(text).split() if part}
-
-
-def _is_invalid_query(query: str) -> bool:
-    normalized = normalize_query_text(query)
-    words = normalized.split()
-    if len(words) < 6 or len(words) > 14:
-        return True
-    if _BOOLEAN_RE.search(normalized):
-        return True
-    return normalized in _GENERIC_QUERY_TERMS
-
-
-def _candidate_terms(profile_dict: Dict[str, Any], bucket: str, limit: int) -> List[str]:
-    terms: List[str] = []
-    for item in profile_dict.get(bucket, []) or []:
-        canonical = str(item.get("canonical") or item.get("raw") or "").strip()
-        canonical = canonicalize_term(canonical)
-        if canonical and canonical not in terms:
-            terms.append(canonical)
-        if len(terms) >= limit:
-            break
-    return terms
-
-
-def _synthesize_query(
-    profile_dict: Dict[str, Any],
-    *,
-    purpose: str,
-    must_terms: List[str],
-    responsibility_terms: List[str],
-) -> str:
-    parts: List[str] = []
-    role_title = normalize_query_text(str(profile_dict.get("role_title") or "")).strip()
-    if role_title:
-        parts.extend(role_title.split())
-    parts.extend(term for term in must_terms[:3] if term)
-    parts.extend(term for term in responsibility_terms[:2] if term)
-    parts.extend(
-        token
-        for token in normalize_query_text(purpose.replace("_", " ")).split()
-        if token
-    )
-    if not parts:
-        parts.extend(["technical", "software", "delivery", "platform", "engineering", "experience"])
-    deduped: List[str] = []
-    for part in parts:
-        if part and part not in deduped:
-            deduped.append(part)
-    if len(deduped) < 6:
-        for filler in ["systems", "design", "production", "reliability", "delivery", "ownership"]:
-            if filler not in deduped:
-                deduped.append(filler)
-            if len(deduped) >= 6:
-                break
-    return normalize_query_text(" ".join(deduped[:14]).strip() or purpose)
-
-
-def _repair_query_items(profile: TargetProfile, items: List[QueryPlanItem]) -> List[QueryPlanItem]:
-    profile_dict = profile.model_dump()
-    must_terms = _candidate_terms(profile_dict, "must_have", limit=6)
-    responsibility_terms = _candidate_terms(profile_dict, "responsibilities", limit=4)
-
-    repaired: List[QueryPlanItem] = []
-    seen: set[str] = set()
-    for item in items:
-        query = normalize_query_text(item.text)
-        if _is_invalid_query(query):
-            query = _synthesize_query(
-                profile_dict,
-                purpose=item.purpose,
-                must_terms=must_terms,
-                responsibility_terms=responsibility_terms,
-            )
-        if not query or query in seen:
-            continue
-        seen.add(query)
-        repaired.append(
-            QueryPlanItem(
-                text=query,
-                purpose=item.purpose,
-                weight=item.weight if item.weight > 0 else 1.0,
-                boost_keywords=[
-                    canonicalize_term(keyword) for keyword in item.boost_keywords if keyword
-                ],
-            )
-        )
-
-    covered_terms = set().union(*(_query_term_set(item.text) for item in repaired)) if repaired else set()
-    missing_terms = [term for term in must_terms if term not in covered_terms]
-    while missing_terms and len(repaired) < 7:
-        query = _synthesize_query(
-            profile_dict,
-            purpose="core_stack",
-            must_terms=missing_terms[:3],
-            responsibility_terms=responsibility_terms,
-        )
-        if query not in seen:
-            seen.add(query)
-            repaired.append(
-                QueryPlanItem(
-                    text=query,
-                    purpose="core_stack",
-                    weight=1.4,
-                    boost_keywords=missing_terms[:3],
-                )
-            )
-        covered_terms.update(_query_term_set(query))
-        missing_terms = [term for term in must_terms if term not in covered_terms]
-
-    fallback_purposes = [
-        "general",
-        "domain_fit",
-        "scale_reliability",
-        "deployment",
-        "leadership",
-    ]
-    for fallback_purpose in fallback_purposes:
-        if len(repaired) >= 3:
-            break
-        fallback_query = _synthesize_query(
-            profile_dict,
-            purpose=fallback_purpose,
-            must_terms=must_terms[:3],
-            responsibility_terms=responsibility_terms,
-        )
-        if fallback_query in seen:
-            continue
-        seen.add(fallback_query)
-        repaired.append(QueryPlanItem(text=fallback_query))
-
-    return repaired[:7]
 
 
 def build_query_plan(jd_text: str, settings: Any) -> QueryPlan:
@@ -304,18 +185,17 @@ def build_query_plan(jd_text: str, settings: Any) -> QueryPlan:
     if getattr(settings, "use_jd_parser", False):
         agent_used = True
         try:
-            system_prompt, user_prompt = build_query_prompt(jd_text)
             output = call_llm_json(
-                user_prompt,
+                USER_TEMPLATE.format(jd_text=jd_text),
                 QueryAgentOutput,
-                system_prompt=system_prompt,
+                system_prompt=SYSTEM_PROMPT,
                 settings=settings,
                 model=model,
             )
             profile = _normalize_profile(output.target_profile)
             if not profile.retrieval_plan.experience_queries and output.retrieval_plan:
                 profile = profile.model_copy(update={"retrieval_plan": output.retrieval_plan})
-            items = _repair_query_items(profile, _items_from_profile(profile))
+            items = _items_from_profile(profile)
             profile_summary = _summarize_profile(profile)
             if items:
                 return QueryPlan(

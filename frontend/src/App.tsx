@@ -2,7 +2,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FileText, Settings, Sparkles } from "lucide-react";
 import { BrowserRouter, NavLink, Navigate, Route, Routes } from "react-router-dom";
 
-import { API_BASE_URL } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import EditorPage from "@/pages/EditorPage";
 import GeneratePage from "@/pages/GeneratePage";
@@ -56,7 +55,7 @@ function AppShell() {
               </nav>
 
               <div className="mt-6 rounded-lg border bg-background/80 p-3 text-xs text-muted-foreground">
-                FastAPI: <span className="font-semibold">{API_BASE_URL}</span>
+                FastAPI: <span className="font-semibold">localhost:8000</span>
               </div>
             </div>
           </aside>

@@ -218,14 +218,10 @@ export async function triggerIngest(): Promise<{
 export async function generateResume(
   jdText: string,
   runId?: string,
-  rewriteStyle?: "conservative" | "creative",
 ): Promise<GenerateResponse> {
   const payload: Record<string, string> = { jd_text: jdText };
   if (runId) {
     payload.run_id = runId;
-  }
-  if (rewriteStyle) {
-    payload.rewrite_style = rewriteStyle;
   }
   const { data } = await api.post("/generate", payload);
   return data;

@@ -72,11 +72,8 @@ export interface SettingsData {
   boost_top_n_missing: number;
   experience_weight: number;
   enable_bullet_rewrite: boolean;
-  rewrite_style: "conservative" | "creative";
   rewrite_min_chars: number;
   rewrite_max_chars: number;
-  rewrite_similarity_threshold: number;
-  rewrite_similarity_threshold_creative: number;
   length_weight: number;
   redundancy_weight: number;
   redundancy_threshold: number;
@@ -92,8 +89,6 @@ export interface SettingsData {
   log_json: boolean;
   port: number;
   config_path: string;
-  live_fields: string[];
-  restart_required_fields: string[];
 }
 
 export interface ExperienceCreatePayload {
@@ -174,12 +169,6 @@ export interface RunReport {
   best_iteration_index?: number;
   profile_used?: boolean;
   selected_ids: string[];
-  prompt_versions?: {
-    query?: string;
-    rewrite?: string;
-    scoring?: string;
-  };
-  rewrite_style?: "conservative" | "creative";
   best_score?: {
     final_score: number;
     retrieval_score: number;
@@ -192,12 +181,6 @@ export interface RunReport {
     length_score?: number;
     redundancy_penalty?: number;
     quality_score?: number;
-    boost_terms?: string[];
-  };
-  scoring_semantic_feedback?: {
-    summary?: string;
-    notes?: string[];
-    candidate_boost_terms?: string[];
   };
   rewritten_bullets?: Array<{
     bullet_id: string;

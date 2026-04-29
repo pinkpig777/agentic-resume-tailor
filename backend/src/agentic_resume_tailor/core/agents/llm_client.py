@@ -27,10 +27,6 @@ def _schema_hint(schema_model: Type[BaseModel]) -> str:
         schema = schema_model.model_json_schema()
     except Exception:
         return ""
-    try:
-        return json.dumps(schema, indent=2, ensure_ascii=False)
-    except Exception:
-        return ""
 
 
 def _parse_with_responses_api(
@@ -51,6 +47,10 @@ def _parse_with_responses_api(
     if parsed is None:
         raise ValueError("LLM returned empty parsed response.")
     return parsed
+    try:
+        return json.dumps(schema, indent=2, ensure_ascii=False)
+    except Exception:
+        return ""
 
 
 def call_llm_json(

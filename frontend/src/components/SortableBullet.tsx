@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Trash2 } from "lucide-react";
@@ -15,20 +15,16 @@ type SortableBulletProps = {
 
 export function SortableBullet({
   bullet,
-  ...props
-}: SortableBulletProps) {
-  const resetKey = `${bullet.id}:${bullet.text_latex}:${bullet.sort_order}`;
-  return <SortableBulletInner key={resetKey} bullet={bullet} {...props} />;
-}
-
-function SortableBulletInner({
-  bullet,
   onUpdate,
   onDelete,
 }: SortableBulletProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: bullet.id });
   const [value, setValue] = useState(bullet.text_latex);
+
+  useEffect(() => {
+    setValue(bullet.text_latex);
+  }, [bullet.text_latex]);
 
   const style = {
     transform: CSS.Transform.toString(transform),

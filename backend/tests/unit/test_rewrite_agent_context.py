@@ -1,15 +1,13 @@
-from agentic_resume_tailor.core.agents import rewrite_agent
 from agentic_resume_tailor.core.agents.query_agent import QueryPlanItem
 from agentic_resume_tailor.core.agents.rewrite_agent import (
+    RewriteConstraints,
+    RewriteContext,
     RewriteAgentOutput,
     RewriteBulletInfoOut,
     RewriteBulletOut,
-    RewriteConstraints,
-    RewriteContext,
     build_rewrite_context,
     rewrite_bullets,
 )
-from agentic_resume_tailor.settings import get_settings
 
 
 def _fake_output(bullet_id: str, text: str) -> RewriteAgentOutput:
@@ -151,72 +149,3 @@ def test_rewrite_falls_back_on_length_violation(monkeypatch) -> None:
     info = result.bullet_info["exp:acme:b01"]
     assert info.rewritten_text == "Short."
     assert "too_long" in info.validation.violations
-
-
-def test_rewrite_similarity_threshold_varies_by_style(monkeypatch) -> None:
-    def fake_call(*_args, **_kwargs):
-        return _fake_output(
-            "exp:acme:b01",
-            "Architected backend API services in Python and FastAPI",
-        )
-
-    monkeypatch.setattr(
-        "agentic_resume_tailor.core.agents.rewrite_agent.call_llm_json", fake_call
-    )
-    monkeypatch.setattr(rewrite_agent, "_similarity_ratio", lambda *_args, **_kwargs: 0.45)
-
-    settings = get_settings().model_copy(
-        update={
-            "rewrite_similarity_threshold": 0.55,
-            "rewrite_similarity_threshold_creative": 0.40,
-        }
-    )
-    bullets = [
-        {
-            "bullet_id": "exp:acme:b01",
-            "text_latex": "Built backend API services in Python and FastAPI",
-        }
-    ]
-    allowlist = {
-        "exp:acme:b01": {
-            "built",
-            "architected",
-            "backend",
-            "api",
-            "services",
-            "python",
-            "fastapi",
-        }
-    }
-
-    conservative = rewrite_bullets(
-        rewrite_context=None,
-        bullets_original=bullets,
-        allowlist=allowlist,
-        constraints=RewriteConstraints(
-            enabled=True,
-            min_chars=10,
-            max_chars=200,
-            style="conservative",
-        ),
-        settings=settings,
-    )
-    creative = rewrite_bullets(
-        rewrite_context=None,
-        bullets_original=bullets,
-        allowlist=allowlist,
-        constraints=RewriteConstraints(
-            enabled=True,
-            min_chars=10,
-            max_chars=200,
-            style="creative",
-        ),
-        settings=settings,
-    )
-
-    conservative_info = conservative.bullet_info["exp:acme:b01"]
-    creative_info = creative.bullet_info["exp:acme:b01"]
-
-    assert conservative_info.rewritten_text == bullets[0]["text_latex"]
-    assert "semantic_drift" in conservative_info.validation.violations
-    assert creative_info.rewritten_text == "Architected backend API services in Python and FastAPI"

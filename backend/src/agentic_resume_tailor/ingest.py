@@ -1,25 +1,33 @@
-from __future__ import annotations
-
 import json
 import logging
 import re
-from typing import Any, Callable
 
 import chromadb
 from tqdm import tqdm
 
 from agentic_resume_tailor.db.session import SessionLocal, init_db
 from agentic_resume_tailor.db.sync import export_resume_data, write_resume_json
-from agentic_resume_tailor.settings import load_settings
+from agentic_resume_tailor.settings import get_settings
 from agentic_resume_tailor.utils.embeddings import build_sentence_transformer_ef
 from agentic_resume_tailor.utils.logging import configure_logging
 
 configure_logging()
 logger = logging.getLogger(__name__)
+settings = get_settings()
+
+DB_PATH = settings.db_path
+COLLECTION_NAME = settings.collection_name
 
 
 def strip_latex(s: str) -> str:
-    """Strip LaTeX markup for embedding-friendly text."""
+    """Strip LaTeX markup for embedding-friendly text.
+
+    Args:
+        s: The s value.
+
+    Returns:
+        String result.
+    """
     if not s:
         return ""
     s = re.sub(r"\\[a-zA-Z]+\{([^}]*)\}", r"\1", s)
@@ -29,43 +37,29 @@ def strip_latex(s: str) -> str:
     return s
 
 
-def create_chroma_client(settings: Any | None = None) -> Any:
-    settings = settings or load_settings()
-    return chromadb.PersistentClient(path=settings.db_path)
+def ingest(data: dict | None = None, json_path: str | None = None) -> int:
+    """Ingest resume bullets into Chroma from JSON or DB.
 
+    Args:
+        data: The data value (optional).
+        json_path: Path to a JSON file (optional).
 
-def create_embedding_function(settings: Any | None = None) -> Any:
-    settings = settings or load_settings()
-    return build_sentence_transformer_ef(settings.embed_model, disable_progress=True)
-
-
-def ingest(
-    data: dict | None = None,
-    json_path: str | None = None,
-    *,
-    settings: Any | None = None,
-    client_factory: Callable[[Any | None], Any] | None = None,
-    embedding_factory: Callable[[Any | None], Any] | None = None,
-) -> int:
-    """Ingest resume bullets into Chroma from JSON or DB."""
-    settings = settings or load_settings()
-    client_factory = client_factory or create_chroma_client
-    embedding_factory = embedding_factory or create_embedding_function
+    Returns:
+        Integer result.
+    """
     logger.info("Initializing ChromaDB client")
-    client = client_factory(settings)
+    client = chromadb.PersistentClient(path=DB_PATH)
 
     logger.info("Loading embedding model")
-    embedding_fn = embedding_factory(settings)
+    ef = build_sentence_transformer_ef(settings.embed_model, disable_progress=True)
     logger.info("Model loaded. Starting JSON processing.")
     try:
-        client.delete_collection(settings.collection_name)
+        client.delete_collection(COLLECTION_NAME)
     except Exception:
         pass
 
     collection = client.get_or_create_collection(
-        name=settings.collection_name,
-        embedding_function=embedding_fn,
-        metadata={"hnsw:space": "cosine"},
+        name=COLLECTION_NAME, embedding_function=ef, metadata={"hnsw:space": "cosine"}
     )
 
     if data is None:
@@ -80,9 +74,13 @@ def ingest(
     metadatas = []
     ids = []
 
+    # Calculate total items for the main progress bar
     total_items = len(data.get("experiences", [])) + len(data.get("projects", []))
+
+    # 2. Initialize the main progress bar
     pbar = tqdm(total=total_items, desc="Processing Experience & Projects", disable=True)
 
+    # Experiences
     for exp in data.get("experiences", []):
         job_id = exp["job_id"]
         company = exp.get("company", "")
@@ -90,9 +88,9 @@ def ingest(
         dates = exp.get("dates", "")
         location = exp.get("location", "")
 
-        for bullet in exp.get("bullets", []):
-            local_id = bullet["id"]
-            text_latex = bullet["text_latex"]
+        for b in exp.get("bullets", []):
+            local_id = b["id"]
+            text_latex = b["text_latex"]
             bullet_id = f"exp:{job_id}:{local_id}"
 
             documents.append(strip_latex(text_latex))
@@ -110,16 +108,17 @@ def ingest(
             )
             ids.append(bullet_id)
 
-        pbar.update(1)
+        pbar.update(1)  # Update for each job processed
 
+    # Projects
     for proj in data.get("projects", []):
         project_id = proj["project_id"]
         name = proj.get("name", "")
         technologies = proj.get("technologies", "")
 
-        for bullet in proj.get("bullets", []):
-            local_id = bullet["id"]
-            text_latex = bullet["text_latex"]
+        for b in proj.get("bullets", []):
+            local_id = b["id"]
+            text_latex = b["text_latex"]
             bullet_id = f"proj:{project_id}:{local_id}"
 
             documents.append(strip_latex(text_latex))
@@ -135,7 +134,7 @@ def ingest(
             )
             ids.append(bullet_id)
 
-        pbar.update(1)
+        pbar.update(1)  # Update for each project processed
 
     pbar.close()
 
@@ -151,11 +150,10 @@ def ingest(
 
 def main() -> None:
     """Export current DB to JSON and ingest into Chroma."""
-    settings = load_settings()
     init_db()
     with SessionLocal() as db:
         write_resume_json(db, settings.export_file)
-    ingest(json_path=settings.export_file, settings=settings)
+    ingest(json_path=settings.export_file)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
 from pathlib import Path
 
-from agentic_resume_tailor.core import artifacts as core_artifacts
 from agentic_resume_tailor.core import loop_controller
 from agentic_resume_tailor.core.agents.query_agent import QueryPlan, QueryPlanItem
 from agentic_resume_tailor.core.agents.scoring_agent import ScoreResult
@@ -66,10 +65,9 @@ def test_loop_applies_boost_terms_to_next_iteration(tmp_path, monkeypatch) -> No
         tex_path.write_text("% tex", encoding="utf-8")
         return str(pdf_path), str(tex_path)
 
-    def fake_trim(*args, **kwargs):
-        pdf_path = args[5]
-        tex_path = __import__("pathlib").Path(pdf_path).with_suffix(".tex")
-        return pdf_path, str(tex_path), args[3], args[4]
+    def fake_trim(_settings, _run_id, _static, selected_ids, _cands, rewrites, pdf_path):
+        tex_path = Path(pdf_path).with_suffix(".tex")
+        return pdf_path, str(tex_path), selected_ids, rewrites
 
     scores = [_score(50, ["fastapi", "postgresql"]), _score(50, [])]
 
@@ -79,8 +77,8 @@ def test_loop_applies_boost_terms_to_next_iteration(tmp_path, monkeypatch) -> No
     monkeypatch.setattr(loop_controller, "build_query_plan", fake_build_query_plan)
     monkeypatch.setattr(loop_controller, "multi_query_retrieve", fake_retrieve)
     monkeypatch.setattr(loop_controller, "select_topk", fake_select_topk)
-    monkeypatch.setattr(core_artifacts, "render_pdf", fake_render)
-    monkeypatch.setattr(core_artifacts, "trim_to_single_page", fake_trim)
+    monkeypatch.setattr(loop_controller, "_render_pdf", fake_render)
+    monkeypatch.setattr(loop_controller, "_trim_to_single_page", fake_trim)
     monkeypatch.setattr(loop_controller, "score_resume", fake_score)
 
     base = Path(__file__).resolve().parents[2]

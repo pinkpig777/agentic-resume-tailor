@@ -43,8 +43,6 @@ type StatusMessage = {
   message: string;
 };
 
-type RewriteStyle = "conservative" | "creative";
-
 type RunProgressEvent = {
   stage?: string;
   status?: "pending" | "running" | "complete" | "error";
@@ -225,40 +223,67 @@ const buildMissingSkills = (report?: RunReport) => ({
   nice: report?.best_score?.nice_missing_bullets_only ?? [],
 });
 
-type ApplySelectionPayload = {
-  selectedIds: string[];
-  rewritten?: Record<string, string>;
-  tempEdits?: Record<string, string>;
-};
-
-type RunReviewPanelProps = {
-  result: GenerateResponse;
-  report?: RunReport;
-  resumeData?: ResumeData;
-  pdfPreviewUrl: string;
-  pdfUrl: string;
-  texUrl: string;
-  onApplySelection: (payload: ApplySelectionPayload) => void;
-  isRendering: boolean;
-};
-
-function RunReviewPanel({
-  result,
-  report,
-  resumeData,
-  pdfPreviewUrl,
-  pdfUrl,
-  texUrl,
-  onApplySelection,
-  isRendering,
-}: RunReviewPanelProps) {
-  const [selectionOrder] = useState<string[]>(() => report?.selected_ids ?? []);
-  const [selectedMap, setSelectedMap] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries((report?.selected_ids ?? []).map((id) => [id, true])),
-  );
+export default function GeneratePage() {
+  const queryClient = useQueryClient();
+  const [jdText, setJdText] = useState("");
+  const [result, setResult] = useState<GenerateResponse | null>(null);
+  const [selectionOrder, setSelectionOrder] = useState<string[]>([]);
+  const [selectedMap, setSelectedMap] = useState<Record<string, boolean>>({});
   const [showOriginal, setShowOriginal] = useState<Record<string, boolean>>({});
   const [editedBullets, setEditedBullets] = useState<Record<string, string>>({});
+  const [pdfNonce, setPdfNonce] = useState(() => Date.now());
+  const [loopStage, setLoopStage] = useState<number | null>(null);
+  const [loopStatus, setLoopStatus] = useState<RunProgressEvent["status"]>("pending");
+  const [loopIteration, setLoopIteration] = useState<number | null>(null);
+  const [loopMaxIters, setLoopMaxIters] = useState<number | null>(null);
   const [showPreview, setShowPreview] = useState(true);
+  const [status, setStatus] = useState<StatusMessage | null>(null);
+  const lastRunIdRef = useRef<string | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  const { isError: settingsError, refetch: refetchSettings } = useQuery({
+    queryKey: ["settings"],
+    queryFn: fetchSettings,
+  });
+
+  const {
+    data: resumeData,
+    isError: resumeError,
+    refetch: refetchResume,
+  } = useQuery({
+    queryKey: ["resumeData"],
+    queryFn: fetchData,
+  });
+
+  const runId = result?.run_id;
+  const reportUrl = result ? `${API_BASE_URL}${result.report_url}` : "#";
+  const pdfUrl = result ? `${API_BASE_URL}${result.pdf_url}` : "#";
+  const pdfPreviewUrl = result ? `${pdfUrl}?v=${pdfNonce}` : "#";
+  const texUrl = result ? `${API_BASE_URL}${result.tex_url}` : "#";
+
+  const {
+    data: report,
+    isError: reportError,
+    refetch: refetchReport,
+  } = useQuery({
+    queryKey: ["runReport", runId],
+    queryFn: () => fetchRunReport(runId as string),
+    enabled: Boolean(runId),
+  });
+
+  useEffect(() => {
+    if (!report?.selected_ids) {
+      return;
+    }
+    setSelectionOrder(report.selected_ids);
+    setSelectedMap(
+      report.selected_ids.reduce(
+        (acc, id) => ({ ...acc, [id]: true }),
+        {} as Record<string, boolean>,
+      ),
+    );
+    setShowOriginal({});
+  }, [report?.run_id, report?.selected_ids]);
 
   const bulletLookup = useMemo(() => {
     if (!resumeData) {
@@ -268,6 +293,35 @@ function RunReviewPanel({
   }, [resumeData]);
 
   const rewrites = useMemo(() => buildRewriteMap(report), [report]);
+
+  useEffect(() => {
+    if (!report?.run_id || !report.selected_ids) {
+      return;
+    }
+    if (lastRunIdRef.current === report.run_id) {
+      return;
+    }
+    const hasLookup = report.selected_ids.some((id) => bulletLookup.has(id));
+    const hasRewrites = report.selected_ids.some((id) => rewrites.has(id));
+    if (!hasLookup && !hasRewrites) {
+      return;
+    }
+    lastRunIdRef.current = report.run_id;
+    const next: Record<string, string> = {};
+    report.selected_ids.forEach((id) => {
+      const info = bulletLookup.get(id);
+      const rewrite = rewrites.get(id);
+      next[id] = rewrite?.rewritten ?? info?.text ?? "";
+    });
+    setEditedBullets(next);
+  }, [report?.run_id, report?.selected_ids, bulletLookup, rewrites]);
+
+  useEffect(() => {
+    if (result?.run_id) {
+      setPdfNonce(Date.now());
+    }
+  }, [result?.run_id]);
+
 
   const selectedIds = useMemo(
     () => selectionOrder.filter((id) => selectedMap[id]),
@@ -286,335 +340,26 @@ function RunReviewPanel({
 
   const missingSkills = useMemo(() => buildMissingSkills(report), [report]);
 
-  const selectionDirty = (() => {
-    const original = report?.selected_ids ?? [];
-    if (original.length !== selectedIds.length) {
+  const selectionDirty = useMemo(() => {
+    if (!report?.selected_ids) {
+      return false;
+    }
+    if (report.selected_ids.length !== selectedIds.length) {
       return true;
     }
-    return original.some((id, idx) => id !== selectedIds[idx]);
-  })();
+    return report.selected_ids.some((id, idx) => id !== selectedIds[idx]);
+  }, [report?.selected_ids, selectedIds]);
 
-  const editsDirty = bulletCards.some(
-    (card) =>
-      selectedMap[card.id] &&
-      editedBullets[card.id] !== undefined &&
-      editedBullets[card.id] !== card.baseText,
+  const editsDirty = useMemo(
+    () =>
+      bulletCards.some(
+        (card) =>
+          selectedMap[card.id] &&
+          editedBullets[card.id] !== undefined &&
+          editedBullets[card.id] !== card.baseText,
+      ),
+    [bulletCards, editedBullets, selectedMap],
   );
-
-  const toggleInclude = (id: string) => {
-    setSelectedMap((current) => ({ ...current, [id]: !current[id] }));
-  };
-
-  const toggleOriginal = (id: string) => {
-    setShowOriginal((current) => ({ ...current, [id]: !current[id] }));
-  };
-
-  const handleEditBullet = (id: string, value: string) => {
-    setEditedBullets((current) => ({ ...current, [id]: value }));
-  };
-
-  const handleApplySelection = () => {
-    if (!selectedIds.length) {
-      return;
-    }
-    const rewritten = Object.fromEntries(
-      bulletCards
-        .filter((card) => card.hasRewrite && selectedMap[card.id])
-        .map((card) => [card.id, card.baseText]),
-    );
-    const tempEdits = Object.fromEntries(
-      bulletCards
-        .filter((card) => selectedMap[card.id])
-        .filter((card) => {
-          const edited = editedBullets[card.id];
-          return edited !== undefined && edited.trim() && edited !== card.baseText;
-        })
-        .map((card) => [card.id, editedBullets[card.id] as string]),
-    );
-
-    onApplySelection({
-      selectedIds,
-      rewritten: Object.keys(rewritten).length ? rewritten : undefined,
-      tempEdits: Object.keys(tempEdits).length ? tempEdits : undefined,
-    });
-  };
-
-  return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Selected bullets</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-            <span>
-              Toggle bullets for this run and re-render the PDF when ready.
-            </span>
-            <span>{selectedIds.length} selected</span>
-          </div>
-          <div className="space-y-4">
-            {bulletGroups.length ? (
-              bulletGroups.map((group) => (
-                <div
-                  key={group.key}
-                  className="rounded-xl border bg-card/60 p-4 shadow-sm"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="space-y-1">
-                      <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                        {group.section}
-                      </div>
-                      <div className="text-sm font-semibold">{group.title}</div>
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {group.items.filter((item) => selectedMap[item.id]).length}/
-                      {group.items.length} selected
-                    </div>
-                  </div>
-                  <div className="mt-4 space-y-3">
-                    {group.items.map((card) => {
-                      const isEdited = card.text !== card.baseText;
-                      return (
-                        <div
-                          key={card.id}
-                          className="rounded-lg border bg-background/80 p-3"
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                              {card.hasRewrite ? (
-                                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700">
-                                  Rewritten
-                                </span>
-                              ) : null}
-                              {isEdited ? (
-                                <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
-                                  Edited
-                                </span>
-                              ) : null}
-                            </div>
-                            <label className="flex items-center gap-2 text-xs font-medium">
-                              <input
-                                type="checkbox"
-                                checked={Boolean(selectedMap[card.id])}
-                                onChange={() => toggleInclude(card.id)}
-                              />
-                              Include
-                            </label>
-                          </div>
-                          <div className="mt-3 space-y-2">
-                            <Textarea
-                              value={card.text}
-                              onChange={(event) =>
-                                handleEditBullet(card.id, event.target.value)
-                              }
-                              className="min-h-[96px]"
-                            />
-                            {card.hasRewrite ? (
-                              <button
-                                type="button"
-                                className="text-xs text-muted-foreground underline"
-                                onClick={() => toggleOriginal(card.id)}
-                              >
-                                {showOriginal[card.id]
-                                  ? "Hide original"
-                                  : "Show original"}
-                              </button>
-                            ) : null}
-                            {showOriginal[card.id] ? (
-                              <div className="rounded-md border border-dashed bg-muted/40 p-2 text-xs text-muted-foreground">
-                                {card.originalText}
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-                Report selections are not ready yet. Refresh once the run report is available.
-              </div>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              variant="secondary"
-              onClick={handleApplySelection}
-              disabled={(!selectionDirty && !editsDirty) || isRendering}
-            >
-              {isRendering ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Rendering
-                </>
-              ) : (
-                "Re-render PDF"
-              )}
-            </Button>
-            {selectionDirty || editsDirty ? (
-              <span className="text-xs text-muted-foreground">
-                Updates pending. Re-render to refresh the PDF.
-              </span>
-            ) : null}
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="rounded-xl border bg-card/60 shadow-sm">
-        <button
-          type="button"
-          onClick={() => setShowPreview((current) => !current)}
-          className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold"
-          aria-expanded={showPreview}
-        >
-          <span className="uppercase tracking-[0.2em] text-muted-foreground">
-            PDF preview
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {showPreview ? "Collapse" : "Expand"}
-          </span>
-        </button>
-        {showPreview ? (
-          <div className="border-t px-4 pb-4 pt-3">
-            <div className="space-y-3">
-              <iframe
-                title="Resume preview"
-                src={pdfPreviewUrl}
-                className="h-[640px] w-full rounded-md border"
-              />
-              <div className="flex flex-wrap gap-2">
-                <Button variant="secondary" asChild>
-                  <a href={pdfUrl} target="_blank" rel="noreferrer">
-                    Download PDF
-                  </a>
-                </Button>
-                <Button variant="secondary" asChild>
-                  <a href={texUrl} target="_blank" rel="noreferrer">
-                    Download TeX
-                  </a>
-                </Button>
-              </div>
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Missing skills</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-              Must-have
-            </div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {missingSkills.must.length ? (
-                missingSkills.must.map((skill) => (
-                  <span
-                    key={skill}
-                    className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700"
-                  >
-                    {skill}
-                  </span>
-                ))
-              ) : (
-                <span className="text-xs text-muted-foreground">
-                  No missing must-haves detected.
-                </span>
-              )}
-            </div>
-          </div>
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-              Nice-to-have
-            </div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {missingSkills.nice.length ? (
-                missingSkills.nice.map((skill) => (
-                  <span
-                    key={skill}
-                    className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600"
-                  >
-                    {skill}
-                  </span>
-                ))
-              ) : (
-                <span className="text-xs text-muted-foreground">
-                  No missing nice-to-haves detected.
-                </span>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <details className="rounded-lg border bg-card p-4 text-sm">
-        <summary className="cursor-pointer text-sm font-medium">
-          Technical details
-        </summary>
-        <div className="mt-3 space-y-2 text-xs text-muted-foreground">
-          <div>Run ID: {result.run_id}</div>
-          <div>Best iteration: {report?.best_iteration_index ?? "n/a"}</div>
-          <div>Score: {report?.best_score?.final_score ?? "n/a"}</div>
-          <div>Report URL: {result.report_url}</div>
-        </div>
-      </details>
-    </div>
-  );
-}
-
-export default function GeneratePage() {
-  const queryClient = useQueryClient();
-  const [jdText, setJdText] = useState("");
-  const [result, setResult] = useState<GenerateResponse | null>(null);
-  const [rewriteStyleOverride, setRewriteStyleOverride] =
-    useState<RewriteStyle | null>(null);
-  const [pdfNonce, setPdfNonce] = useState(() => Date.now());
-  const [loopStage, setLoopStage] = useState<number | null>(null);
-  const [loopStatus, setLoopStatus] = useState<RunProgressEvent["status"]>("pending");
-  const [loopIteration, setLoopIteration] = useState<number | null>(null);
-  const [loopMaxIters, setLoopMaxIters] = useState<number | null>(null);
-  const [status, setStatus] = useState<StatusMessage | null>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
-
-  const {
-    data: settings,
-    isError: settingsError,
-    refetch: refetchSettings,
-  } = useQuery({
-    queryKey: ["settings"],
-    queryFn: fetchSettings,
-  });
-
-  const {
-    data: resumeData,
-    isError: resumeError,
-    refetch: refetchResume,
-  } = useQuery({
-    queryKey: ["resumeData"],
-    queryFn: fetchData,
-  });
-
-  const runId = result?.run_id;
-  const rewriteStyle: RewriteStyle =
-    rewriteStyleOverride ?? settings?.rewrite_style ?? "conservative";
-  const reportUrl = result ? `${API_BASE_URL}${result.report_url}` : "#";
-  const pdfUrl = result ? `${API_BASE_URL}${result.pdf_url}` : "#";
-  const pdfPreviewUrl = result ? `${pdfUrl}?v=${pdfNonce}` : "#";
-  const texUrl = result ? `${API_BASE_URL}${result.tex_url}` : "#";
-
-  const {
-    data: report,
-    isError: reportError,
-    refetch: refetchReport,
-  } = useQuery({
-    queryKey: ["runReport", runId],
-    queryFn: () => fetchRunReport(runId as string),
-    enabled: Boolean(runId),
-  });
 
   const closeEventSource = () => {
     if (eventSourceRef.current) {
@@ -686,13 +431,13 @@ export default function GeneratePage() {
   }, []);
 
   const mutation = useMutation({
-    mutationFn: (payload: {
-      text: string;
-      runId: string;
-      rewriteStyle: RewriteStyle;
-    }) => generateResume(payload.text, payload.runId, payload.rewriteStyle),
+    mutationFn: (payload: { text: string; runId: string }) =>
+      generateResume(payload.text, payload.runId),
     onMutate: ({ runId }) => {
       setResult(null);
+      setSelectionOrder([]);
+      setSelectedMap({});
+      setEditedBullets({});
       setLoopStage(0);
       setLoopStatus("running");
       setLoopIteration(null);
@@ -702,7 +447,6 @@ export default function GeneratePage() {
     },
     onSuccess: (data) => {
       setResult(data);
-      setPdfNonce(Date.now());
       setLoopStatus("complete");
       setLoopStage(LOOP_STAGES.length - 1);
       closeEventSource();
@@ -745,18 +489,44 @@ export default function GeneratePage() {
     const runId =
       window.crypto?.randomUUID?.() ||
       `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    mutation.mutate({ text: trimmed, runId, rewriteStyle });
+    mutation.mutate({ text: trimmed, runId });
   };
 
-  const handleApplySelection = (payload: ApplySelectionPayload) => {
-    if (!runId || !payload.selectedIds.length) {
+  const toggleInclude = (id: string) => {
+    setSelectedMap((current) => ({ ...current, [id]: !current[id] }));
+  };
+
+  const toggleOriginal = (id: string) => {
+    setShowOriginal((current) => ({ ...current, [id]: !current[id] }));
+  };
+
+  const handleEditBullet = (id: string, value: string) => {
+    setEditedBullets((current) => ({ ...current, [id]: value }));
+  };
+
+  const handleApplySelection = () => {
+    if (!runId || !selectedIds.length) {
       return;
     }
+    const rewritten = Object.fromEntries(
+      bulletCards
+        .filter((card) => card.hasRewrite && selectedMap[card.id])
+        .map((card) => [card.id, card.baseText]),
+    );
+    const tempEdits = Object.fromEntries(
+      bulletCards
+        .filter((card) => selectedMap[card.id])
+        .filter((card) => {
+          const edited = editedBullets[card.id];
+          return edited !== undefined && edited.trim() && edited !== card.baseText;
+        })
+        .map((card) => [card.id, editedBullets[card.id] as string]),
+    );
     renderMutation.mutate({
       runId,
-      selectedIds: payload.selectedIds,
-      rewritten: payload.rewritten,
-      tempEdits: payload.tempEdits,
+      selectedIds,
+      rewritten: Object.keys(rewritten).length ? rewritten : undefined,
+      tempEdits: Object.keys(tempEdits).length ? tempEdits : undefined,
     });
   };
 
@@ -830,21 +600,7 @@ export default function GeneratePage() {
             placeholder="Paste the job description here..."
             className="min-h-[220px]"
           />
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="space-y-1">
-              <Label htmlFor="generate-rewrite-style">Rewrite style</Label>
-              <select
-                id="generate-rewrite-style"
-                value={rewriteStyle}
-                onChange={(event) =>
-                  setRewriteStyleOverride(event.target.value as RewriteStyle)
-                }
-                className="flex h-10 min-w-[180px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              >
-                <option value="conservative">Conservative</option>
-                <option value="creative">Creative</option>
-              </select>
-            </div>
+          <div className="flex flex-wrap items-center gap-3">
             <Button
               onClick={handleGenerate}
               disabled={mutation.isPending || !jdText.trim()}
@@ -859,9 +615,6 @@ export default function GeneratePage() {
               )}
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Conservative keeps closer phrasing. Creative allows stronger framing while preserving facts.
-          </p>
           {loopStage !== null ? (
             <div className="rounded-lg border bg-muted/40 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
@@ -950,17 +703,223 @@ export default function GeneratePage() {
       ) : null}
 
       {result ? (
-        <RunReviewPanel
-          key={`${result.run_id}:${(report?.selected_ids ?? []).join("|")}`}
-          result={result}
-          report={report}
-          resumeData={resumeData}
-          pdfPreviewUrl={pdfPreviewUrl}
-          pdfUrl={pdfUrl}
-          texUrl={texUrl}
-          onApplySelection={handleApplySelection}
-          isRendering={renderMutation.isPending}
-        />
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Selected bullets</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+                <span>
+                  Toggle bullets for this run and re-render the PDF when ready.
+                </span>
+                <span>{selectedIds.length} selected</span>
+              </div>
+              <div className="space-y-4">
+                {bulletGroups.map((group) => (
+                  <div
+                    key={group.key}
+                    className="rounded-xl border bg-card/60 p-4 shadow-sm"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                          {group.section}
+                        </div>
+                        <div className="text-sm font-semibold">{group.title}</div>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {group.items.filter((item) => selectedMap[item.id]).length}/
+                        {group.items.length} selected
+                      </div>
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {group.items.map((card) => {
+                        const isEdited = card.text !== card.baseText;
+                        return (
+                          <div
+                            key={card.id}
+                            className="rounded-lg border bg-background/80 p-3"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                {card.hasRewrite ? (
+                                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700">
+                                    Rewritten
+                                  </span>
+                                ) : null}
+                                {isEdited ? (
+                                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
+                                    Edited
+                                  </span>
+                                ) : null}
+                              </div>
+                              <label className="flex items-center gap-2 text-xs font-medium">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(selectedMap[card.id])}
+                                  onChange={() => toggleInclude(card.id)}
+                                />
+                                Include
+                              </label>
+                            </div>
+                            <div className="mt-3 space-y-2">
+                              <Textarea
+                                value={card.text}
+                                onChange={(event) =>
+                                  handleEditBullet(card.id, event.target.value)
+                                }
+                                className="min-h-[96px]"
+                              />
+                              {card.hasRewrite ? (
+                                <button
+                                  type="button"
+                                  className="text-xs text-muted-foreground underline"
+                                  onClick={() => toggleOriginal(card.id)}
+                                >
+                                  {showOriginal[card.id]
+                                    ? "Hide original"
+                                    : "Show original"}
+                                </button>
+                              ) : null}
+                              {showOriginal[card.id] ? (
+                                <div className="rounded-md border border-dashed bg-muted/40 p-2 text-xs text-muted-foreground">
+                                  {card.originalText}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  variant="secondary"
+                  onClick={handleApplySelection}
+                  disabled={(!selectionDirty && !editsDirty) || renderMutation.isPending}
+                >
+                  {renderMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Rendering
+                    </>
+                  ) : (
+                    "Re-render PDF"
+                  )}
+                </Button>
+                {selectionDirty || editsDirty ? (
+                  <span className="text-xs text-muted-foreground">
+                    Updates pending. Re-render to refresh the PDF.
+                  </span>
+                ) : null}
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="rounded-xl border bg-card/60 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setShowPreview((current) => !current)}
+              className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold"
+              aria-expanded={showPreview}
+            >
+              <span className="uppercase tracking-[0.2em] text-muted-foreground">
+                PDF preview
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {showPreview ? "Collapse" : "Expand"}
+              </span>
+            </button>
+            {showPreview ? (
+              <div className="border-t px-4 pb-4 pt-3">
+                <div className="space-y-3">
+                  <iframe
+                    title="Resume preview"
+                    src={pdfPreviewUrl}
+                    className="h-[640px] w-full rounded-md border"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="secondary" asChild>
+                      <a href={pdfUrl} target="_blank" rel="noreferrer">
+                        Download PDF
+                      </a>
+                    </Button>
+                    <Button variant="secondary" asChild>
+                      <a href={texUrl} target="_blank" rel="noreferrer">
+                        Download TeX
+                      </a>
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Missing skills</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  Must-have
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {missingSkills.must.length ? (
+                    missingSkills.must.map((skill) => (
+                      <span
+                        key={skill}
+                        className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700"
+                      >
+                        {skill}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      No missing must-haves detected.
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  Nice-to-have
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {missingSkills.nice.length ? (
+                    missingSkills.nice.map((skill) => (
+                      <span
+                        key={skill}
+                        className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600"
+                      >
+                        {skill}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      No missing nice-to-haves detected.
+                    </span>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <details className="rounded-lg border bg-card p-4 text-sm">
+            <summary className="cursor-pointer text-sm font-medium">
+              Technical details
+            </summary>
+            <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+              <div>Run ID: {result.run_id}</div>
+              <div>Best iteration: {report?.best_iteration_index ?? "n/a"}</div>
+              <div>Score: {report?.best_score?.final_score ?? "n/a"}</div>
+              <div>Report URL: {result.report_url}</div>
+            </div>
+          </details>
+        </div>
       ) : null}
     </div>
   );

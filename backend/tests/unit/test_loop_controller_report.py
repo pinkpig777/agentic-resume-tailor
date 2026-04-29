@@ -1,6 +1,5 @@
 from pathlib import Path
 
-from agentic_resume_tailor.core import artifacts as core_artifacts
 from agentic_resume_tailor.core import loop_controller
 from agentic_resume_tailor.settings import get_settings
 
@@ -31,14 +30,13 @@ def test_report_includes_rewrites(tmp_path, monkeypatch) -> None:
         tex_path.write_text("% tex", encoding="utf-8")
         return str(pdf_path), str(tex_path)
 
-    def fake_trim(*args, **kwargs):
-        pdf_path = args[5]
-        tex_path = __import__("pathlib").Path(pdf_path).with_suffix(".tex")
-        return pdf_path, str(tex_path), args[3], args[4]
+    def fake_trim(_settings, _run_id, _static, selected_ids, _cands, rewrites, pdf_path):
+        tex_path = Path(pdf_path).with_suffix(".tex")
+        return pdf_path, str(tex_path), selected_ids, rewrites
 
     monkeypatch.setattr(loop_controller, "multi_query_retrieve", fake_retrieve)
-    monkeypatch.setattr(core_artifacts, "render_pdf", fake_render)
-    monkeypatch.setattr(core_artifacts, "trim_to_single_page", fake_trim)
+    monkeypatch.setattr(loop_controller, "_render_pdf", fake_render)
+    monkeypatch.setattr(loop_controller, "_trim_to_single_page", fake_trim)
 
     base = Path(__file__).resolve().parents[2]
     settings = get_settings().model_copy(

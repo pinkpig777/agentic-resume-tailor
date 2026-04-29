@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -44,21 +44,6 @@ const buildDraft = (education: Education): EducationDraft => ({
 
 export function EducationCard({
   education,
-  ...props
-}: EducationCardProps) {
-  const resetKey = [
-    education.school,
-    education.degree,
-    education.dates,
-    education.location,
-    ...education.bullets,
-  ].join("|");
-
-  return <EducationCardInner key={resetKey} education={education} {...props} />;
-}
-
-function EducationCardInner({
-  education,
   onUpdate,
   onDelete,
   collapsed = false,
@@ -66,6 +51,10 @@ function EducationCardInner({
 }: EducationCardProps) {
   const [draft, setDraft] = useState<EducationDraft>(() => buildDraft(education));
   const contentId = `education-${education.id}-content`;
+
+  useEffect(() => {
+    setDraft(buildDraft(education));
+  }, [education.school, education.degree, education.dates, education.location, education.bullets]);
 
   const normalizedBullets = useMemo(
     () => parseBullets(draft.bulletsText),

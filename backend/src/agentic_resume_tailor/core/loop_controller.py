@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-import logging
+import copy
+import json
+import os
+import shutil
+import subprocess
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Tuple
 
-logger = logging.getLogger(__name__)
+import jinja2
+from pypdf import PdfReader
 
 from agentic_resume_tailor.core.agents.query_agent import QueryPlanItem, build_query_plan
 from agentic_resume_tailor.core.agents.rewrite_agent import (
@@ -16,15 +21,7 @@ from agentic_resume_tailor.core.agents.rewrite_agent import (
     rewrite_bullets,
 )
 from agentic_resume_tailor.core.agents.scoring_agent import ScoreResult, score_resume
-from agentic_resume_tailor.core.artifacts import (
-    process_and_render_artifacts,
-    render_pdf,
-    trim_to_single_page,
-)
 from agentic_resume_tailor.core.jd_utils import build_jd_excerpt
-from agentic_resume_tailor.core.prompts.query import QUERY_PROMPT_VERSION
-from agentic_resume_tailor.core.prompts.rewrite import REWRITE_PROMPT_VERSION
-from agentic_resume_tailor.core.prompts.scoring import SCORING_PROMPT_VERSION
 from agentic_resume_tailor.core.retrieval import multi_query_retrieve
 from agentic_resume_tailor.core.selection import select_topk
 
@@ -47,11 +44,11 @@ def _dedupe_keep_order(items: List[str]) -> List[str]:
     seen = set()
     out = []
     for item in items:
-        value = (item or "").strip().lower()
-        if not value or value in seen:
+        val = (item or "").strip().lower()
+        if not val or val in seen:
             continue
-        seen.add(value)
-        out.append(value)
+        seen.add(val)
+        out.append(val)
     return out
 
 
@@ -114,26 +111,27 @@ def _skills_text(static_export: Dict[str, Any]) -> str:
     skills = static_export.get("skills", {}) or {}
     parts = []
     for key in ["languages_frameworks", "ai_ml", "db_tools"]:
-        value = skills.get(key)
-        if value:
-            parts.append(str(value))
+        val = skills.get(key)
+        if val:
+            parts.append(str(val))
     return " | ".join(parts).strip()
 
 
-def _collect_selected_bullets(candidates: List[Any], selected_ids: List[str]) -> List[Dict[str, Any]]:
+def _collect_selected_bullets(
+    candidates: List[Any], selected_ids: List[str]
+) -> List[Dict[str, Any]]:
     selected_set = set(selected_ids)
     bullets: List[Dict[str, Any]] = []
-    for candidate in candidates:
-        bullet_id = getattr(candidate, "bullet_id", "")
-        if bullet_id not in selected_set:
-            continue
-        bullets.append(
-            {
-                "bullet_id": bullet_id,
-                "text_latex": getattr(candidate, "text_latex", ""),
-                "meta": getattr(candidate, "meta", {}) or {},
-            }
-        )
+    for c in candidates:
+        bid = getattr(c, "bullet_id", "")
+        if bid in selected_set:
+            bullets.append(
+                {
+                    "bullet_id": bid,
+                    "text_latex": getattr(c, "text_latex", ""),
+                    "meta": getattr(c, "meta", {}) or {},
+                }
+            )
     return bullets
 
 
@@ -141,11 +139,11 @@ def _length_violations(
     length_by_bullet: Dict[str, int], min_chars: int, max_chars: int
 ) -> Dict[str, str]:
     out: Dict[str, str] = {}
-    for bullet_id, count in length_by_bullet.items():
+    for bid, count in length_by_bullet.items():
         if count < min_chars:
-            out[bullet_id] = "too_short"
+            out[bid] = "too_short"
         elif count > max_chars:
-            out[bullet_id] = "too_long"
+            out[bid] = "too_long"
     return out
 
 
@@ -153,13 +151,13 @@ def _rewrite_report_entries(
     rewrite_info: Dict[str, Any], selected_ids: List[str]
 ) -> List[Dict[str, Any]]:
     entries: List[Dict[str, Any]] = []
-    for bullet_id in selected_ids:
-        info = rewrite_info.get(bullet_id)
+    for bid in selected_ids:
+        info = rewrite_info.get(bid)
         if not info:
             continue
         entries.append(
             {
-                "bullet_id": bullet_id,
+                "bullet_id": bid,
                 "original_text": info.original_text,
                 "rewritten_text": info.rewritten_text,
                 "changed": info.changed,
@@ -214,28 +212,170 @@ def generate_run_id(settings: Any) -> str:
     return _run_id(settings)
 
 
-def _render_pdf(settings: Any, context: Dict[str, Any], run_id: str):
-    return render_pdf(settings, context, run_id)
+def _output_pdf_alias_path(settings: Any) -> str | None:
+    name = getattr(settings, "output_pdf_name", None)
+    if not name:
+        return None
+    filename = os.path.basename(str(name).strip())
+    if not filename:
+        return None
+    if not filename.lower().endswith(".pdf"):
+        filename = f"{filename}.pdf"
+    return os.path.join(settings.output_dir, filename)
+
+
+def _write_output_pdf_alias(settings: Any, pdf_path: str) -> None:
+    alias_path = _output_pdf_alias_path(settings)
+    if not alias_path:
+        return
+    if os.path.abspath(alias_path) == os.path.abspath(pdf_path):
+        return
+    try:
+        shutil.copyfile(pdf_path, alias_path)
+    except Exception:
+        return
+
+
+def _render_pdf(settings: Any, context: Dict[str, Any], run_id: str) -> Tuple[str, str]:
+    os.makedirs(settings.output_dir, exist_ok=True)
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(settings.template_dir),
+        block_start_string="((%",
+        block_end_string="%))",
+        variable_start_string="<<",
+        variable_end_string=">>",
+        comment_start_string="((#",
+        comment_end_string="#))",
+        autoescape=False,
+    )
+
+    local_template = os.path.join(settings.template_dir, "resume.local.tex")
+    template_name = "resume.local.tex" if os.path.exists(local_template) else "resume.tex"
+    template = env.get_template(template_name)
+    tex_content = template.render(context)
+
+    tex_path = os.path.join(settings.output_dir, f"{run_id}.tex")
+    with open(tex_path, "w", encoding="utf-8") as f:
+        f.write(tex_content)
+
+    if settings.skip_pdf:
+        pdf_path = os.path.join(settings.output_dir, f"{run_id}.pdf")
+        with open(pdf_path, "wb") as f:
+            f.write(b"")
+        _write_output_pdf_alias(settings, pdf_path)
+        return pdf_path, tex_path
+
+    subprocess.run(
+        ["tectonic", tex_path, "--outdir", settings.output_dir],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    pdf_path = os.path.join(settings.output_dir, f"{run_id}.pdf")
+    _write_output_pdf_alias(settings, pdf_path)
+    return pdf_path, tex_path
+
+
+def _pdf_page_count(path: str) -> int | None:
+    try:
+        reader = PdfReader(path)
+        return len(reader.pages)
+    except Exception:
+        return None
 
 
 def _trim_to_single_page(
     settings: Any,
     run_id: str,
-    static_data: Dict[str, Any],
+    static_export: Dict[str, Any],
     selected_ids: List[str],
     selected_candidates: List[Any],
     rewritten_bullets: Dict[str, str],
     pdf_path: str,
-):
-    return trim_to_single_page(
-        settings,
-        run_id,
-        static_data,
-        selected_ids,
-        selected_candidates,
-        pdf_path,
-        rewritten_bullets=rewritten_bullets,
-    )
+) -> Tuple[str, str, List[str], Dict[str, str]]:
+    if settings.skip_pdf:
+        tex_path = os.path.join(settings.output_dir, f"{run_id}.tex")
+        return pdf_path, tex_path, selected_ids, rewritten_bullets
+
+    score_map: Dict[str, float] = {}
+    for c in selected_candidates:
+        score = getattr(c, "selection_score", None)
+        if score is None:
+            score = getattr(getattr(c, "best_hit", None), "weighted", 0.0)
+        score_map[getattr(c, "bullet_id", "")] = float(score or 0.0)
+
+    page_count = _pdf_page_count(pdf_path)
+    while page_count is not None and page_count > 1 and len(selected_ids) > 1:
+        ranked = [(score_map.get(bid, 0.0), bid) for bid in selected_ids]
+        ranked.sort(key=lambda item: (item[0], item[1]))
+        drop_id = ranked[0][1] if ranked else ""
+        if not drop_id:
+            break
+        selected_ids = [bid for bid in selected_ids if bid != drop_id]
+        rewritten_bullets.pop(drop_id, None)
+        selected_candidates = [
+            c for c in selected_candidates if getattr(c, "bullet_id", "") != drop_id
+        ]
+        if os.path.exists(pdf_path):
+            os.remove(pdf_path)
+        tailored = _build_tailored_snapshot(static_export, selected_ids, rewritten_bullets)
+        pdf_path, tex_path = _render_pdf(settings, tailored, run_id)
+        page_count = _pdf_page_count(pdf_path)
+
+    tex_path = os.path.join(settings.output_dir, f"{run_id}.tex")
+    return pdf_path, tex_path, selected_ids, rewritten_bullets
+
+
+def _build_tailored_snapshot(
+    static_export: Dict[str, Any],
+    selected_ids: List[str],
+    rewritten_bullets: Dict[str, str],
+) -> Dict[str, Any]:
+    selected_set = set(selected_ids)
+    order_map = {bid: idx for idx, bid in enumerate(selected_ids)}
+    tailored = copy.deepcopy(static_export)
+
+    new_exps = []
+    for exp in tailored.get("experiences", []) or []:
+        job_id = exp.get("job_id")
+        kept: List[Tuple[int, str, str]] = []
+        for idx, b in enumerate(exp.get("bullets", []) or []):
+            local_id = b.get("id")
+            if not job_id or not local_id:
+                continue
+            bid = f"exp:{job_id}:{local_id}"
+            if bid in selected_set:
+                order = order_map.get(bid, len(order_map))
+                text = rewritten_bullets.get(bid, b.get("text_latex", ""))
+                tie = local_id or f"idx:{idx:04d}"
+                kept.append((order, tie, text))
+        if kept:
+            kept.sort(key=lambda item: (item[0], item[1]))
+            exp["bullets"] = [text for _, _, text in kept]
+            new_exps.append(exp)
+
+    new_projs = []
+    for proj in tailored.get("projects", []) or []:
+        project_id = proj.get("project_id")
+        kept = []
+        for idx, b in enumerate(proj.get("bullets", []) or []):
+            local_id = b.get("id")
+            if not project_id or not local_id:
+                continue
+            bid = f"proj:{project_id}:{local_id}"
+            if bid in selected_set:
+                order = order_map.get(bid, len(order_map))
+                text = rewritten_bullets.get(bid, b.get("text_latex", ""))
+                tie = local_id or f"idx:{idx:04d}"
+                kept.append((order, tie, text))
+        if kept:
+            kept.sort(key=lambda item: (item[0], item[1]))
+            proj["bullets"] = [text for _, _, text in kept]
+            new_projs.append(proj)
+
+    tailored["experiences"] = new_exps
+    tailored["projects"] = new_projs
+    return tailored
 
 
 def run_loop(
@@ -260,14 +400,10 @@ def run_loop(
         progress_cb(payload)
 
     _notify("query")
-    logger.info("[%s] QUERYING  — building target profile and retrieval plan (use_jd_parser=%s)",
-                run_id, getattr(settings, "use_jd_parser", True))
     query_plan = build_query_plan(jd_text, settings)
     base_profile = query_plan.profile
     jd_excerpt = build_jd_excerpt(jd_text, max_chars=settings.jd_excerpt_max_chars)
     rewrite_context = build_rewrite_context(base_profile, query_plan.items, jd_excerpt)
-    logger.info("[%s] QUERYING  — done: profile_used=%s, queries=%d",
-                run_id, query_plan.profile_used, len(query_plan.items))
 
     iterations: List[Dict[str, Any]] = []
     best_score: ScoreResult | None = None
@@ -278,11 +414,8 @@ def run_loop(
     best_idx = 0
 
     boost_terms: List[str] = []
-    for iteration in range(settings.max_iters):
-        _notify("retrieve", iteration=iteration)
-        logger.info("[%s] RETRIEVING — iter=%d/%d  queries=%d  boost_terms=%s",
-                    run_id, iteration + 1, total_iters,
-                    len(query_plan.items), boost_terms or [])
+    for it in range(settings.max_iters):
+        _notify("retrieve", iteration=it)
         items = _query_items_with_boosts(query_plan.items, boost_terms, settings.boost_weight)
         payload = _query_payload(items)
         queries_used = _queries_used(items)
@@ -294,42 +427,27 @@ def run_loop(
             per_query_k=settings.per_query_k,
             final_k=settings.final_k,
         )
-        logger.info("[%s] RETRIEVING — done: candidates=%d", run_id, len(candidates))
 
-        _notify("select", iteration=iteration)
+        _notify("select", iteration=it)
         selected_ids, _ = select_topk(candidates, max_bullets=settings.max_bullets)
-        selected_candidates = [candidate for candidate in candidates if candidate.bullet_id in set(selected_ids)]
+        selected_candidates = [c for c in candidates if c.bullet_id in set(selected_ids)]
         selected_bullets = _collect_selected_bullets(candidates, selected_ids)
-        logger.info("[%s] SELECTING  — iter=%d/%d  selected=%d bullets",
-                    run_id, iteration + 1, total_iters, len(selected_ids))
 
-        _notify("rewrite", iteration=iteration)
-        _rewrite_style = getattr(settings, "rewrite_style", "conservative")
-        logger.info("[%s] REWRITING  — iter=%d/%d  enabled=%s  style=%s  bullets=%d",
-                    run_id, iteration + 1, total_iters,
-                    settings.enable_bullet_rewrite, _rewrite_style, len(selected_bullets))
+        _notify("rewrite", iteration=it)
         allowlist = build_rewrite_allowlist_by_bullet(selected_bullets, settings=settings)
         constraints = RewriteConstraints(
             enabled=settings.enable_bullet_rewrite,
             min_chars=settings.rewrite_min_chars,
             max_chars=settings.rewrite_max_chars,
-            style=_rewrite_style,
         )
         rewrite_result: RewriteResult = rewrite_bullets(
             rewrite_context=rewrite_context,
             bullets_original=selected_bullets,
             allowlist=allowlist,
             constraints=constraints,
-            settings=settings,
         )
-        changed = sum(1 for info in rewrite_result.bullet_info.values() if info.changed)
-        fallbacks = sum(1 for info in rewrite_result.bullet_info.values() if info.fallback_used)
-        logger.info("[%s] REWRITING  — done: changed=%d  fallbacks=%d",
-                    run_id, changed, fallbacks)
 
-        _notify("score", iteration=iteration)
-        logger.info("[%s] SCORING    — iter=%d/%d  (threshold=%d)",
-                    run_id, iteration + 1, total_iters, settings.threshold)
+        _notify("score", iteration=it)
         score = score_resume(
             jd_text,
             target_profile=base_profile,
@@ -340,19 +458,13 @@ def run_loop(
             skills_text=_skills_text(static_export),
             settings=settings,
         )
-        logger.info(
-            "[%s] SCORING    — done: score=%d  retrieval=%.2f  coverage=%.2f  "
-            "length=%.2f  redundancy=%.2f  must_missing=%d",
-            run_id, score.final_score, score.retrieval_score,
-            score.coverage_bullets_only, score.length_score,
-            score.redundancy_penalty, len(score.must_missing_bullets_only),
-        )
 
         length_violations = _length_violations(
             score.length_by_bullet, settings.rewrite_min_chars, settings.rewrite_max_chars
         )
+
         iteration_entry = {
-            "iteration": iteration,
+            "iteration": it,
             "queries_used": queries_used,
             "candidate_count": len(candidates),
             "selected_ids": selected_ids,
@@ -382,17 +494,6 @@ def run_loop(
                 "penalty": score.redundancy_penalty,
                 "pairs": [{"a": a, "b": b, "score": s} for a, b, s in score.redundancy_pairs],
             },
-            "prompt_versions": {
-                "query": query_plan.prompt_version,
-                "rewrite": rewrite_result.prompt_version,
-                "scoring": score.prompt_version,
-            },
-            "rewrite_style": rewrite_result.rewrite_style,
-            "scoring_semantic_feedback": {
-                "summary": score.semantic_summary,
-                "notes": score.semantic_notes,
-                "candidate_boost_terms": score.candidate_boost_terms,
-            },
             "agents": {
                 "rewrite": {
                     "model": rewrite_result.agent_model,
@@ -414,32 +515,37 @@ def run_loop(
             best_rewrites = dict(rewrite_result.rewritten_bullets)
             best_candidates = list(selected_candidates)
             best_rewrite_info = dict(rewrite_result.bullet_info)
-            best_idx = iteration
+            best_idx = it
 
         if base_profile is None:
             break
+
         if score.final_score >= settings.threshold:
             break
+
         boost_terms = _dedupe_keep_order(score.boost_terms)[: settings.boost_top_n_missing]
 
     if best_score is None:
         raise ValueError("No candidates selected; cannot build artifacts.")
 
     _notify("render")
-    logger.info("[%s] RENDERING  — best_iter=%d  final_score=%d  bullets=%d",
-                run_id, best_idx, best_score.final_score, len(best_selected_ids))
-    
-    base_report = {
+    tailored = _build_tailored_snapshot(static_export, best_selected_ids, best_rewrites)
+    pdf_path, tex_path = _render_pdf(settings, tailored, run_id)
+    pdf_path, tex_path, best_selected_ids, best_rewrites = _trim_to_single_page(
+        settings,
+        run_id,
+        static_export,
+        best_selected_ids,
+        best_candidates,
+        best_rewrites,
+        pdf_path,
+    )
+
+    report = {
         "run_id": run_id,
         "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "profile_used": query_plan.profile_used,
         "target_profile_summary": query_plan.profile_summary,
-        "prompt_versions": {
-            "query": QUERY_PROMPT_VERSION,
-            "rewrite": REWRITE_PROMPT_VERSION,
-            "scoring": SCORING_PROMPT_VERSION,
-        },
-        "rewrite_style": getattr(settings, "rewrite_style", "conservative"),
         "agents": {
             "query": {
                 "model": query_plan.agent_model,
@@ -448,6 +554,7 @@ def run_loop(
             }
         },
         "best_iteration_index": best_idx,
+        "selected_ids": best_selected_ids,
         "best_score": {
             "final_score": best_score.final_score,
             "retrieval_score": best_score.retrieval_score,
@@ -462,15 +569,10 @@ def run_loop(
             "nice_missing_all": best_score.nice_missing_all,
             "boost_terms": best_score.boost_terms,
         },
-        "scoring_semantic_feedback": {
-            "summary": best_score.semantic_summary,
-            "notes": best_score.semantic_notes,
-            "candidate_boost_terms": best_score.candidate_boost_terms,
-        },
         "iterations": iterations,
         "rewritten_bullets": [
             {
-                "bullet_id": bullet_id,
+                "bullet_id": bid,
                 "original_text": info.original_text,
                 "rewritten_text": info.rewritten_text,
                 "changed": info.changed,
@@ -479,23 +581,19 @@ def run_loop(
                 "new_numbers": info.validation.new_numbers,
                 "new_tools": info.validation.new_tools,
             }
-            for bullet_id, info in best_rewrite_info.items()
-            if bullet_id in set(best_selected_ids)
-        ]
+            for bid, info in best_rewrite_info.items()
+            if bid in set(best_selected_ids)
+        ],
+        "artifacts": {
+            "pdf": os.path.basename(pdf_path),
+            "tex": os.path.basename(tex_path),
+        },
     }
 
-    pdf_path, tex_path, report_path, best_selected_ids, best_candidates = process_and_render_artifacts(
-        settings,
-        run_id,
-        static_export,
-        best_selected_ids,
-        best_candidates,
-        rewritten_bullets=best_rewrites,
-        base_report=base_report,
-    )
+    report_path = os.path.join(settings.output_dir, f"{run_id}_report.json")
+    with open(report_path, "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2, ensure_ascii=False)
 
-    logger.info("[%s] DONE       — pdf=%s  report=%s",
-                run_id, pdf_path, report_path)
     _notify("done")
     return RunArtifacts(
         run_id=run_id,
